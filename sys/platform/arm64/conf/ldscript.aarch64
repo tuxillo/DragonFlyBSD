@@ -9,12 +9,19 @@ SECTIONS
 	}
 
 	. = ALIGN(2M);
+	_etext = .;
 	.data : {
 		*(.data*)
 	}
+	_edata = .;
+
 	.bss : {
+		__bss_start = .;
 		*(.bss*)
 		*(COMMON)
+		. = ALIGN(16);
+		__bss_end = .;
 	}
-	. = ALIGN(16);
+
+	_end = .;
 }

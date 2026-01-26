@@ -111,6 +111,21 @@ _start:
 	add	x1, x1, :lo12:initstack_end
 	mov	sp, x1
 
+	/*
+	 * Zero the BSS section.
+	 * This is critical - global variables in BSS must be zero-initialized
+	 * before any C code runs. Without this, structures like vm_page_queues[]
+	 * will contain garbage, causing crashes in vm_page_startup().
+	 */
+	ldr	x15, .Lbss_start
+	ldr	x14, .Lbss_end
+1:
+	cmp	x15, x14
+	b.hs	2f			/* Exit if x15 >= x14 */
+	stp	xzr, xzr, [x15], #16	/* Store 16 bytes of zeros, post-increment */
+	b	1b
+2:
+
 	/* Call early C entry with modulep */
 	mov	x0, x19
 	bl	initarm
@@ -205,6 +220,13 @@ newline_msg:
 	.asciz	"\r\n"
 hex_digits:
 	.asciz	"0123456789abcdef"
+
+	/* Literal pool for BSS start/end addresses */
+	.align	3
+.Lbss_start:
+	.quad	__bss_start
+.Lbss_end:
+	.quad	__bss_end
 
 	.align	11
 exception_vectors:
