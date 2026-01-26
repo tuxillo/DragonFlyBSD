@@ -245,22 +245,8 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 {
 	struct vpgqueues *vpq;
 	vm_page_t m;
-	static int debug_count = 0;
-
-	if (debug_count < 3) {
-		kprintf("vm_add_new_page: pa=0x%lx debug_count=%d\n",
-		    (unsigned long)pa, debug_count);
-		kprintf("  vm_low_phys_reserved=0x%lx\n",
-		    (unsigned long)vm_low_phys_reserved);
-		kprintf("  first_page=0x%lx\n", (unsigned long)first_page);
-	}
 
 	m = PHYS_TO_VM_PAGE(pa);
-
-	if (debug_count < 3) {
-		kprintf("  m=%p\n", m);
-		debug_count++;
-	}
 
 	/*
 	 * Make sure it isn't a duplicate (due to BIOS page range overlaps,
@@ -534,25 +520,12 @@ vm_page_startup(void)
 	{
 		long progress = 0;
 		for (i = 0; phys_avail[i].phys_end; ++i) {
-			kprintf("  range[%d]: 0x%lx-0x%lx\n", i,
-			    (unsigned long)phys_avail[i].phys_beg,
-			    (unsigned long)phys_avail[i].phys_end);
 			pa = phys_avail[i].phys_beg;
-			if (progress == 0) {
-				kprintf("  first page pa=0x%lx\n",
-				    (unsigned long)pa);
-			}
 			while (pa < phys_avail[i].phys_end) {
-				if (progress == 0) {
-					kprintf("  calling vm_add_new_page\n");
-				}
 				vm_add_new_page(pa, &badcount);
-				if (progress == 0) {
-					kprintf("  vm_add_new_page returned\n");
-				}
 				pa += PAGE_SIZE;
 				++progress;
-				if (progress % 100 == 0)
+				if (progress % 5000 == 0)
 					kprintf("  %ld pages added\n", progress);
 			}
 		}
