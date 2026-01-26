@@ -552,7 +552,7 @@ vm_page_startup(void)
 				}
 				pa += PAGE_SIZE;
 				++progress;
-				if (progress % 10000 == 0)
+				if (progress % 1000 == 0)
 					kprintf("  %ld pages added\n", progress);
 			}
 		}
