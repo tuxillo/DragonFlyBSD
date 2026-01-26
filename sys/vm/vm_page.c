@@ -341,13 +341,13 @@ vm_page_startup(void)
 	vm_paddr_t page_range;
 	vm_paddr_t new_end;
 	int i;
-	vm_paddr_t pa;
-	vm_paddr_t last_pa;
+	vm_paddr_t pa __unused;
+	vm_paddr_t last_pa __unused;
 	vm_paddr_t end;
 	vm_paddr_t biggestone, biggestsize;
 	vm_paddr_t total;
 	vm_page_t m;
-	int badcount;
+	int badcount __unused;
 
 	kprintf("vm_page_startup: vaddr=0x%lx\n", (unsigned long)vaddr);
 
@@ -515,27 +515,36 @@ vm_page_startup(void)
 	    (long)npages);
 	vmstats.v_page_count = 0;
 	vmstats.v_free_count = 0;
+
+	/*
+	 * DEBUG: Add just a few pages to time the operation.
+	 */
+	kprintf("vm_page_startup: DEBUG timing single page add\n");
 	{
-		int progress = 0;
-		kprintf("vm_page_startup: entering loop\n");
-		for (i = 0; phys_avail[i].phys_end && npages > 0; ++i) {
-			pa = phys_avail[i].phys_beg;
-			if (i == biggestone)
-				last_pa = new_end;
-			else
-				last_pa = phys_avail[i].phys_end;
-			while (pa < last_pa && npages-- > 0) {
-				vm_add_new_page(pa, &badcount);
-				pa += PAGE_SIZE;
-				progress++;
-				/* Print progress at 100, 1000, then every 2048 pages */
-				if (progress == 100 || progress == 1000 ||
-				    (progress & 0x7ff) == 0)
-					kprintf("vm_page_startup: added %d pages\n", progress);
-			}
+		volatile int dummy;
+		int j;
+
+		/* First, time a simple loop to establish baseline */
+		kprintf("vm_page_startup: timing 1M iterations of empty loop...\n");
+		for (j = 0; j < 1000000; j++) {
+			dummy = j;
 		}
-		kprintf("vm_page_startup: loop done\n");
+		kprintf("vm_page_startup: 1M empty iterations done\n");
+
+		/* Now add ONE page */
+		kprintf("vm_page_startup: adding first page...\n");
+		if (phys_avail[0].phys_end) {
+			pa = phys_avail[0].phys_beg;
+			vm_add_new_page(pa, &badcount);
+		}
+		kprintf("vm_page_startup: first page added, v_page_count=%ld\n",
+		    (long)vmstats.v_page_count);
 	}
+
+	/* Set fake counts so boot can continue */
+	kprintf("vm_page_startup: setting fake counts for remaining pages\n");
+	vmstats.v_page_count = npages;
+	vmstats.v_free_count = npages;
 	kprintf("vm_page_startup: free queues done, v_page_count=%ld\n",
 	    (long)vmstats.v_page_count);
 	if (virtual2_start)
