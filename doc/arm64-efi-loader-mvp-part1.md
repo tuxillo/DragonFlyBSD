@@ -541,9 +541,125 @@ We'll implement this incrementally to isolate failures:
 ### Next Steps (Phase E.5)
 
 1. **Remove debug output** - SYSINIT tracing in `init_main.c` slows boot significantly
-2. **Implement arm64 VM support** - `pmap_init()` and related functions for SI_BOOT1_VM
+2. ~~**Implement arm64 VM support** - `pmap_init()` and related functions for SI_BOOT1_VM~~ → See Phase E.5 below
 3. **Debug SYSINIT failures** - As boot progresses, more arm64-specific stubs will need implementation
 4. **Consider**: Reducing arm64 debug output in `locore.s` and `machdep.c` once stable
+
+---
+
+## MVP Part 5: VM_PHYSSEG_SPARSE for Non-Contiguous Memory (COMPLETE)
+
+### Goal
+
+Fix `vm_page_startup()` hang caused by EFI providing non-contiguous physical memory regions on arm64.
+
+### Status: COMPLETE
+
+The kernel now successfully handles non-contiguous physical memory from EFI. The original `PHYS_TO_VM_PAGE()` macro assumed contiguous physical memory, causing queue corruption and hangs when gaps exist between memory regions.
+
+### Problem Analysis
+
+EFI on QEMU arm64 provides 8 non-contiguous physical memory ranges:
+```
+[0] 0x42000000 - 0x44000000 (8192 pages)
+[1] 0x44020000 - 0x47666000 (13894 pages) GAP=32 pages
+[2] 0x48000000 - 0x5c13b000 (82235 pages) GAP=2458 pages
+[3] 0x5cb44000 - 0x5ea2f000 (7915 pages) GAP=2569 pages
+[4] 0x5efb9000 - 0x5efbd000 (4 pages) GAP=1418 pages
+[5] 0x5fa38000 - 0x5fb8c000 (340 pages) GAP=2683 pages
+[6] 0x5feb0000 - 0x5fec0000 (16 pages) GAP=804 pages
+[7] 0x5ffe0000 - 0x5ffff000 (31 pages) GAP=288 pages
+```
+
+The original `PHYS_TO_VM_PAGE(pa)` macro:
+```c
+#define PHYS_TO_VM_PAGE(pa) (&vm_page_array[atop(pa) - first_page])
+```
+
+This assumes `vm_page_array` is indexed by `(pa >> PAGE_SHIFT) - first_page`, which only works for contiguous memory. With gaps, addresses in gap regions return invalid pointers, corrupting page queues.
+
+### Solution: VM_PHYSSEG_SPARSE
+
+Ported FreeBSD's `VM_PHYSSEG_SPARSE` infrastructure, simplified for DragonFly (no NUMA):
+
+**New Files:**
+- `sys/vm/_vm_phys.h` - struct vm_phys_seg definition (start, end, first_page)
+- `sys/vm/vm_phys.h` - function declarations and inline helpers
+- `sys/vm/vm_phys.c` - segment management with binary search lookup
+
+**Modified Files:**
+- `sys/platform/arm64/include/vmparam.h` - define `VM_PHYSSEG_SPARSE`
+- `sys/vm/vm_page.h` - make `PHYS_TO_VM_PAGE` conditional
+- `sys/vm/vm_page.c` - integrate vm_phys, pack pages contiguously for SPARSE
+- `sys/conf/files` - add `vm/vm_phys.c standard`
+
+**Key Design:**
+- **SPARSE mode (arm64)**: Pages packed contiguously in `vm_page_array` with no wasted entries for gaps. `PHYS_TO_VM_PAGE()` uses binary search to find the correct segment.
+- **DENSE mode (x86_64)**: Original behavior preserved - simple arithmetic lookup.
+
+### Implementation Details
+
+```c
+/* sys/vm/vm_page.h */
+#ifdef VM_PHYSSEG_SPARSE
+vm_page_t vm_phys_paddr_to_vm_page(vm_paddr_t pa);
+#define PHYS_TO_VM_PAGE(pa) vm_phys_paddr_to_vm_page(pa)
+#else
+#define PHYS_TO_VM_PAGE(pa) (&vm_page_array[atop(pa) - first_page])
+#endif
+```
+
+Segment structure (`_vm_phys.h`):
+```c
+struct vm_phys_seg {
+    vm_paddr_t  start;       /* First physical address */
+    vm_paddr_t  end;         /* One past last physical address */
+    vm_page_t   first_page;  /* Pointer to first vm_page in this segment */
+};
+```
+
+In `vm_page_startup()` for SPARSE mode:
+1. `page_range` = sum of pages in all segments (no gaps counted)
+2. Call `vm_phys_add_seg()` for each phys_avail range
+3. Call `vm_phys_init()` after vm_page_array allocation to set `first_page` pointers
+4. Initialize pages per-segment with correct physical addresses
+
+### Test Results
+
+```
+vm_page_startup: phys_avail[] ranges (7 total):
+  [0] 0x42000000 - 0x44000000 (8192 pages)
+  [1] 0x44020000 - 0x47666000 (13894 pages) GAP=32 pages
+  [2] 0x48000000 - 0x5c13b000 (82235 pages) GAP=2458 pages
+  ...
+
+vm_page_startup: entering free queue loop
+  range 0 start (pa=0x42000000)
+vm_add_new_page[1]: pa=0x42000000
+  [1] queue=265 pc=264
+  [1] calling TAILQ_INSERT_HEAD
+  [1] TAILQ_INSERT_HEAD done
+vm_add_new_page[2]: pa=0x42001000
+  ...
+```
+
+- ✅ Build succeeds without errors
+- ✅ Kernel passes `vm_page_startup()` (previously hung)
+- ✅ Pages correctly added to free queues
+- ✅ No data aborts or queue corruption
+
+### Success Criteria (All Met)
+
+- ✅ `vm_page_startup()` completes without hanging
+- ✅ Non-contiguous memory ranges handled correctly
+- ✅ x86_64 builds unaffected (DENSE mode preserved)
+- ✅ No wasted vm_page_array entries for gap regions
+
+### Next Steps
+
+- Continue VM initialization (`pmap_init()` and beyond)
+- Remove SYSINIT debug tracing once stable
+- Debug any new stall points as boot progresses
 
 ---
 
@@ -569,4 +685,4 @@ These debug markers were added during bring-up:
 
 ---
 
-*Last updated: 2026-01-26 (Phase E.4 complete, mi_startup reached)*
+*Last updated: 2026-01-26 (Phase E.5/VM_PHYSSEG_SPARSE complete, vm_page_startup passes)*
