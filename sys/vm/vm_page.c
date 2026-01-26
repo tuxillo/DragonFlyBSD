@@ -235,25 +235,13 @@ vm_set_page_size(void)
  *
  * Must be called in a critical section.
  */
-static int vm_add_new_page_debug = 10;  /* Print for first 10 calls */
-
 static void
 vm_add_new_page(vm_paddr_t pa, int *badcountp)
 {
 	struct vpgqueues *vpq;
 	vm_page_t m;
 
-	if (vm_add_new_page_debug > 0) {
-		kprintf("vm_add_new_page[%d]: entry pa=0x%lx\n",
-		    vm_add_new_page_debug, (unsigned long)pa);
-	}
-
 	m = PHYS_TO_VM_PAGE(pa);
-
-	if (vm_add_new_page_debug > 0) {
-		kprintf("vm_add_new_page[%d]: m=%p (idx=%ld)\n",
-		    vm_add_new_page_debug, m, (long)(m - vm_page_array));
-	}
 
 	/*
 	 * Make sure it isn't a duplicate (due to BIOS page range overlaps,
@@ -297,10 +285,6 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	 *	    and vm_page_unwire*() calls have no effect.
 	 */
 	if (pa < vm_low_phys_reserved) {
-		if (vm_add_new_page_debug > 0) {
-			kprintf("vm_add_new_page[%d]: low mem path\n",
-			    vm_add_new_page_debug);
-		}
 		atomic_add_long(&vmstats.v_page_count, 1);
 		atomic_add_long(&vmstats.v_dma_pages, 1);
 		m->flags |= PG_FICTITIOUS | PG_UNQUEUED;
@@ -308,17 +292,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 		m->wire_count = 1;
 		atomic_add_long(&vmstats.v_wire_count, 1);
 		alist_free(&vm_contig_alist, pa >> PAGE_SHIFT, 1);
-		if (vm_add_new_page_debug > 0) {
-			kprintf("vm_add_new_page[%d]: low mem done\n",
-			    vm_add_new_page_debug);
-			vm_add_new_page_debug--;
-		}
 		return;
-	}
-
-	if (vm_add_new_page_debug > 0) {
-		kprintf("vm_add_new_page[%d]: general page m->queue=%d\n",
-		    vm_add_new_page_debug, m->pc + PQ_FREE);
 	}
 
 	/*
@@ -330,16 +304,8 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	atomic_add_long(&vmstats.v_page_count, 1);
 	atomic_add_long(&vmstats.v_free_count, 1);
 	vpq = &vm_page_queues[m->queue];
-	if (vm_add_new_page_debug > 0) {
-		kprintf("vm_add_new_page[%d]: TAILQ_INSERT vpq=%p\n",
-		    vm_add_new_page_debug, vpq);
-	}
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
 	++vpq->lcnt;
-	if (vm_add_new_page_debug > 0) {
-		kprintf("vm_add_new_page[%d]: done\n", vm_add_new_page_debug);
-		vm_add_new_page_debug--;
-	}
 }
 
 /*
@@ -543,30 +509,18 @@ vm_page_startup(void)
 	{
 		int progress = 0;
 		for (i = 0; phys_avail[i].phys_end && npages > 0; ++i) {
-			kprintf("vm_page_startup: phys_avail[%d] 0x%lx-0x%lx\n",
-			    i, (unsigned long)phys_avail[i].phys_beg,
-			    (unsigned long)phys_avail[i].phys_end);
 			pa = phys_avail[i].phys_beg;
 			if (i == biggestone)
 				last_pa = new_end;
 			else
 				last_pa = phys_avail[i].phys_end;
 			while (pa < last_pa && npages-- > 0) {
-				if (progress < 10) {
-					kprintf("vm_page_startup: loop iter %d: pa=0x%lx last_pa=0x%lx npages=%ld\n",
-					    progress, (unsigned long)pa, (unsigned long)last_pa, (long)npages);
-				}
 				vm_add_new_page(pa, &badcount);
-				if (progress < 10) {
-					kprintf("vm_page_startup: loop iter %d: vm_add_new_page returned\n",
-					    progress);
-				}
 				pa += PAGE_SIZE;
 				progress++;
-				/* Print progress every 256 pages */
-				if ((progress & 0xff) == 0)
-					kprintf("vm_page_startup: added %d pages (pa=0x%lx)\n",
-					    progress, (unsigned long)pa);
+				/* Print progress every 4096 pages (16MB) */
+				if ((progress & 0xfff) == 0)
+					kprintf("vm_page_startup: added %d pages\n", progress);
 			}
 		}
 	}
