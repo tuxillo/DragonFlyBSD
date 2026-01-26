@@ -476,6 +476,31 @@ vm_page_startup(void)
 	kprintf("vm_page_startup: first_page=0x%lx page_range=0x%lx npages=%ld\n",
 	    (unsigned long)first_page, (unsigned long)page_range, (long)npages);
 
+	/*
+	 * Debug: print all phys_avail[] ranges and detect gaps
+	 */
+	kprintf("vm_page_startup: phys_avail[] ranges (%d total):\n", i);
+	{
+		int j;
+		vm_paddr_t prev_end = 0;
+		for (j = 0; phys_avail[j].phys_end; ++j) {
+			vm_paddr_t gap = 0;
+			if (j > 0 && phys_avail[j].phys_beg > prev_end)
+				gap = phys_avail[j].phys_beg - prev_end;
+			kprintf("  [%d] 0x%lx - 0x%lx (%ld pages)%s%s\n",
+			    j,
+			    (unsigned long)phys_avail[j].phys_beg,
+			    (unsigned long)phys_avail[j].phys_end,
+			    (long)((phys_avail[j].phys_end - phys_avail[j].phys_beg) / PAGE_SIZE),
+			    gap ? " GAP=" : "",
+			    gap ? "" : "");
+			if (gap)
+				kprintf("       *** GAP: %ld pages (0x%lx bytes) before this range!\n",
+				    (long)(gap / PAGE_SIZE), (unsigned long)gap);
+			prev_end = phys_avail[j].phys_end;
+		}
+	}
+
 #ifndef _KERNEL_VIRTUAL
 	/*
 	 * (only applies to real kernels)
@@ -551,6 +576,17 @@ vm_page_startup(void)
 	kprintf("vm_page_startup: done initializing page structures\n");
 
 	/*
+	 * Debug: show vm_page_array bounds for verification
+	 */
+	kprintf("vm_page_startup: vm_page_array=%p to %p (size=%ld entries)\n",
+	    vm_page_array,
+	    &vm_page_array[vm_page_array_size],
+	    (long)vm_page_array_size);
+	kprintf("vm_page_startup: vm_page_queues=%p to %p\n",
+	    vm_page_queues,
+	    &vm_page_queues[PQ_COUNT]);
+
+	/*
 	 * Construct the free queue(s) in ascending order (by physical
 	 * address) so that the first 16MB of physical memory is allocated
 	 * last rather than first.  On large-memory machines, this avoids
@@ -566,21 +602,31 @@ vm_page_startup(void)
 		long progress = 0;
 		for (i = 0; phys_avail[i].phys_end; ++i) {
 			pa = phys_avail[i].phys_beg;
-			kprintf("  range %d start\n", i);
+			kprintf("  range %d start (pa=0x%lx)\n", i, (unsigned long)pa);
 			while (pa < phys_avail[i].phys_end) {
-				if (progress >= 360 && progress <= 375)
-					kprintf("  page %ld: pa=0x%lx\n", progress, (unsigned long)pa);
+				vm_page_t m_check = PHYS_TO_VM_PAGE(pa);
+				/*
+				 * Verify PHYS_TO_VM_PAGE returns valid pointer
+				 */
+				if (m_check < vm_page_array || 
+				    m_check >= &vm_page_array[vm_page_array_size]) {
+					kprintf("  *** OUT OF BOUNDS: page %ld pa=0x%lx -> m=%p\n",
+					    progress, (unsigned long)pa, m_check);
+					kprintf("      valid range: %p - %p\n",
+					    vm_page_array, &vm_page_array[vm_page_array_size]);
+					kprintf("      atop(pa)=0x%lx first_page=0x%lx diff=%ld\n",
+					    (unsigned long)atop(pa),
+					    (unsigned long)first_page,
+					    (long)(atop(pa) - first_page));
+					panic("PHYS_TO_VM_PAGE out of bounds");
+				}
 				vm_add_new_page(pa, &badcount);
-				if (progress >= 360 && progress <= 375)
-					kprintf("  page %ld done\n", progress);
 				pa += PAGE_SIZE;
 				++progress;
-				if (progress == 1)
-					kprintf("  first page done\n");
-				if (progress % 100 == 0)
+				if (progress % 10000 == 0)
 					kprintf("  %ld pages\n", progress);
 			}
-			kprintf("  range %d done\n", i);
+			kprintf("  range %d done (%ld pages so far)\n", i, progress);
 		}
 	}
 	kprintf("vm_page_startup: free queues done, v_page_count=%ld\n",
