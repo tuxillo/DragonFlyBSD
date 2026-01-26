@@ -508,6 +508,7 @@ vm_page_startup(void)
 	vmstats.v_free_count = 0;
 	{
 		int progress = 0;
+		kprintf("vm_page_startup: entering loop\n");
 		for (i = 0; phys_avail[i].phys_end && npages > 0; ++i) {
 			pa = phys_avail[i].phys_beg;
 			if (i == biggestone)
@@ -518,11 +519,12 @@ vm_page_startup(void)
 				vm_add_new_page(pa, &badcount);
 				pa += PAGE_SIZE;
 				progress++;
-				/* Print progress every 8192 pages (32MB) */
-				if ((progress & 0x1fff) == 0)
+				/* Print progress every 2048 pages (8MB) */
+				if ((progress & 0x7ff) == 0)
 					kprintf("vm_page_startup: added %d pages\n", progress);
 			}
 		}
+		kprintf("vm_page_startup: loop done\n");
 	}
 	kprintf("vm_page_startup: free queues done, v_page_count=%ld\n",
 	    (long)vmstats.v_page_count);
