@@ -55,6 +55,9 @@ static void arm64_timer_intr_config(struct cputimer_intr *,
     const struct cputimer *);
 static void arm64_timer_intr_initclock(struct cputimer_intr *, boolean_t);
 
+/* Global - called from gic.c IRQ handler */
+void arm64_timer_intr(void *);
+
 /*
  * cputimer - free-running monotonic counter
  *

@@ -47,6 +47,9 @@
 #include <machine/gic.h>
 #include <machine/vmparam.h>
 
+/* Forward declaration for timer interrupt handler */
+extern void arm64_timer_intr(void *);
+
 /* Pointers to GIC registers via DMAP */
 static volatile uint32_t *gic_dist;
 static volatile uint32_t *gic_cpu;
@@ -102,7 +105,7 @@ gic_init(void)
 	gic_cpu = (volatile uint32_t *)PHYS_TO_DMAP(GIC_CPU_BASE);
 
 	kprintf("GIC: mapping dist=%p cpu=%p\n",
-	    (void *)gic_dist, (void *)gic_cpu);
+	    (void *)(uintptr_t)gic_dist, (void *)(uintptr_t)gic_cpu);
 
 	/*
 	 * Disable distributor while configuring.
@@ -214,7 +217,6 @@ arm64_irq_handler(void)
 	 */
 	if (irq == GIC_VIRT_TIMER_IRQ) {
 		/* Call the timer interrupt handler */
-		extern void arm64_timer_intr(void *);
 		arm64_timer_intr(NULL);
 	} else {
 		/* Unknown IRQ - just print a message for debugging */
