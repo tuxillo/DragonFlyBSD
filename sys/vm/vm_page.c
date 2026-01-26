@@ -413,6 +413,10 @@ vm_page_startup(void)
 	 */
 	vm_page_queue_init();
 
+	/* Debug: verify queue 135 immediately after init */
+	kprintf("after vm_page_queue_init: queue[135].tqh_first=%p\n",
+	    vm_page_queues[135].pl.tqh_first);
+
 #if !defined(_KERNEL_VIRTUAL)
 	/*
 	 * VKERNELs don't support minidumps and as such don't need
@@ -433,7 +437,12 @@ vm_page_startup(void)
 	end -= vm_page_dump_size;
 	vm_page_dump = (void *)pmap_map(&vaddr, end, end + vm_page_dump_size,
 					VM_PROT_READ | VM_PROT_WRITE);
+	kprintf("vm_page_dump=%p size=%lu queue[135].tqh_first before=%p\n",
+	    vm_page_dump, (unsigned long)vm_page_dump_size,
+	    vm_page_queues[135].pl.tqh_first);
 	bzero((void *)vm_page_dump, vm_page_dump_size);
+	kprintf("queue[135].tqh_first after vm_page_dump bzero=%p\n",
+	    vm_page_queues[135].pl.tqh_first);
 #endif
 	/*
 	 * Compute the number of pages of memory that will be available for
