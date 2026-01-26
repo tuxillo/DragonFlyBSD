@@ -218,23 +218,26 @@ arm64_timer_init(void *dummy __unused)
 	    freq, freq / 1000000, (freq / 1000) % 1000);
 
 	/*
-	 * Register the free-running cputimer.
-	 */
-	arm64_cputimer.freq = freq;
-	kprintf("ARM64 timer: calling cputimer_register\n");
-	cputimer_register(&arm64_cputimer);
-	kprintf("ARM64 timer: calling cputimer_select\n");
-	cputimer_select(&arm64_cputimer, 0);
-	kprintf("ARM64 timer: cputimer registered\n");
-
-	/*
-	 * Register the interrupt cputimer.
+	 * Register and select the interrupt timer FIRST.
+	 *
+	 * This must happen before cputimer_select() because that function
+	 * calls systimer_changed() which calls cputimer_intr_reload(),
+	 * and cputimer_intr_reload() requires sys_cputimer_intr to be set.
 	 */
 	arm64_cputimer_intr.freq = freq;
 	kprintf("ARM64 timer: calling cputimer_intr_register\n");
 	cputimer_intr_register(&arm64_cputimer_intr);
 	kprintf("ARM64 timer: calling cputimer_intr_select\n");
 	cputimer_intr_select(&arm64_cputimer_intr, 0);
+
+	/*
+	 * Now register and select the free-running cputimer.
+	 */
+	arm64_cputimer.freq = freq;
+	kprintf("ARM64 timer: calling cputimer_register\n");
+	cputimer_register(&arm64_cputimer);
+	kprintf("ARM64 timer: calling cputimer_select\n");
+	cputimer_select(&arm64_cputimer, 0);
 
 	kprintf("ARM64 timer: registered cputimer and cputimer_intr\n");
 }
