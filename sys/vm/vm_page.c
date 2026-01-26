@@ -521,13 +521,17 @@ vm_page_startup(void)
 		long progress = 0;
 		for (i = 0; phys_avail[i].phys_end; ++i) {
 			pa = phys_avail[i].phys_beg;
+			kprintf("  range %d start\n", i);
 			while (pa < phys_avail[i].phys_end) {
 				vm_add_new_page(pa, &badcount);
 				pa += PAGE_SIZE;
 				++progress;
+				if (progress == 1)
+					kprintf("  first page done\n");
 				if (progress % 5000 == 0)
-					kprintf("  %ld pages added\n", progress);
+					kprintf("  %ld pages\n", progress);
 			}
+			kprintf("  range %d done\n", i);
 		}
 	}
 	kprintf("vm_page_startup: free queues done, v_page_count=%ld\n",
