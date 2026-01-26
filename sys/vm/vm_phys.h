@@ -47,7 +47,7 @@
  */
 void vm_phys_add_seg(vm_paddr_t start, vm_paddr_t end);
 void vm_phys_init(void);
-vm_page_t vm_phys_paddr_to_vm_page(vm_paddr_t pa);
+/* vm_phys_paddr_to_vm_page is declared in vm_page.h for PHYS_TO_VM_PAGE macro */
 vm_page_t vm_phys_seg_paddr_to_vm_page(struct vm_phys_seg *seg, vm_paddr_t pa);
 
 /*
