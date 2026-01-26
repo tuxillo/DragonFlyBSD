@@ -148,10 +148,18 @@ _start:
 	mov	w2, #'\n'
 	strb	w2, [x1]
 
+	/* Debug: print 'W' right before first BSS write */
+	ldr	x1, =0x09000000
+	mov	w2, #'W'
+	strb	w2, [x1]
+
 1:
 	cmp	x15, x14
 	b.hs	2f			/* Exit if x15 >= x14 */
 	stp	xzr, xzr, [x15], #16	/* Store 16 bytes of zeros, post-increment */
+
+	/* Debug: print '.' after first write only (once) - actually skip this, too noisy */
+
 	b	1b
 2:
 
