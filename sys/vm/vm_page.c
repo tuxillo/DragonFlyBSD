@@ -303,13 +303,11 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	static int call_count = 0;
 
 	/* Debug: trace entry and PHYS_TO_VM_PAGE call */
-	if (call_count < 10 || (call_count % 100) == 0) {
+	if (call_count < 10 || (call_count >= 300 && call_count < 400) || (call_count % 1000) == 0) {
 		vm_uart_puts("add[");
 		vm_uart_putdec(call_count);
 		vm_uart_puts("] pa=0x");
 		vm_uart_puthex(pa);
-		vm_uart_puts(" nsegs=");
-		vm_uart_putdec(vm_phys_nsegs);
 		vm_uart_puts("\r\n");
 	}
 
