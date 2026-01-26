@@ -516,11 +516,16 @@ vm_page_startup(void)
 	vmstats.v_page_count = 0;
 	vmstats.v_free_count = 0;
 
-	for (i = 0; phys_avail[i].phys_end; ++i) {
-		pa = phys_avail[i].phys_beg;
-		while (pa < phys_avail[i].phys_end) {
-			vm_add_new_page(pa, &badcount);
-			pa += PAGE_SIZE;
+	{
+		long progress = 0;
+		for (i = 0; phys_avail[i].phys_end; ++i) {
+			pa = phys_avail[i].phys_beg;
+			while (pa < phys_avail[i].phys_end) {
+				vm_add_new_page(pa, &badcount);
+				pa += PAGE_SIZE;
+				if (++progress % 10000 == 0)
+					kprintf("  %ld pages added\n", progress);
+			}
 		}
 	}
 	kprintf("vm_page_startup: free queues done, v_page_count=%ld\n",
