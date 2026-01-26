@@ -248,14 +248,14 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	vm_page_t m;
 	static int call_count = 0;
 
-	/* Print entry for first 10 calls to catch the hang point */
-	if (call_count < 10)
+	/* Print entry for first 15 calls, then every 10000 */
+	if (call_count < 15 || (call_count % 10000) == 0)
 		kprintf("vm_add_new_page[%d]: pa=%#jx\n",
 			call_count, (uintmax_t)pa);
 
 	m = PHYS_TO_VM_PAGE(pa);
 
-	if (call_count < 10)
+	if (call_count < 15 || (call_count % 10000) == 0)
 		kprintf("  [%d] m=%p\n", call_count, m);
 
 	/*
@@ -303,7 +303,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	m->pc ^= ((pa >> PAGE_SHIFT) / (PQ_L2_SIZE * PQ_L2_SIZE));
 	m->pc &= PQ_L2_MASK;
 
-	if (call_count < 10)
+	if (call_count < 15 || (call_count % 10000) == 0)
 		kprintf("  [%d] queue=%d pc=%d\n", call_count,
 			m->pc + PQ_FREE, m->pc);
 
@@ -328,7 +328,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 		m->wire_count = 1;
 		vmstats.v_wire_count++;
 		alist_free(&vm_contig_alist, pa >> PAGE_SHIFT, 1);
-		if (call_count < 10)
+		if (call_count < 15 || (call_count % 10000) == 0)
 			kprintf("  [%d] DMA reserved path, returning\n",
 				call_count);
 		call_count++;
@@ -346,10 +346,10 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	vmstats.v_page_count++;
 	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
-	if (call_count < 10)
+	if (call_count < 15 || (call_count % 10000) == 0)
 		kprintf("  [%d] calling TAILQ_INSERT_HEAD\n", call_count);
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
-	if (call_count < 10)
+	if (call_count < 15 || (call_count % 10000) == 0)
 		kprintf("  [%d] TAILQ_INSERT_HEAD done\n", call_count);
 	++vpq->lcnt;
 	call_count++;
