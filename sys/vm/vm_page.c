@@ -245,8 +245,22 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 {
 	struct vpgqueues *vpq;
 	vm_page_t m;
+	static int debug_count = 0;
+
+	if (debug_count < 3) {
+		kprintf("vm_add_new_page: pa=0x%lx debug_count=%d\n",
+		    (unsigned long)pa, debug_count);
+		kprintf("  vm_low_phys_reserved=0x%lx\n",
+		    (unsigned long)vm_low_phys_reserved);
+		kprintf("  first_page=0x%lx\n", (unsigned long)first_page);
+	}
 
 	m = PHYS_TO_VM_PAGE(pa);
+
+	if (debug_count < 3) {
+		kprintf("  m=%p\n", m);
+		debug_count++;
+	}
 
 	/*
 	 * Make sure it isn't a duplicate (due to BIOS page range overlaps,
