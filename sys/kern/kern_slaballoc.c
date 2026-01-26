@@ -879,6 +879,10 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
 	int i;
 	long ttl;
 
+#ifdef __aarch64__
+	kprintf("kmalloc(%s): limit check - loosememuse=%zu ks_limit=%zu ncpus=%d\n",
+	    type->ks_shortdesc, type->ks_loosememuse, type->ks_limit, ncpus);
+#endif
 	for (i = ttl = 0; i < ncpus; ++i)
 	    ttl += type->ks_use[i].memuse;
 	type->ks_loosememuse = ttl;	/* not MP synchronized */
@@ -889,6 +893,10 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
 		logmemory(malloc_end, NULL, type, size, flags);
 		return(NULL);
 	    }
+#ifdef __aarch64__
+	    kprintf("kmalloc(%s): PANIC - ttl=%ld ks_limit=%zu ncpus=%d\n",
+		type->ks_shortdesc, ttl, type->ks_limit, ncpus);
+#endif
 	    panic("%s: malloc limit exceeded", type->ks_shortdesc);
 	}
     }
