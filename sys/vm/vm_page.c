@@ -295,15 +295,6 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	vm_page_t m;
 	static int call_count = 0;
 
-#ifdef __aarch64__
-	/* Debug: show progress every 100 iterations */
-	if ((call_count % 100) == 0) {
-		vm_uart_puts("add[");
-		vm_uart_putdec(call_count);
-		vm_uart_puts("]\r\n");
-	}
-#endif
-
 	m = PHYS_TO_VM_PAGE(pa);
 
 	/*
@@ -671,6 +662,12 @@ vm_page_startup(void)
 			pa += PAGE_SIZE;
 		}
 	}
+
+#ifdef __aarch64__
+	vm_uart_puts("vm_page_startup: page loop complete, count=");
+	vm_uart_putdec(vmstats.v_page_count);
+	vm_uart_puts("\r\n");
+#endif
 
 	if (virtual2_start)
 		virtual2_start = vaddr;
