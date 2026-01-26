@@ -925,13 +925,26 @@ pmap_init_protection_codes(void)
  *
  * This is called early in arm64_init() to set up the kernel pmap
  * before any VM operations that need pmap_enter()/pmap_kenter().
+ *
+ * Note: By this point, arm64_pmap_bootstrap() has already set up new
+ * page tables and arm64_ttbr1_switch() has switched TTBR1 to use them.
+ * We read TTBR1_EL1 to get the actual L0 table address.
  */
 void
 pmap_bootstrap(void)
 {
-	/* Set up kernel_pmap to use TTBR1 page tables */
-	kernel_pmap->pm_l0 = ttbr1_l0;
-	kernel_pmap->pm_l0_paddr = DMAP_TO_PHYS((vm_offset_t)ttbr1_l0);
+	uint64_t ttbr1;
+
+	/* Read current TTBR1_EL1 to get the active L0 table physical address */
+	__asm __volatile("mrs %0, ttbr1_el1" : "=r"(ttbr1));
+
+	/*
+	 * Set up kernel_pmap to use the current TTBR1 page tables.
+	 * The L0 table is at the physical address in TTBR1_EL1.
+	 * We access it via DMAP.
+	 */
+	kernel_pmap->pm_l0_paddr = ttbr1 & ~0xfffUL;  /* Mask off ASID bits */
+	kernel_pmap->pm_l0 = (pd_entry_t *)PHYS_TO_DMAP(kernel_pmap->pm_l0_paddr);
 
 	/* Copy default bit mappings */
 	bcopy(pmap_bits_default, kernel_pmap->pmap_bits,
