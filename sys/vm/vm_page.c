@@ -340,6 +340,8 @@ vm_page_startup(void)
 	vm_page_t m;
 	int badcount;
 
+	kprintf("vm_page_startup: vaddr=0x%lx\n", (unsigned long)vaddr);
+
 	total = 0;
 	badcount = 0;
 	biggestsize = 0;
@@ -349,6 +351,7 @@ vm_page_startup(void)
 	/*
 	 * Make sure ranges are page-aligned.
 	 */
+	kprintf("vm_page_startup: aligning phys_avail ranges\n");
 	for (i = 0; phys_avail[i].phys_end; ++i) {
 		phys_avail[i].phys_beg = round_page64(phys_avail[i].phys_beg);
 		phys_avail[i].phys_end = trunc_page64(phys_avail[i].phys_end);
@@ -359,6 +362,7 @@ vm_page_startup(void)
 	/*
 	 * Locate largest block
 	 */
+	kprintf("vm_page_startup: finding largest block\n");
 	for (i = 0; phys_avail[i].phys_end; ++i) {
 		vm_paddr_t size = phys_avail[i].phys_end -
 				  phys_avail[i].phys_beg;
@@ -371,6 +375,9 @@ vm_page_startup(void)
 	}
 	--i;	/* adjust to last entry for use down below */
 
+	kprintf("vm_page_startup: biggestone=%d total=0x%lx\n",
+	    (int)biggestone, (unsigned long)total);
+
 	end = phys_avail[biggestone].phys_end;
 	end = trunc_page(end);
 
@@ -378,6 +385,7 @@ vm_page_startup(void)
 	 * Initialize the queue headers for the free queue, the active queue
 	 * and the inactive queue.
 	 */
+	kprintf("vm_page_startup: calling vm_page_queue_init\n");
 	vm_page_queue_init();
 
 #if !defined(_KERNEL_VIRTUAL)
@@ -411,6 +419,9 @@ vm_page_startup(void)
 	page_range = phys_avail[i].phys_end / PAGE_SIZE - first_page;
 	npages = (total - (page_range * sizeof(struct vm_page))) / PAGE_SIZE;
 
+	kprintf("vm_page_startup: first_page=0x%lx page_range=0x%lx npages=%ld\n",
+	    (unsigned long)first_page, (unsigned long)page_range, (long)npages);
+
 #ifndef _KERNEL_VIRTUAL
 	/*
 	 * (only applies to real kernels)
@@ -442,8 +453,12 @@ vm_page_startup(void)
 	if (bootverbose && ctob(physmem) >= 400LL*1024*1024*1024)
 		kprintf("initializing vm_page_array ");
 	new_end = trunc_page(end - page_range * sizeof(struct vm_page));
+	kprintf("vm_page_startup: new_end=0x%lx end=0x%lx\n",
+	    (unsigned long)new_end, (unsigned long)end);
+	kprintf("vm_page_startup: calling pmap_map for vm_page_array\n");
 	mapped = pmap_map(&vaddr, new_end, end, VM_PROT_READ | VM_PROT_WRITE);
 	vm_page_array = (vm_page_t)mapped;
+	kprintf("vm_page_startup: vm_page_array=0x%lx\n", (unsigned long)mapped);
 
 #if defined(__x86_64__) && !defined(_KERNEL_VIRTUAL)
 	/*
@@ -463,11 +478,14 @@ vm_page_startup(void)
 	 * PHYS_TO_VM_PAGE() operates properly even on pages not in the
 	 * map.
 	 */
+	kprintf("vm_page_startup: bzero vm_page_array (%ld bytes)\n",
+	    (long)(page_range * sizeof(struct vm_page)));
 	bzero((caddr_t) vm_page_array, page_range * sizeof(struct vm_page));
 	vm_page_array_size = page_range;
 	if (bootverbose && ctob(physmem) >= 400LL*1024*1024*1024)
 		kprintf("size = 0x%zx\n", vm_page_array_size);
 
+	kprintf("vm_page_startup: initializing page structures\n");
 	m = &vm_page_array[0];
 	pa = ptoa(first_page);
 	for (i = 0; i < page_range; ++i) {
@@ -476,6 +494,7 @@ vm_page_startup(void)
 		pa += PAGE_SIZE;
 		++m;
 	}
+	kprintf("vm_page_startup: done initializing page structures\n");
 
 	/*
 	 * Construct the free queue(s) in ascending order (by physical
@@ -483,24 +502,38 @@ vm_page_startup(void)
 	 * last rather than first.  On large-memory machines, this avoids
 	 * the exhaustion of low physical memory before isa_dma_init has run.
 	 */
+	kprintf("vm_page_startup: constructing free queues (%ld pages)\n",
+	    (long)npages);
 	vmstats.v_page_count = 0;
 	vmstats.v_free_count = 0;
-	for (i = 0; phys_avail[i].phys_end && npages > 0; ++i) {
-		pa = phys_avail[i].phys_beg;
-		if (i == biggestone)
-			last_pa = new_end;
-		else
-			last_pa = phys_avail[i].phys_end;
-		while (pa < last_pa && npages-- > 0) {
-			vm_add_new_page(pa, &badcount);
-			pa += PAGE_SIZE;
+	{
+		int progress = 0;
+		for (i = 0; phys_avail[i].phys_end && npages > 0; ++i) {
+			kprintf("vm_page_startup: phys_avail[%d] 0x%lx-0x%lx\n",
+			    i, (unsigned long)phys_avail[i].phys_beg,
+			    (unsigned long)phys_avail[i].phys_end);
+			pa = phys_avail[i].phys_beg;
+			if (i == biggestone)
+				last_pa = new_end;
+			else
+				last_pa = phys_avail[i].phys_end;
+			while (pa < last_pa && npages-- > 0) {
+				vm_add_new_page(pa, &badcount);
+				pa += PAGE_SIZE;
+				progress++;
+				if ((progress & 0xfff) == 0)
+					kprintf("vm_page_startup: added %d pages\n", progress);
+			}
 		}
 	}
+	kprintf("vm_page_startup: free queues done, v_page_count=%ld\n",
+	    (long)vmstats.v_page_count);
 	if (virtual2_start)
 		virtual2_start = vaddr;
 	else
 		virtual_start = vaddr;
 	mycpu->gd_vmstats = vmstats;
+	kprintf("vm_page_startup: returning\n");
 }
 
 /*
