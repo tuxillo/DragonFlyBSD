@@ -563,8 +563,10 @@ vm_page_startup(void)
 				}
 				pa += PAGE_SIZE;
 				progress++;
-				if ((progress & 0xfff) == 0)
-					kprintf("vm_page_startup: added %d pages\n", progress);
+				/* Print progress every 256 pages */
+				if ((progress & 0xff) == 0)
+					kprintf("vm_page_startup: added %d pages (pa=0x%lx)\n",
+					    progress, (unsigned long)pa);
 			}
 		}
 	}
