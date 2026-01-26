@@ -104,24 +104,31 @@
 /*
  * ARM64 direct UART debug output - bypasses kprintf for early boot debugging.
  * This writes directly to PL011 UART at 0x09000000.
+ * NOTE: These functions are NOT static because vm_phys.c also uses them.
  */
 #ifdef __aarch64__
 static volatile u_int32_t *const vm_uart_base = (u_int32_t *)0x09000000;
 
-static void
+/* Function prototypes */
+void vm_uart_putc(char ch);
+void vm_uart_puts(const char *str);
+void vm_uart_puthex(u_int64_t value);
+void vm_uart_putdec(u_int64_t value);
+
+void
 vm_uart_putc(char ch)
 {
 	*vm_uart_base = (u_int32_t)(unsigned char)ch;
 }
 
-static void
+void
 vm_uart_puts(const char *str)
 {
 	while (*str != '\0')
 		vm_uart_putc(*str++);
 }
 
-static void
+void
 vm_uart_puthex(u_int64_t value)
 {
 	const char *hex = "0123456789abcdef";
@@ -130,7 +137,7 @@ vm_uart_puthex(u_int64_t value)
 		vm_uart_putc(hex[(value >> shift) & 0xf]);
 }
 
-static void __attribute__((unused))
+void
 vm_uart_putdec(u_int64_t value)
 {
 	char buf[21];  /* max 20 digits for 64-bit + null */
@@ -295,7 +302,25 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	vm_page_t m;
 	static int call_count = 0;
 
+	/* Debug: trace entry and PHYS_TO_VM_PAGE call */
+	if (call_count < 5 || (call_count % 1000) == 0) {
+		vm_uart_puts("add[");
+		vm_uart_putdec(call_count);
+		vm_uart_puts("] pa=0x");
+		vm_uart_puthex(pa);
+		vm_uart_puts(" nsegs=");
+		vm_uart_putdec(vm_phys_nsegs);
+		vm_uart_puts("\r\n");
+	}
+
 	m = PHYS_TO_VM_PAGE(pa);
+
+	/* Debug: trace after PHYS_TO_VM_PAGE */
+	if (call_count < 5 || (call_count % 1000) == 0) {
+		vm_uart_puts("  m=0x");
+		vm_uart_puthex((uint64_t)m);
+		vm_uart_puts("\r\n");
+	}
 
 	/*
 	 * For VM_PHYSSEG_SPARSE, PHYS_TO_VM_PAGE can return NULL for
@@ -637,6 +662,11 @@ vm_page_startup(void)
 	kprintf("vm_page_startup: first phys_avail[0].phys_beg=%#jx\n",
 		(uintmax_t)phys_avail[0].phys_beg);
 #ifdef __aarch64__
+	/* Print vm_phys_nsegs to verify segment registration */
+	vm_uart_puts("vm_page_startup: vm_phys_nsegs=");
+	vm_uart_putdec(vm_phys_nsegs);
+	vm_uart_puts("\r\n");
+
 	/* Print all segment boundaries */
 	for (i = 0; phys_avail[i].phys_end; ++i) {
 		vm_uart_puts("  seg[");
