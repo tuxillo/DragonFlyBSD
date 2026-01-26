@@ -333,6 +333,14 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	vmstats.v_page_count++;
 	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
+	/* Check for corruption of queue 101 */
+	if (m->queue == 101 || call_count >= 360) {
+		struct vpgqueues *vpq101 = &vm_page_queues[101];
+		if (vpq101->pl.tqh_first != NULL) {
+			kprintf("  [%d] CORRUPTION: queue 101 tqh_first=%p (should be NULL or valid)\n",
+			    call_count, vpq101->pl.tqh_first);
+		}
+	}
 	if (debug) {
 		kprintf("  [%d] vpq=%p vpq->pl.tqh_first=%p\n",
 		    call_count, vpq, vpq->pl.tqh_first);
@@ -427,6 +435,12 @@ vm_page_startup(void)
 	 */
 	kprintf("vm_page_startup: calling vm_page_queue_init\n");
 	vm_page_queue_init();
+	/* Debug: verify queue 101 was properly initialized */
+	{
+		struct vpgqueues *vpq101 = &vm_page_queues[101];
+		kprintf("vm_page_startup: queue 101 after init: vpq=%p tqh_first=%p tqh_last=%p\n",
+		    vpq101, vpq101->pl.tqh_first, vpq101->pl.tqh_last);
+	}
 
 #if !defined(_KERNEL_VIRTUAL)
 	/*
