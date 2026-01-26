@@ -517,12 +517,12 @@ vm_page_startup(void)
 			kprintf("vm_page_startup: range[%d] pa=0x%lx-0x%lx\n",
 			    i, (unsigned long)pa, (unsigned long)last_pa);
 			while (pa < last_pa && npages-- > 0) {
-				if (progress == 0)
-					kprintf("vm_page_startup: calling vm_add_new_page(0x%lx)\n",
-					    (unsigned long)pa);
+				if (progress < 5)
+					kprintf("vm_page_startup: [%d] adding pa=0x%lx\n",
+					    progress, (unsigned long)pa);
 				vm_add_new_page(pa, &badcount);
-				if (progress == 0)
-					kprintf("vm_page_startup: first vm_add_new_page returned\n");
+				if (progress < 5)
+					kprintf("vm_page_startup: [%d] done\n", progress);
 				pa += PAGE_SIZE;
 				progress++;
 				/* Print progress every 1024 pages (4MB) */
