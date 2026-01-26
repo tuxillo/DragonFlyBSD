@@ -235,7 +235,7 @@ vm_set_page_size(void)
  *
  * Must be called in a critical section.
  */
-static int vm_add_new_page_debug = 5;  /* Print for first 5 calls */
+static int vm_add_new_page_debug = 10;  /* Print for first 10 calls */
 
 static void
 vm_add_new_page(vm_paddr_t pa, int *badcountp)
@@ -552,7 +552,15 @@ vm_page_startup(void)
 			else
 				last_pa = phys_avail[i].phys_end;
 			while (pa < last_pa && npages-- > 0) {
+				if (progress < 10) {
+					kprintf("vm_page_startup: loop iter %d: pa=0x%lx last_pa=0x%lx npages=%ld\n",
+					    progress, (unsigned long)pa, (unsigned long)last_pa, (long)npages);
+				}
 				vm_add_new_page(pa, &badcount);
+				if (progress < 10) {
+					kprintf("vm_page_startup: loop iter %d: vm_add_new_page returned\n",
+					    progress);
+				}
 				pa += PAGE_SIZE;
 				progress++;
 				if ((progress & 0xfff) == 0)
