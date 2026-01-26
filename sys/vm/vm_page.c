@@ -245,8 +245,19 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 {
 	struct vpgqueues *vpq;
 	vm_page_t m;
+	static int call_count = 0;
+
+	++call_count;
+	if (call_count <= 3) {
+		kprintf("vm_add_new_page[%d]: pa=0x%lx\n",
+		    call_count, (unsigned long)pa);
+	}
 
 	m = PHYS_TO_VM_PAGE(pa);
+
+	if (call_count <= 3) {
+		kprintf("  [%d] m=%p m->queue=%d\n", call_count, m, m->queue);
+	}
 
 	/*
 	 * Make sure it isn't a duplicate (due to BIOS page range overlaps,
@@ -308,13 +319,28 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	 * NOTE: Non-atomic increments are safe during single-CPU boot.
 	 */
 	m->queue = m->pc + PQ_FREE;
+	if (call_count <= 3) {
+		kprintf("  [%d] queue=%d pc=%d\n", call_count,
+		    m->queue, m->pc);
+	}
 	KKASSERT(m->dirty == 0);
 
 	vmstats.v_page_count++;
 	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
+	if (call_count <= 3) {
+		kprintf("  [%d] vpq=%p vpq->pl.tqh_first=%p\n",
+		    call_count, vpq, vpq->pl.tqh_first);
+		kprintf("  [%d] calling TAILQ_INSERT_HEAD\n", call_count);
+	}
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
+	if (call_count <= 3) {
+		kprintf("  [%d] TAILQ_INSERT_HEAD done\n", call_count);
+	}
 	++vpq->lcnt;
+	if (call_count <= 3) {
+		kprintf("  [%d] done\n", call_count);
+	}
 }
 
 /*
