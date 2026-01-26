@@ -205,6 +205,10 @@ alist_init(alist_t bl, alist_blk_t blocks,
 	bl->bl_skip = skip;
 	bl->bl_rootblks = 1 + alst_radix_init(NULL, 0, bl->bl_radix,
 					      bl->bl_skip, blocks);
+	kprintf("alist_init: blocks=%u radix=%u skip=%u rootblks=%u nrecords=%u\n",
+	    blocks, radix, skip, bl->bl_rootblks, nrecords);
+	kprintf("alist_init: records=%p sizeof(almeta)=%lu\n",
+	    records, (unsigned long)sizeof(almeta_t));
 	KKASSERT(bl->bl_rootblks <= nrecords);
 	bl->bl_root = records;
 

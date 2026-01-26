@@ -94,9 +94,15 @@ typedef struct alist {
 /*
  * When alist_init() is used the caller can pre-allocate the records
  * array.
+ *
+ * NOTE: These values must account for all indices accessed by
+ * alst_radix_init(), including terminator entries which are written
+ * at indices up to 'skip' in the radix tree traversal.  The previous
+ * values (2193 and 34961) only counted used records, not the actual
+ * array indices accessed, causing buffer overflows.
  */
-#define ALIST_RECORDS_65536	2193
-#define ALIST_RECORDS_1048576	34961
+#define ALIST_RECORDS_65536	4097
+#define ALIST_RECORDS_1048576	65537
 
 alist_t alist_create(alist_blk_t, struct malloc_type *);
 void alist_init(alist_t, alist_blk_t, almeta_t *, alist_blk_t);
