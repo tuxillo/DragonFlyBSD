@@ -223,7 +223,7 @@ vm_set_page_size(void)
 }
 
 /*
- * (low level boot)
+ * (low level boot only - single CPU, no SMP)
  *
  * Add a new page to the freelist for use by the system.  New pages
  * are added to both the head and tail of the associated free page
@@ -232,6 +232,11 @@ vm_set_page_size(void)
  *
  * Beware that the page zeroing daemon will also be running soon after
  * boot, moving pages from the head to the tail of the PQ_FREE queues.
+ *
+ * This function uses non-atomic counter updates because it is only
+ * called during early boot when a single CPU is running.  This provides
+ * a significant performance improvement on architectures where atomic
+ * operations are expensive (e.g., ARM64 under emulation).
  *
  * Must be called in a critical section.
  */
@@ -283,26 +288,30 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	 *
 	 * WARNING! Once PG_FICTITIOUS is set, vm_page_wire*()
 	 *	    and vm_page_unwire*() calls have no effect.
+	 *
+	 * NOTE: Non-atomic increments are safe during single-CPU boot.
 	 */
 	if (pa < vm_low_phys_reserved) {
-		atomic_add_long(&vmstats.v_page_count, 1);
-		atomic_add_long(&vmstats.v_dma_pages, 1);
+		vmstats.v_page_count++;
+		vmstats.v_dma_pages++;
 		m->flags |= PG_FICTITIOUS | PG_UNQUEUED;
 		m->queue = PQ_NONE;
 		m->wire_count = 1;
-		atomic_add_long(&vmstats.v_wire_count, 1);
+		vmstats.v_wire_count++;
 		alist_free(&vm_contig_alist, pa >> PAGE_SHIFT, 1);
 		return;
 	}
 
 	/*
 	 * General page
+	 *
+	 * NOTE: Non-atomic increments are safe during single-CPU boot.
 	 */
 	m->queue = m->pc + PQ_FREE;
 	KKASSERT(m->dirty == 0);
 
-	atomic_add_long(&vmstats.v_page_count, 1);
-	atomic_add_long(&vmstats.v_free_count, 1);
+	vmstats.v_page_count++;
+	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
 	++vpq->lcnt;
