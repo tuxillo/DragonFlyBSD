@@ -124,6 +124,30 @@ _start:
 	 */
 	ldr	x15, .Lbss_start
 	ldr	x14, .Lbss_end
+
+	/* Debug: print 'S' and BSS start address */
+	ldr	x1, =0x09000000
+	mov	w2, #'S'
+	strb	w2, [x1]
+	mov	x3, #60
+5:
+	lsr	x4, x15, x3
+	and	x4, x4, #0xf
+	cmp	x4, #10
+	blt	6f
+	add	x4, x4, #('a' - 10)
+	b	7f
+6:
+	add	x4, x4, #'0'
+7:
+	strb	w4, [x1]
+	subs	x3, x3, #4
+	bge	5b
+	mov	w2, #'\r'
+	strb	w2, [x1]
+	mov	w2, #'\n'
+	strb	w2, [x1]
+
 1:
 	cmp	x15, x14
 	b.hs	2f			/* Exit if x15 >= x14 */
