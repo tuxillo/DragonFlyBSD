@@ -519,8 +519,9 @@ vm_page_startup(void)
 				vm_add_new_page(pa, &badcount);
 				pa += PAGE_SIZE;
 				progress++;
-				/* Print progress every 2048 pages (8MB) */
-				if ((progress & 0x7ff) == 0)
+				/* Print progress at 100, 1000, then every 2048 pages */
+				if (progress == 100 || progress == 1000 ||
+				    (progress & 0x7ff) == 0)
 					kprintf("vm_page_startup: added %d pages\n", progress);
 			}
 		}
