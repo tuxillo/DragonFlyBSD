@@ -246,8 +246,16 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 {
 	struct vpgqueues *vpq;
 	vm_page_t m;
+	static int call_count = 0;
+
+	if (call_count < 5)
+		kprintf("vm_add_new_page[%d]: pa=%#jx\n",
+			call_count, (uintmax_t)pa);
 
 	m = PHYS_TO_VM_PAGE(pa);
+
+	if (call_count < 5)
+		kprintf("  [%d] m=%p\n", call_count, m);
 
 	/*
 	 * For VM_PHYSSEG_SPARSE, PHYS_TO_VM_PAGE can return NULL for
@@ -258,6 +266,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	if (m == NULL) {
 		kprintf("vm_add_new_page: PHYS_TO_VM_PAGE returned NULL "
 		    "for pa=%016jx\n", (intmax_t)pa);
+		call_count++;
 		return;
 	}
 #endif
@@ -276,6 +285,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 			kprintf("vm_add_new_page: duplicate pa (many more)\n");
 			++*badcountp;
 		}
+		call_count++;
 		return;
 	}
 
@@ -291,6 +301,10 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	m->pc ^= ((pa >> PAGE_SHIFT) / PQ_L2_SIZE);
 	m->pc ^= ((pa >> PAGE_SHIFT) / (PQ_L2_SIZE * PQ_L2_SIZE));
 	m->pc &= PQ_L2_MASK;
+
+	if (call_count < 5)
+		kprintf("  [%d] queue=%d pc=%d\n", call_count,
+			m->pc + PQ_FREE, m->pc);
 
 	/*
 	 * Reserve a certain number of contiguous low memory pages for
@@ -313,6 +327,10 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 		m->wire_count = 1;
 		vmstats.v_wire_count++;
 		alist_free(&vm_contig_alist, pa >> PAGE_SHIFT, 1);
+		if (call_count < 5)
+			kprintf("  [%d] DMA reserved path, returning\n",
+				call_count);
+		call_count++;
 		return;
 	}
 
@@ -327,8 +345,13 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	vmstats.v_page_count++;
 	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
+	if (call_count < 5)
+		kprintf("  [%d] calling TAILQ_INSERT_HEAD\n", call_count);
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
+	if (call_count < 5)
+		kprintf("  [%d] TAILQ_INSERT_HEAD done\n", call_count);
 	++vpq->lcnt;
+	call_count++;
 }
 
 /*
@@ -579,6 +602,10 @@ vm_page_startup(void)
 	vmstats.v_free_count = 0;
 
 	kprintf("vm_page_startup: adding pages to free queues\n");
+	kprintf("vm_page_startup: vm_low_phys_reserved=%#jx\n",
+		(uintmax_t)vm_low_phys_reserved);
+	kprintf("vm_page_startup: first phys_avail[0].phys_beg=%#jx\n",
+		(uintmax_t)phys_avail[0].phys_beg);
 	for (i = 0; phys_avail[i].phys_end; ++i) {
 		pa = phys_avail[i].phys_beg;
 		while (pa < phys_avail[i].phys_end) {
