@@ -663,6 +663,499 @@ vm_add_new_page[2]: pa=0x42001000
 
 ---
 
+## MVP Part 6: pmap_enter() and pmap_kenter() Implementation
+
+### Goal
+
+Implement the minimum viable pmap functions to allow the kernel to map pages into kernel virtual address space, enabling the slab allocator (`kmeminit()`) to function.
+
+### Status: PENDING
+
+The kernel currently crashes during `SI_BOOT1_ALLOCATOR` (0x1400000) - slab allocator initialization. The crash occurs because `pmap_enter()` is a stub that does nothing.
+
+### Problem Analysis
+
+**Crash location:** `memset()` at `0x4040d370` - inner loop writing bytes to memory.
+
+**Call chain:**
+1. `kmeminit()` calls `kmem_slab_alloc(PAGE_SIZE, PAGE_SIZE, M_WAITOK|M_ZERO)`
+2. `kmem_slab_alloc()` allocates physical pages via `vm_page_alloc()`
+3. `kmem_slab_alloc()` calls `pmap_enter()` to map pages into kernel VA space
+4. `pmap_enter()` is empty (stub) - no page table entry created
+5. `pagezero()` / `memset()` tries to access the unmapped VA
+6. **Translation fault** - the VA `0xffffff8008dd3000` isn't mapped
+
+**Exception details:**
+- **ESR:** `0x96000046` - Data Abort, translation fault level 2
+- **FAR:** `0xffffff8008dd3000` - kernel virtual address being accessed
+- **ELR:** `0x4040d370` - instruction that caused the fault (in memset)
+
+### Background: DragonFly vs FreeBSD VM Differences
+
+Key differences that affect implementation:
+
+1. **DragonFly uses `pmap_bits[]` array** - Each pmap has an array mapping logical bit indices (PG_V_IDX, PG_RW_IDX, etc.) to architecture-specific bits. This allows different pmap types.
+
+2. **DragonFly uses `protection_codes[]`** - Pre-computed protection bit combinations for VM_PROT_* flags.
+
+3. **DragonFly tracks pages differently** - Uses `PG_MAPPED`, `PG_WRITEABLE`, `PG_MAPPEDMULTI` flags on vm_page, and `md.interlock_count`.
+
+4. **DragonFly's pmap_enter signature is different**:
+   - DragonFly: `pmap_enter(pmap, va, m, prot, wired, entry)`
+   - FreeBSD: `pmap_enter(pmap, va, m, prot, flags, psind)`
+
+5. **DragonFly uses `pmap_initialized` flag** - Before full initialization, uses simpler direct PTE access.
+
+6. **x86_64 uses recursive page table (PTmap)** - ARM64 can't easily do this, so we need explicit page table walking.
+
+### Files to Modify
+
+| File | Changes |
+|------|---------|
+| `sys/platform/arm64/include/pmap.h` | Add pmap structure fields, bit indices, protection codes |
+| `sys/platform/arm64/aarch64/pmap.c` | Implement pmap_enter, pmap_kenter, page table walking, L3 allocation |
+| `sys/platform/arm64/aarch64/locore.s` | Export ttbr1_l0/l1/l2 symbols |
+| `sys/platform/arm64/aarch64/machdep.c` | Call pmap_bootstrap() early in init |
+
+### Implementation Plan
+
+#### 1. `sys/platform/arm64/include/pmap.h` Changes
+
+**Add PTE bit index constants:**
+
+```c
+/* PTE bit indices for pmap_bits[] array */
+#define PG_V_IDX        0   /* Valid */
+#define PG_RW_IDX       1   /* Read/Write (ARM64: inverted - 0=RW) */
+#define PG_U_IDX        2   /* User accessible */
+#define PG_A_IDX        3   /* Accessed */
+#define PG_M_IDX        4   /* Modified/Dirty */
+#define PG_W_IDX        5   /* Wired (software bit) */
+#define PG_MANAGED_IDX  6   /* Managed page (software bit) */
+#define PG_N_IDX        7   /* Non-cacheable */
+#define PG_NX_IDX       8   /* No Execute */
+#define PG_BITS_SIZE    16
+
+#define PROTECTION_CODES_SIZE   8
+#define PAT_INDEX_SIZE          8  /* Memory attribute indices */
+```
+
+**Expand struct pmap:**
+
+```c
+struct pmap {
+    struct pmap_statistics pm_stats;
+    pd_entry_t *pm_l0;                  /* L0 page table (kernel VA) */
+    vm_paddr_t pm_l0_paddr;             /* L0 page table (physical) */
+    uint64_t pmap_bits[PG_BITS_SIZE];
+    uint64_t pmap_cache_bits_pte[PAT_INDEX_SIZE];
+    uint64_t protection_codes[PROTECTION_CODES_SIZE];
+};
+```
+
+#### 2. `sys/platform/arm64/aarch64/locore.s` Changes
+
+**Export page table symbols (add .global directives):**
+
+```asm
+    .global ttbr1_l0
+    .global ttbr1_l1  
+    .global ttbr1_l2
+```
+
+#### 3. `sys/platform/arm64/aarch64/pmap.c` Changes
+
+##### a) Add external references and static data:
+
+```c
+/* Page tables from locore.s */
+extern pd_entry_t ttbr1_l0[];
+extern pd_entry_t ttbr1_l1[];
+extern pd_entry_t ttbr1_l2[];
+
+/* Pre-allocated L3 pages for early kernel mappings (32MB coverage) */
+#define NKERN_L3_PAGES  16
+static pt_entry_t kern_l3_pages[NKERN_L3_PAGES][Ln_ENTRIES] __aligned(PAGE_SIZE);
+static int kern_l3_next = 0;
+
+/* Default PTE bit mappings for ARM64 */
+static uint64_t pmap_bits_default[PG_BITS_SIZE] = {
+    [PG_V_IDX]       = ATTR_DESCR_VALID,
+    [PG_RW_IDX]      = 0,                    /* 0 = RW on ARM64 */
+    [PG_U_IDX]       = ATTR_S1_AP(ATTR_S1_AP_USER),
+    [PG_A_IDX]       = ATTR_AF,
+    [PG_M_IDX]       = ATTR_DBM,
+    [PG_W_IDX]       = (1UL << 55),          /* Software: wired */
+    [PG_MANAGED_IDX] = (1UL << 56),          /* Software: managed */
+    [PG_NX_IDX]      = ATTR_S1_XN,
+};
+
+/* Memory attribute index to PTE bits */
+static uint64_t pmap_cache_bits_default[PAT_INDEX_SIZE] = {
+    [0] = ATTR_S1_IDX(MAIR_IDX_DEVICE_nGnRnE),
+    [1] = ATTR_S1_IDX(MAIR_IDX_UNCACHEABLE),
+    [2] = ATTR_S1_IDX(MAIR_IDX_WRITE_BACK),
+    [3] = ATTR_S1_IDX(MAIR_IDX_WRITE_THROUGH),
+    [4] = ATTR_S1_IDX(MAIR_IDX_DEVICE_nGnRE),
+};
+
+/* Protection codes: VM_PROT_* -> PTE bits */
+static uint64_t protection_codes_default[PROTECTION_CODES_SIZE];
+```
+
+##### b) Add page table helper functions:
+
+```c
+static __inline pd_entry_t *
+pmap_l0(pmap_t pmap, vm_offset_t va)
+{
+    return (&pmap->pm_l0[pmap_l0_index(va)]);
+}
+
+static __inline pd_entry_t *
+pmap_l0_to_l1(pd_entry_t *l0, vm_offset_t va)
+{
+    pd_entry_t l0e = *l0;
+    pd_entry_t *l1 = (pd_entry_t *)PHYS_TO_DMAP(l0e & ATTR_ADDR);
+    return (&l1[pmap_l1_index(va)]);
+}
+
+static __inline pd_entry_t *
+pmap_l1_to_l2(pd_entry_t *l1, vm_offset_t va)
+{
+    pd_entry_t l1e = *l1;
+    pd_entry_t *l2 = (pd_entry_t *)PHYS_TO_DMAP(l1e & ATTR_ADDR);
+    return (&l2[pmap_l2_index(va)]);
+}
+
+static __inline pt_entry_t *
+pmap_l2_to_l3(pd_entry_t *l2, vm_offset_t va)
+{
+    pd_entry_t l2e = *l2;
+    pt_entry_t *l3 = (pt_entry_t *)PHYS_TO_DMAP(l2e & ATTR_ADDR);
+    return (&l3[pmap_l3_index(va)]);
+}
+```
+
+##### c) Add L3 table allocation function:
+
+```c
+static pt_entry_t *
+pmap_alloc_l3(pmap_t pmap, pd_entry_t *l2, vm_offset_t va)
+{
+    pt_entry_t *l3;
+    vm_paddr_t l3_pa;
+    
+    if (kern_l3_next >= NKERN_L3_PAGES)
+        panic("pmap_alloc_l3: out of pre-allocated L3 pages");
+    
+    l3 = kern_l3_pages[kern_l3_next++];
+    bzero(l3, PAGE_SIZE);
+    
+    l3_pa = DMAP_TO_PHYS((vm_offset_t)l3);
+    
+    /* Install L2 entry pointing to new L3 table */
+    *l2 = l3_pa | L2_TABLE;
+    __asm __volatile("dsb ishst" ::: "memory");
+    
+    return (&l3[pmap_l3_index(va)]);
+}
+```
+
+##### d) Add pmap_vtopte() - get PTE pointer, allocating L3 if needed:
+
+```c
+static pt_entry_t *
+pmap_vtopte(pmap_t pmap, vm_offset_t va)
+{
+    pd_entry_t *l0, *l1, *l2;
+    
+    l0 = pmap_l0(pmap, va);
+    if ((*l0 & ATTR_DESCR_MASK) != L0_TABLE)
+        panic("pmap_vtopte: no L0 entry for va 0x%lx", va);
+    
+    l1 = pmap_l0_to_l1(l0, va);
+    if ((*l1 & ATTR_DESCR_MASK) != L1_TABLE)
+        panic("pmap_vtopte: no L1 entry for va 0x%lx", va);
+    
+    l2 = pmap_l1_to_l2(l1, va);
+    if ((*l2 & ATTR_DESCR_MASK) != L2_TABLE) {
+        /* Need to allocate L3 table */
+        return pmap_alloc_l3(pmap, l2, va);
+    }
+    
+    return pmap_l2_to_l3(l2, va);
+}
+```
+
+##### e) Implement pmap_kenter():
+
+```c
+void
+pmap_kenter(vm_offset_t va, vm_paddr_t pa)
+{
+    pt_entry_t *ptep;
+    pt_entry_t npte;
+    
+    npte = pa | L3_PAGE | ATTR_AF | ATTR_SH(ATTR_SH_IS) |
+           ATTR_S1_IDX(MAIR_IDX_WRITE_BACK);
+    
+    ptep = pmap_vtopte(kernel_pmap, va);
+    *ptep = npte;
+    
+    /* TLB invalidate */
+    __asm __volatile(
+        "dsb ishst\n"
+        "tlbi vaae1is, %0\n"
+        "dsb ish\n"
+        "isb"
+        : : "r"(va >> 12)
+    );
+}
+```
+
+##### f) Implement pmap_enter():
+
+```c
+void
+pmap_enter(pmap_t pmap, vm_offset_t va, vm_page_t m, vm_prot_t prot,
+           boolean_t wired, vm_map_entry_t entry __unused)
+{
+    pt_entry_t *ptep;
+    pt_entry_t newpte, origpte;
+    vm_paddr_t pa;
+    int flags, nflags;
+    
+    if (pmap == NULL)
+        return;
+    
+    va = trunc_page(va);
+    pa = VM_PAGE_TO_PHYS(m);
+    
+    /* Get PTE pointer */
+    ptep = pmap_vtopte(pmap, va);
+    origpte = *ptep;
+    
+    /* Build new PTE */
+    newpte = pa | L3_PAGE | ATTR_AF | ATTR_SH(ATTR_SH_IS);
+    newpte |= ATTR_S1_IDX(MAIR_IDX_WRITE_BACK);
+    
+    /* Protection bits */
+    if (!(prot & VM_PROT_WRITE))
+        newpte |= ATTR_S1_AP(ATTR_S1_AP_RO);
+    if (!(prot & VM_PROT_EXECUTE))
+        newpte |= ATTR_S1_XN;
+    if (va < VM_MAX_USER_ADDRESS)
+        newpte |= ATTR_S1_AP(ATTR_S1_AP_USER) | ATTR_S1_PXN;
+    
+    /* Software bits */
+    if (wired)
+        newpte |= pmap->pmap_bits[PG_W_IDX];
+    if ((m->flags & PG_FICTITIOUS) == 0)
+        newpte |= pmap->pmap_bits[PG_MANAGED_IDX];
+    
+    /* Update vm_page flags */
+    flags = m->flags;
+    for (;;) {
+        nflags = PG_MAPPED;
+        if (prot & VM_PROT_WRITE)
+            nflags |= PG_WRITEABLE;
+        if (flags & PG_MAPPED)
+            nflags |= PG_MAPPEDMULTI;
+        if (flags == (flags | nflags))
+            break;
+        if (atomic_fcmpset_int(&m->flags, &flags, flags | nflags))
+            break;
+    }
+    
+    /* Store the PTE */
+    *ptep = newpte;
+    
+    /* TLB invalidate */
+    __asm __volatile(
+        "dsb ishst\n"
+        "tlbi vaae1is, %0\n"
+        "dsb ish\n"
+        "isb"
+        : : "r"(va >> 12)
+    );
+    
+    /* Update statistics */
+    if ((origpte & ATTR_DESCR_VALID) == 0) {
+        pmap->pm_stats.resident_count++;
+    }
+    if (wired && (origpte == 0 || !(origpte & pmap->pmap_bits[PG_W_IDX]))) {
+        pmap->pm_stats.wired_count++;
+    }
+}
+```
+
+##### g) Add pmap_bootstrap() function:
+
+```c
+void pmap_bootstrap(void);
+
+static void
+pmap_init_protection_codes(void)
+{
+    uint64_t *kp = protection_codes_default;
+    int prot;
+    
+    for (prot = 0; prot < PROTECTION_CODES_SIZE; prot++) {
+        *kp = 0;
+        
+        /* ARM64: AP[2]=1 means read-only, AP[2]=0 means read-write */
+        if (!(prot & VM_PROT_WRITE))
+            *kp |= ATTR_S1_AP(ATTR_S1_AP_RO);
+        
+        /* XN bit for non-executable */
+        if (!(prot & VM_PROT_EXECUTE))
+            *kp |= ATTR_S1_XN;
+        
+        kp++;
+    }
+    
+    bcopy(protection_codes_default, kernel_pmap->protection_codes,
+          sizeof(protection_codes_default));
+}
+
+void
+pmap_bootstrap(void)
+{
+    /* Set up kernel_pmap to use TTBR1 page tables */
+    kernel_pmap->pm_l0 = ttbr1_l0;
+    kernel_pmap->pm_l0_paddr = DMAP_TO_PHYS((vm_offset_t)ttbr1_l0);
+    
+    /* Copy default bit mappings */
+    bcopy(pmap_bits_default, kernel_pmap->pmap_bits, 
+          sizeof(pmap_bits_default));
+    bcopy(pmap_cache_bits_default, kernel_pmap->pmap_cache_bits_pte,
+          sizeof(pmap_cache_bits_default));
+    
+    /* Initialize protection codes */
+    pmap_init_protection_codes();
+}
+```
+
+#### 4. `sys/platform/arm64/aarch64/machdep.c` Changes
+
+**Call pmap_bootstrap() early in arm64_init():**
+
+Add call after DMAP setup but before VM init:
+
+```c
+void
+arm64_init(vm_paddr_t modulep, vm_offset_t kernend)
+{
+    /* ... existing code ... */
+    
+    /* After DMAP setup, before cninit() */
+    pmap_bootstrap();
+    
+    /* ... continue with existing init ... */
+}
+```
+
+### L3 Table Allocation Strategy
+
+For early boot (before kmalloc works), pre-allocate a pool of L3 pages in BSS:
+
+- 16 L3 pages = 32MB of mappable KVA (matching FreeBSD's approach)
+- Simple bump allocator: `kern_l3_pages[kern_l3_next++]`
+
+When allocating a new L3 table:
+1. Get next page from pool
+2. Zero it
+3. Update L2 entry to point to it with L2_TABLE descriptor
+4. Return pointer to appropriate L3 slot
+
+### ARM64 PTE Format Notes
+
+**L3 Page entry (4KB pages):**
+
+```
+[63:52] - Upper attributes (XN, PXN, Contiguous, DBM, software bits)
+[51:48] - Reserved
+[47:12] - Physical address (output address)
+[11:10] - AF (Access Flag), SH (Shareability)
+[9:8]   - AP (Access Permissions)
+[7:6]   - Reserved
+[5]     - NS (Non-secure, for Secure state)
+[4:2]   - AttrIndx (memory attribute index into MAIR)
+[1:0]   - Descriptor type (0b11 = L3 Page)
+```
+
+**Key attributes:**
+- `ATTR_AF` (bit 10) - Access Flag, must be set
+- `ATTR_SH(ATTR_SH_IS)` (bits 9:8 = 0b11) - Inner Shareable
+- `ATTR_S1_AP(ATTR_S1_AP_RO)` (bit 7) - Read-only (AP2=1)
+- `ATTR_S1_IDX(n)` (bits 4:2) - Memory attribute index
+- `ATTR_S1_XN` (bit 54) - Execute Never
+- `L3_PAGE` (bits 1:0 = 0b11) - Valid L3 page descriptor
+
+**Software bits (available for OS use):**
+- Bits 55, 56, 58, 59 are available
+- Using bit 55 for PG_W_IDX (wired)
+- Using bit 56 for PG_MANAGED_IDX (managed page)
+
+### TLB Invalidation
+
+ARM64 TLB invalidation for kernel mappings:
+
+```c
+__asm __volatile(
+    "dsb ishst\n"           /* Ensure PTE store is visible */
+    "tlbi vaae1is, %0\n"    /* Invalidate by VA, all ASIDs, EL1, Inner Shareable */
+    "dsb ish\n"             /* Ensure invalidation completes */
+    "isb"                   /* Synchronize instruction stream */
+    : : "r"(va >> 12)
+);
+```
+
+- `vaae1is` = VA, All ASIDs, EL1, Inner Shareable broadcast
+- Input is VA >> 12 (page number, not full address)
+
+### Testing Strategy
+
+After implementation:
+1. Build kernel via arm64-port-testing agent
+2. Run QEMU test
+3. Expected: Kernel should get past `kmeminit()` and `SI_BOOT1_ALLOCATOR` (0x1400000)
+4. May encounter new issues in later subsystems (SI_BOOT1_KMALLOC = 0x1600000, etc.)
+
+### Risks and Mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| L3 pool exhaustion | Panic with clear message; can increase pool size |
+| Missing L1/L2 entries for KVA | Panic if page tables don't cover VA; locore.s setup should handle this |
+| TLB invalidation issues | Use broadcast invalidate (vaae1is) + full barrier sequence |
+| Incorrect PTE attributes | Start with known-good: WB cache, inner-shareable, AF set |
+
+### Success Criteria
+
+- [ ] Kernel passes `kmeminit()` without translation faults
+- [ ] Kernel continues past `SI_BOOT1_ALLOCATOR` (0x1400000)
+- [ ] No panics from L3 pool exhaustion during early boot
+- [ ] Page mappings work correctly (no data aborts on mapped addresses)
+
+### Related Commits
+
+| Commit | Description |
+|--------|-------------|
+| d3d859db2f | arm64: Reserve x18 register for per-CPU globaldata pointer |
+| 2dcd46ccf9 | Fix ALIST_RECORDS buffer overflow |
+| ea388dc650 | Remove debug output after alist fix |
+
+### References
+
+- FreeBSD `sys/arm64/arm64/pmap.c` - ARM64 pmap implementation
+- FreeBSD `sys/conf/kern.mk` lines 142-155 - ARM64 kernel CFLAGS including `-ffixed-x18`
+- DragonFly `sys/platform/pc64/x86_64/pmap.c` - x86_64 pmap for DragonFly conventions
+- ARM Architecture Reference Manual - Page table format and TLB maintenance
+
+---
+
 ## Development Environment
 
 - **Local repo:** `/Users/tuxillo/s/dragonfly`
@@ -685,4 +1178,4 @@ These debug markers were added during bring-up:
 
 ---
 
-*Last updated: 2026-01-26 (Phase E.5/VM_PHYSSEG_SPARSE complete, vm_page_startup passes)*
+*Last updated: 2026-01-26 (MVP Part 6 added: pmap_enter() implementation plan)*

@@ -45,9 +45,9 @@ The `alst_radix_init()` function accesses array indices up to `skip` value when 
 
 The overflow was corrupting `vm_page_queues[135]` with the value `0xffffffff00000000`, which later caused the PC to jump to invalid addresses (literal pool data at `0x40100a00`).
 
-### Issue 3: x18 Register Clobbering (Current)
+### Issue 3: x18 Register Clobbering (Commit d3d859db2f)
 
-**Status:** Fix identified, implementation pending.
+**Status:** RESOLVED
 
 **Root Cause:** The GCC cross-compiler uses x18 as a general-purpose register, but ARM64 reserves x18 as a platform register. DragonFly uses x18 to hold the per-CPU globaldata pointer (`mycpu`).
 
@@ -64,7 +64,29 @@ The overflow was corrupting `vm_page_queues[135]` with the value `0xffffffff0000
 401021d4:   csel w18, w1, w18, eq   // WRONG
 ```
 
-**Fix:** Add `-ffixed-x18` to kernel CFLAGS in `sys/platform/arm64/conf/kern.mk`, following FreeBSD's pattern (`.freebsd.orig/sys/conf/kern.mk:146`).
+**Fix:** Added `-ffixed-x18` and `-mgeneral-regs-only` to kernel CFLAGS in `sys/platform/arm64/conf/kern.mk`, following FreeBSD's pattern (`.freebsd.orig/sys/conf/kern.mk:146`).
+
+### Issue 4: pmap_enter() Stub (Current)
+
+**Status:** Investigation complete, implementation pending (MVP Part 6).
+
+**Root Cause:** The `pmap_enter()` function in `sys/platform/arm64/aarch64/pmap.c` is an empty stub. When `kmem_slab_alloc()` allocates memory and calls `pmap_enter()` to map it into the kernel virtual address space, nothing happens.
+
+**Symptoms:**
+- Kernel crashes during `SI_BOOT1_ALLOCATOR` (0x1400000) - slab allocator initialization
+- Data Abort in `memset()` when trying to zero newly allocated memory
+- ESR=0x96000046, FAR=0xffffff8008dd3000 (unmapped kernel VA)
+- ELR=0x4040d370 (memset inner loop)
+
+**Call chain:**
+1. `kmeminit()` calls `kmem_slab_alloc(PAGE_SIZE, PAGE_SIZE, M_WAITOK|M_ZERO)`
+2. `kmem_slab_alloc()` allocates physical pages via `vm_page_alloc()`
+3. `kmem_slab_alloc()` calls `pmap_enter()` to map pages into kernel VA space
+4. `pmap_enter()` is empty (stub) - no page table entry created
+5. `pagezero()` / `memset()` tries to access the unmapped VA
+6. **Translation fault** - the VA isn't mapped
+
+**Fix:** Implement `pmap_enter()`, `pmap_kenter()`, and supporting page table walking functions. See `doc/arm64-efi-loader-mvp-part1.md` MVP Part 6 for full implementation plan.
 
 ## Investigation Timeline
 
@@ -89,12 +111,21 @@ The overflow was corrupting `vm_page_queues[135]` with the value `0xffffffff0000
 4. Fixed ALIST_RECORDS constants
 5. Kernel now progresses past `vm_page_startup()` into `kmem_init()`
 
-### Session 4: x18 Register Investigation
+### Session 4: x18 Register Investigation and Fix
 
 1. Kernel crashes in `kmem_init()` with DABT exception
 2. Fault address `0x20003544` = corrupted x18 + offset
 3. Used objdump to find compiler writes to x18
 4. Identified missing `-ffixed-x18` flag
+5. **Fixed** by adding `-ffixed-x18` and `-mgeneral-regs-only` to kern.mk (commit d3d859db2f)
+
+### Session 5: pmap_enter() Investigation
+
+1. After x18 fix, kernel reaches further - crashes in `SI_BOOT1_ALLOCATOR` (0x1400000)
+2. ESR=0x96000046 (DABT translation fault), FAR=0xffffff8008dd3000 (unmapped kernel VA)
+3. Crash is in `memset()` - trying to zero memory that was never mapped
+4. Root cause: `pmap_enter()` is an empty stub
+5. Created full implementation plan as MVP Part 6 in `doc/arm64-efi-loader-mvp-part1.md`
 
 ## Test Results
 
@@ -104,14 +135,15 @@ The overflow was corrupting `vm_page_queues[135]` with the value `0xffffffff0000
 | 2026-01-26 | 6df1e9af2a | PARTIAL | DMAP + MAIR fix - enters page loop but hangs |
 | 2026-01-26 | 2dcd46ccf9 | PARTIAL | ALIST fix - passes vm_page_startup, crashes in kmem_init |
 | 2026-01-26 | ea388dc650 | PARTIAL | Debug cleanup - same state, cleaner output |
-| 2026-01-26 | TBD | PENDING | -ffixed-x18 flag to reserve x18 register |
+| 2026-01-26 | d3d859db2f | PARTIAL | -ffixed-x18 flag - passes kmem_init, crashes in SI_BOOT1_ALLOCATOR |
+| 2026-01-26 | TBD | PENDING | pmap_enter() implementation (MVP Part 6) |
 
 ## Files Modified
 
 ### Core Fixes
 - `sys/cpu/aarch64/include/cpufunc.h` - Memory barrier fix (dmb instructions)
 - `sys/sys/alist.h` - ALIST_RECORDS buffer size fix
-- `sys/platform/arm64/conf/kern.mk` - Add -ffixed-x18 (pending)
+- `sys/platform/arm64/conf/kern.mk` - Added -ffixed-x18 and -mgeneral-regs-only
 
 ### DMAP/Memory Attribute Fixes
 - `sys/platform/arm64/include/vm.h` - ARM64-specific VM_MEMATTR definitions
@@ -151,3 +183,8 @@ make qmp-quit    # Terminate QEMU
 - FreeBSD `sys/conf/kern.mk` lines 142-155 - ARM64 kernel CFLAGS including `-ffixed-x18`
 - FreeBSD `sys/arm64/include/atomic.h` - Proper ARM64 barrier usage
 - ARM Architecture Reference Manual - Memory barrier instructions
+- `doc/arm64-efi-loader-mvp-part1.md` - Main ARM64 port documentation, includes MVP Part 6 (pmap_enter implementation)
+
+---
+
+*Last updated: 2026-01-26 (x18 fix complete, pmap_enter investigation added)*
