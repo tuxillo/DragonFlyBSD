@@ -303,7 +303,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	static int call_count = 0;
 
 	/* Debug: trace entry and PHYS_TO_VM_PAGE call */
-	if (call_count < 10 || (call_count >= 300 && call_count < 400) || (call_count % 1000) == 0) {
+	if (call_count < 10 || call_count == 365 || (call_count % 1000) == 0) {
 		vm_uart_puts("add[");
 		vm_uart_putdec(call_count);
 		vm_uart_puts("] pa=0x");
@@ -314,7 +314,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	m = PHYS_TO_VM_PAGE(pa);
 
 	/* Debug: trace after PHYS_TO_VM_PAGE */
-	if (call_count < 10 || (call_count % 1000) == 0) {
+	if (call_count < 10 || call_count == 365) {
 		vm_uart_puts("  m=0x");
 		vm_uart_puthex((uint64_t)m);
 		vm_uart_puts("\r\n");
@@ -336,7 +336,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 #endif
 
 	/* Debug: trace before m->queue check */
-	if (call_count < 10) {
+	if (call_count < 10 || call_count == 365) {
 		vm_uart_puts("  chk_dup\r\n");
 	}
 
@@ -359,7 +359,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	}
 
 	/* Debug: trace after duplicate check, before page init */
-	if (call_count < 10) {
+	if (call_count < 10 || call_count == 365) {
 		vm_uart_puts("  init\r\n");
 	}
 
@@ -377,7 +377,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	m->pc &= PQ_L2_MASK;
 
 	/* Debug: trace after page init, before reserved check */
-	if (call_count < 10) {
+	if (call_count < 10 || call_count == 365) {
 		vm_uart_puts("  rsvd?\r\n");
 	}
 
@@ -412,7 +412,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	 * NOTE: Non-atomic increments are safe during single-CPU boot.
 	 */
 	/* Debug: trace before queue assignment */
-	if (call_count < 10) {
+	if (call_count < 10 || call_count == 365) {
 		vm_uart_puts("  queue\r\n");
 	}
 
@@ -424,7 +424,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	vpq = &vm_page_queues[m->queue];
 
 	/* Debug: trace before TAILQ_INSERT_HEAD */
-	if (call_count < 10) {
+	if (call_count < 10 || call_count == 365) {
 		vm_uart_puts("  tailq q=");
 		vm_uart_putdec(m->queue);
 		vm_uart_puts("\r\n");
@@ -434,7 +434,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	++vpq->lcnt;
 
 	/* Debug: trace completion */
-	if (call_count < 10) {
+	if (call_count < 10 || call_count == 365) {
 		vm_uart_puts("  done\r\n");
 	}
 
