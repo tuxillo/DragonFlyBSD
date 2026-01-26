@@ -4,6 +4,11 @@
 #   make run          - Run loader interactively (Ctrl-A X to exit)
 #   make run-gui      - Run loader with graphical display
 #   make test         - Run loader with timeout (auto-exits after TEST_TIMEOUT)
+#   make debug        - Run with QMP enabled for debugging (use qmp-* targets)
+#   make qmp-regs     - Query CPU registers via QMP
+#   make qmp-stop     - Stop/pause the VM
+#   make qmp-cont     - Continue/resume the VM
+#   make qmp-quit     - Quit QEMU
 #   make copy-loader  - Copy loader from VM
 #   make copy-kernel  - Copy kernel from VM (regenerates stripped version)
 #   make copy-all     - Copy both loader and kernel from VM
@@ -31,6 +36,9 @@ QEMU_MACHINE    ?= virt
 QEMU_MEMORY     ?= 512M
 QEMU_BIOS       ?= /opt/homebrew/share/qemu/edk2-aarch64-code.fd
 TEST_TIMEOUT    ?= 45
+
+# QMP (QEMU Machine Protocol) settings for debugging
+QMP_SOCKET      := $(VM_DIR)/qmp.sock
 
 # Acceleration: hvf (macOS), kvm (Linux), or tcg (software, portable)
 # HVF provides near-native speed on Apple Silicon Macs
@@ -63,9 +71,12 @@ QEMU_ARGS_BASE = \
 
 QEMU_ARGS     = $(QEMU_ARGS_BASE) -device ramfb -display none
 QEMU_ARGS_GUI = $(QEMU_ARGS_BASE) -device ramfb -device qemu-xhci -device usb-kbd
+QEMU_ARGS_DBG = $(QEMU_ARGS_BASE) -device ramfb -display none \
+	-qmp unix:$(QMP_SOCKET),server,nowait
 QEMU_DRIVE    = -drive file=fat:rw:$(EFI_DIR),format=raw,media=disk
 
-.PHONY: all run run-gui test copy-loader copy-kernel copy-all clean help check-deps
+.PHONY: all run run-gui test debug copy-loader copy-kernel copy-all clean help check-deps
+.PHONY: qmp-regs qmp-stop qmp-cont qmp-quit qmp-cmd
 
 all: help
 
@@ -81,6 +92,11 @@ help:
 	@echo "  make run          - Run interactively (Ctrl-A X to exit)"
 	@echo "  make run-gui      - Run with graphical display"
 	@echo "  make test         - Run with $(TEST_TIMEOUT)s timeout"
+	@echo "  make debug        - Run with QMP for debugging"
+	@echo "  make qmp-regs     - Query CPU registers (use with debug)"
+	@echo "  make qmp-stop     - Pause the VM"
+	@echo "  make qmp-cont     - Resume the VM"
+	@echo "  make qmp-quit     - Quit QEMU"
 	@echo "  make copy-loader  - Copy loader from remote VM"
 	@echo "  make copy-kernel  - Copy kernel from remote VM"
 	@echo "  make copy-all     - Copy both loader and kernel"
@@ -155,4 +171,54 @@ test: check-deps
 clean:
 	@echo "Removing $(EFI_DIR)..."
 	rm -rf $(EFI_DIR)
+	rm -f $(QMP_SOCKET)
 	@echo "Cached files preserved: $(LOADER_EFI) $(KERNEL_ELF)"
+
+# Run QEMU with QMP enabled for debugging
+# Use in one terminal, then qmp-* targets in another
+debug: check-deps
+	@test -f $(BOOTAA64_EFI) || { echo "Error: Run 'make copy-all' first"; exit 1; }
+	@test -f $(KERNEL_DIR)/kernel || { echo "Error: Run 'make copy-all' first"; exit 1; }
+	@rm -f $(QMP_SOCKET)
+	@printf "BOOTAA64.EFI\r\n" > $(STARTUP_NSH)
+	@echo "Starting QEMU with QMP on $(QMP_SOCKET)..."
+	@echo "Use 'make qmp-regs' in another terminal to query registers"
+	@echo "Use 'make qmp-quit' to exit, or Ctrl-A X"
+	$(QEMU) $(QEMU_ARGS_DBG) $(QEMU_DRIVE)
+
+# QMP helper: send a command and get response
+# Usage: make qmp-cmd CMD='{"execute":"query-status"}'
+qmp-cmd:
+	@test -S $(QMP_SOCKET) || { echo "Error: QEMU not running with QMP. Use 'make debug' first"; exit 1; }
+	@(echo '{"execute":"qmp_capabilities"}'; sleep 0.1; echo '$(CMD)') | \
+		nc -U $(QMP_SOCKET) | tail -1 | python3 -m json.tool 2>/dev/null || \
+		(echo '{"execute":"qmp_capabilities"}'; sleep 0.1; echo '$(CMD)') | nc -U $(QMP_SOCKET) | tail -1
+
+# Query CPU registers
+qmp-regs:
+	@test -S $(QMP_SOCKET) || { echo "Error: QEMU not running with QMP. Use 'make debug' first"; exit 1; }
+	@(echo '{"execute":"qmp_capabilities"}'; sleep 0.1; \
+	  echo '{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}') | \
+		nc -U $(QMP_SOCKET) | tail -1 | python3 -c "import sys,json; r=json.load(sys.stdin); print(r.get('return',''))" 2>/dev/null || \
+		(echo '{"execute":"qmp_capabilities"}'; sleep 0.1; \
+		 echo '{"execute":"human-monitor-command","arguments":{"command-line":"info registers"}}') | \
+		nc -U $(QMP_SOCKET) | tail -1
+
+# Stop/pause the VM
+qmp-stop:
+	@test -S $(QMP_SOCKET) || { echo "Error: QEMU not running with QMP. Use 'make debug' first"; exit 1; }
+	@(echo '{"execute":"qmp_capabilities"}'; sleep 0.1; echo '{"execute":"stop"}') | \
+		nc -U $(QMP_SOCKET) | tail -1
+
+# Continue/resume the VM
+qmp-cont:
+	@test -S $(QMP_SOCKET) || { echo "Error: QEMU not running with QMP. Use 'make debug' first"; exit 1; }
+	@(echo '{"execute":"qmp_capabilities"}'; sleep 0.1; echo '{"execute":"cont"}') | \
+		nc -U $(QMP_SOCKET) | tail -1
+
+# Quit QEMU
+qmp-quit:
+	@test -S $(QMP_SOCKET) || { echo "Error: QEMU not running with QMP. Use 'make debug' first"; exit 1; }
+	@(echo '{"execute":"qmp_capabilities"}'; sleep 0.1; echo '{"execute":"quit"}') | \
+		nc -U $(QMP_SOCKET) >/dev/null 2>&1 || true
+	@echo "QEMU terminated"

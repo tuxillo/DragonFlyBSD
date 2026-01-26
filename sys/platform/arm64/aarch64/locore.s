@@ -208,38 +208,476 @@ hex_digits:
 
 	.align	11
 exception_vectors:
+	/* Current EL with SP0 (not used) */
+	b	exception_sync		/* Synchronous */
+	.align 7
+	b	exception_irq		/* IRQ */
+	.align 7
+	b	exception_fiq		/* FIQ */
+	.align 7
+	b	exception_serror	/* SError */
+	.align 7
+	/* Current EL with SPx (our normal case) */
+	b	exception_sync		/* Synchronous */
+	.align 7
+	b	exception_irq		/* IRQ */
+	.align 7
+	b	exception_fiq		/* FIQ */
+	.align 7
+	b	exception_serror	/* SError */
+	.align 7
+	/* Lower EL using AArch64 (not used yet) */
 	b	exception_sync
+	.align 7
+	b	exception_irq
+	.align 7
+	b	exception_fiq
+	.align 7
+	b	exception_serror
+	.align 7
+	/* Lower EL using AArch32 (not used) */
 	b	exception_spin
+	.align 7
 	b	exception_spin
+	.align 7
 	b	exception_spin
-	b	exception_sync
-	b	exception_spin
-	b	exception_spin
-	b	exception_spin
-	b	exception_spin
-	b	exception_spin
-	b	exception_spin
-	b	exception_spin
-	b	exception_spin
-	b	exception_spin
-	b	exception_spin
+	.align 7
 	b	exception_spin
 
 exception_sync:
-	ldr	x0, =exc_sync_msg
-	bl	uart_puts
-	mrs	x0, esr_el1
-	bl	uart_puthex
-	ldr	x0, =exc_far_msg
-	bl	uart_puts
-	mrs	x0, far_el1
-	bl	uart_puthex
-	ldr	x0, =exc_elr_msg
-	bl	uart_puts
-	mrs	x0, elr_el1
-	bl	uart_puthex
-	ldr	x0, =exc_end_msg
-	bl	uart_puts
+	/*
+	 * Synchronous exception handler - print diagnostic info.
+	 * We must be very careful here - the system is in an unknown state.
+	 * Save all registers we use to stack first, use only inline UART I/O.
+	 */
+	
+	/* Save registers we'll use (x0-x7, x30) */
+	sub	sp, sp, #80
+	stp	x0, x1, [sp, #0]
+	stp	x2, x3, [sp, #16]
+	stp	x4, x5, [sp, #32]
+	stp	x6, x7, [sp, #48]
+	str	x30, [sp, #64]
+	
+	/* Read exception registers immediately before anything else */
+	mrs	x4, esr_el1		/* Exception Syndrome Register */
+	mrs	x5, far_el1		/* Fault Address Register */
+	mrs	x6, elr_el1		/* Exception Link Register */
+	mrs	x7, spsr_el1		/* Saved PSTATE */
+	
+	/* UART base address */
+	mov	x1, #0x09000000
+	
+	/* Print newline and header */
+	mov	w0, #'\r'
+	strb	w0, [x1]
+	mov	w0, #'\n'
+	strb	w0, [x1]
+	mov	w0, #'!'
+	strb	w0, [x1]
+	mov	w0, #'!'
+	strb	w0, [x1]
+	mov	w0, #'!'
+	strb	w0, [x1]
+	mov	w0, #' '
+	strb	w0, [x1]
+	mov	w0, #'E'
+	strb	w0, [x1]
+	mov	w0, #'X'
+	strb	w0, [x1]
+	mov	w0, #'C'
+	strb	w0, [x1]
+	mov	w0, #' '
+	strb	w0, [x1]
+	
+	/* Print "ESR=" */
+	mov	w0, #'E'
+	strb	w0, [x1]
+	mov	w0, #'S'
+	strb	w0, [x1]
+	mov	w0, #'R'
+	strb	w0, [x1]
+	mov	w0, #'='
+	strb	w0, [x1]
+	
+	/* Print ESR value (x4) as hex - inline */
+	mov	x2, x4			/* Value to print */
+	mov	x3, #60			/* Start from bit 60 (top nibble) */
+1:
+	lsr	x0, x2, x3		/* Shift right */
+	and	x0, x0, #0xf		/* Extract nibble */
+	cmp	x0, #10
+	blt	2f
+	add	x0, x0, #('a' - 10)
+	b	3f
+2:
+	add	x0, x0, #'0'
+3:
+	strb	w0, [x1]
+	subs	x3, x3, #4
+	bge	1b
+	
+	/* Print " FAR=" */
+	mov	w0, #' '
+	strb	w0, [x1]
+	mov	w0, #'F'
+	strb	w0, [x1]
+	mov	w0, #'A'
+	strb	w0, [x1]
+	mov	w0, #'R'
+	strb	w0, [x1]
+	mov	w0, #'='
+	strb	w0, [x1]
+	
+	/* Print FAR value (x5) as hex */
+	mov	x2, x5
+	mov	x3, #60
+1:
+	lsr	x0, x2, x3
+	and	x0, x0, #0xf
+	cmp	x0, #10
+	blt	2f
+	add	x0, x0, #('a' - 10)
+	b	3f
+2:
+	add	x0, x0, #'0'
+3:
+	strb	w0, [x1]
+	subs	x3, x3, #4
+	bge	1b
+	
+	/* Print " ELR=" */
+	mov	w0, #' '
+	strb	w0, [x1]
+	mov	w0, #'E'
+	strb	w0, [x1]
+	mov	w0, #'L'
+	strb	w0, [x1]
+	mov	w0, #'R'
+	strb	w0, [x1]
+	mov	w0, #'='
+	strb	w0, [x1]
+	
+	/* Print ELR value (x6) as hex */
+	mov	x2, x6
+	mov	x3, #60
+1:
+	lsr	x0, x2, x3
+	and	x0, x0, #0xf
+	cmp	x0, #10
+	blt	2f
+	add	x0, x0, #('a' - 10)
+	b	3f
+2:
+	add	x0, x0, #'0'
+3:
+	strb	w0, [x1]
+	subs	x3, x3, #4
+	bge	1b
+	
+	/* Print " SPSR=" */
+	mov	w0, #' '
+	strb	w0, [x1]
+	mov	w0, #'S'
+	strb	w0, [x1]
+	mov	w0, #'P'
+	strb	w0, [x1]
+	mov	w0, #'S'
+	strb	w0, [x1]
+	mov	w0, #'R'
+	strb	w0, [x1]
+	mov	w0, #'='
+	strb	w0, [x1]
+	
+	/* Print SPSR value (x7) as hex */
+	mov	x2, x7
+	mov	x3, #60
+1:
+	lsr	x0, x2, x3
+	and	x0, x0, #0xf
+	cmp	x0, #10
+	blt	2f
+	add	x0, x0, #('a' - 10)
+	b	3f
+2:
+	add	x0, x0, #'0'
+3:
+	strb	w0, [x1]
+	subs	x3, x3, #4
+	bge	1b
+	
+	/* Print newline */
+	mov	w0, #'\r'
+	strb	w0, [x1]
+	mov	w0, #'\n'
+	strb	w0, [x1]
+	
+	/* 
+	 * Decode ESR exception class (bits 31:26) and print human-readable info.
+	 * Common exception classes:
+	 *   0x00 = Unknown
+	 *   0x21 = Instruction abort from lower EL
+	 *   0x22 = Instruction abort from same EL
+	 *   0x24 = Data abort from lower EL
+	 *   0x25 = Data abort from same EL
+	 *   0x26 = SP alignment fault
+	 *   0x2c = FP exception
+	 *   0x3c = BRK instruction
+	 */
+	lsr	x2, x4, #26		/* Extract EC field */
+	and	x2, x2, #0x3f
+	
+	/* Print "EC=" */
+	mov	w0, #'E'
+	strb	w0, [x1]
+	mov	w0, #'C'
+	strb	w0, [x1]
+	mov	w0, #'='
+	strb	w0, [x1]
+	
+	/* Print EC as 2-digit hex */
+	lsr	x0, x2, #4
+	and	x0, x0, #0xf
+	cmp	x0, #10
+	blt	4f
+	add	x0, x0, #('a' - 10)
+	b	5f
+4:
+	add	x0, x0, #'0'
+5:
+	strb	w0, [x1]
+	and	x0, x2, #0xf
+	cmp	x0, #10
+	blt	6f
+	add	x0, x0, #('a' - 10)
+	b	7f
+6:
+	add	x0, x0, #'0'
+7:
+	strb	w0, [x1]
+	
+	/* Print exception type based on EC */
+	mov	w0, #' '
+	strb	w0, [x1]
+	mov	w0, #'('
+	strb	w0, [x1]
+	
+	/* Check for common exception types */
+	cmp	x2, #0x25		/* Data abort same EL? */
+	beq	print_data_abort
+	cmp	x2, #0x24		/* Data abort lower EL? */
+	beq	print_data_abort
+	cmp	x2, #0x22		/* Instruction abort same EL? */
+	beq	print_insn_abort
+	cmp	x2, #0x21		/* Instruction abort lower EL? */
+	beq	print_insn_abort
+	cmp	x2, #0x00		/* Unknown? */
+	beq	print_unknown
+	b	print_other
+
+print_data_abort:
+	mov	w0, #'D'
+	strb	w0, [x1]
+	mov	w0, #'A'
+	strb	w0, [x1]
+	mov	w0, #'B'
+	strb	w0, [x1]
+	mov	w0, #'T'
+	strb	w0, [x1]
+	b	print_ec_done
+
+print_insn_abort:
+	mov	w0, #'I'
+	strb	w0, [x1]
+	mov	w0, #'A'
+	strb	w0, [x1]
+	mov	w0, #'B'
+	strb	w0, [x1]
+	mov	w0, #'T'
+	strb	w0, [x1]
+	b	print_ec_done
+
+print_unknown:
+	mov	w0, #'U'
+	strb	w0, [x1]
+	mov	w0, #'N'
+	strb	w0, [x1]
+	mov	w0, #'K'
+	strb	w0, [x1]
+	mov	w0, #'N'
+	strb	w0, [x1]
+	b	print_ec_done
+
+print_other:
+	mov	w0, #'?'
+	strb	w0, [x1]
+	mov	w0, #'?'
+	strb	w0, [x1]
+	mov	w0, #'?'
+	strb	w0, [x1]
+	mov	w0, #'?'
+	strb	w0, [x1]
+
+print_ec_done:
+	mov	w0, #')'
+	strb	w0, [x1]
+	mov	w0, #'\r'
+	strb	w0, [x1]
+	mov	w0, #'\n'
+	strb	w0, [x1]
+	
+	/* Fall through to exception_spin */
+	b	exception_spin
+
+/*
+ * IRQ exception handler - just print marker and spin
+ */
+exception_irq:
+	mov	x1, #0x09000000
+	mov	w0, #'\r'
+	strb	w0, [x1]
+	mov	w0, #'\n'
+	strb	w0, [x1]
+	mov	w0, #'!'
+	strb	w0, [x1]
+	mov	w0, #'!'
+	strb	w0, [x1]
+	mov	w0, #'!'
+	strb	w0, [x1]
+	mov	w0, #' '
+	strb	w0, [x1]
+	mov	w0, #'I'
+	strb	w0, [x1]
+	mov	w0, #'R'
+	strb	w0, [x1]
+	mov	w0, #'Q'
+	strb	w0, [x1]
+	mov	w0, #'\r'
+	strb	w0, [x1]
+	mov	w0, #'\n'
+	strb	w0, [x1]
+	b	exception_spin
+
+/*
+ * FIQ exception handler - just print marker and spin
+ */
+exception_fiq:
+	mov	x1, #0x09000000
+	mov	w0, #'\r'
+	strb	w0, [x1]
+	mov	w0, #'\n'
+	strb	w0, [x1]
+	mov	w0, #'!'
+	strb	w0, [x1]
+	mov	w0, #'!'
+	strb	w0, [x1]
+	mov	w0, #'!'
+	strb	w0, [x1]
+	mov	w0, #' '
+	strb	w0, [x1]
+	mov	w0, #'F'
+	strb	w0, [x1]
+	mov	w0, #'I'
+	strb	w0, [x1]
+	mov	w0, #'Q'
+	strb	w0, [x1]
+	mov	w0, #'\r'
+	strb	w0, [x1]
+	mov	w0, #'\n'
+	strb	w0, [x1]
+	b	exception_spin
+
+/*
+ * SError exception handler - print info and spin
+ * SError is typically a hardware error (e.g., bus error)
+ */
+exception_serror:
+	mov	x1, #0x09000000
+	mrs	x4, esr_el1		/* Get ESR for info */
+	mrs	x5, far_el1
+	mrs	x6, elr_el1
+	
+	mov	w0, #'\r'
+	strb	w0, [x1]
+	mov	w0, #'\n'
+	strb	w0, [x1]
+	mov	w0, #'!'
+	strb	w0, [x1]
+	mov	w0, #'!'
+	strb	w0, [x1]
+	mov	w0, #'!'
+	strb	w0, [x1]
+	mov	w0, #' '
+	strb	w0, [x1]
+	mov	w0, #'S'
+	strb	w0, [x1]
+	mov	w0, #'E'
+	strb	w0, [x1]
+	mov	w0, #'R'
+	strb	w0, [x1]
+	mov	w0, #'R'
+	strb	w0, [x1]
+	mov	w0, #' '
+	strb	w0, [x1]
+	mov	w0, #'E'
+	strb	w0, [x1]
+	mov	w0, #'S'
+	strb	w0, [x1]
+	mov	w0, #'R'
+	strb	w0, [x1]
+	mov	w0, #'='
+	strb	w0, [x1]
+	
+	/* Print ESR as hex */
+	mov	x2, x4
+	mov	x3, #60
+1:
+	lsr	x0, x2, x3
+	and	x0, x0, #0xf
+	cmp	x0, #10
+	blt	2f
+	add	x0, x0, #('a' - 10)
+	b	3f
+2:
+	add	x0, x0, #'0'
+3:
+	strb	w0, [x1]
+	subs	x3, x3, #4
+	bge	1b
+	
+	mov	w0, #' '
+	strb	w0, [x1]
+	mov	w0, #'E'
+	strb	w0, [x1]
+	mov	w0, #'L'
+	strb	w0, [x1]
+	mov	w0, #'R'
+	strb	w0, [x1]
+	mov	w0, #'='
+	strb	w0, [x1]
+	
+	/* Print ELR as hex */
+	mov	x2, x6
+	mov	x3, #60
+1:
+	lsr	x0, x2, x3
+	and	x0, x0, #0xf
+	cmp	x0, #10
+	blt	2f
+	add	x0, x0, #('a' - 10)
+	b	3f
+2:
+	add	x0, x0, #'0'
+3:
+	strb	w0, [x1]
+	subs	x3, x3, #4
+	bge	1b
+	
+	mov	w0, #'\r'
+	strb	w0, [x1]
+	mov	w0, #'\n'
+	strb	w0, [x1]
+	b	exception_spin
 
 exception_spin:
 	wfi
