@@ -173,9 +173,6 @@ vm_page_queue_init(void)
 {
 	int i;
 
-	kprintf("vm_page_queue_init: vm_page_queues=%p PQ_COUNT=%d\n",
-	    vm_page_queues, PQ_COUNT);
-
 	for (i = 0; i < PQ_L2_SIZE; i++)
 		vm_page_queues[PQ_FREE+i].cnt_offset =
 			offsetof(struct vmstats, v_free_count);
@@ -331,12 +328,6 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
 
-	/* Debug: check for corrupted queue before insert */
-	if (vpq->pl.tqh_first != NULL) {
-		kprintf("vm_add_new_page: queue %d tqh_first=%p (expected NULL)\n",
-		    m->queue, vpq->pl.tqh_first);
-	}
-
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
 	++vpq->lcnt;
 }
@@ -413,10 +404,6 @@ vm_page_startup(void)
 	 */
 	vm_page_queue_init();
 
-	/* Debug: verify queue 135 immediately after init */
-	kprintf("after vm_page_queue_init: queue[135].tqh_first=%p\n",
-	    vm_page_queues[135].pl.tqh_first);
-
 #if !defined(_KERNEL_VIRTUAL)
 	/*
 	 * VKERNELs don't support minidumps and as such don't need
@@ -437,15 +424,8 @@ vm_page_startup(void)
 	end -= vm_page_dump_size;
 	vm_page_dump = (void *)pmap_map(&vaddr, end, end + vm_page_dump_size,
 					VM_PROT_READ | VM_PROT_WRITE);
-	kprintf("vm_page_dump=%p size=%lu queue[135].tqh_first before=%p\n",
-	    vm_page_dump, (unsigned long)vm_page_dump_size,
-	    vm_page_queues[135].pl.tqh_first);
 	bzero((void *)vm_page_dump, vm_page_dump_size);
-	kprintf("queue[135].tqh_first after vm_page_dump bzero=%p\n",
-	    vm_page_queues[135].pl.tqh_first);
 #endif
-	kprintf("CHKPT-A: queue[135].tqh_first=%p (after vm_page_dump section)\n",
-	    vm_page_queues[135].pl.tqh_first);
 	/*
 	 * Compute the number of pages of memory that will be available for
 	 * use (taking into account the overhead of a page structure per
@@ -466,24 +446,14 @@ vm_page_startup(void)
 	 * For sparse configurations, page_range is the sum of pages in all
 	 * segments (no gaps).  Register each segment with vm_phys.
 	 */
-	kprintf("CHKPT-B: queue[135].tqh_first=%p (before vm_phys_add_seg loop)\n",
-	    vm_page_queues[135].pl.tqh_first);
 	page_range = 0;
 	for (int j = 0; phys_avail[j].phys_end; ++j) {
 		vm_paddr_t seg_pages;
 		seg_pages = (phys_avail[j].phys_end - phys_avail[j].phys_beg) /
 			    PAGE_SIZE;
 		page_range += seg_pages;
-		kprintf("CHKPT-B%d: before vm_phys_add_seg(0x%lx, 0x%lx) q135=%p\n",
-		    j, (unsigned long)phys_avail[j].phys_beg,
-		    (unsigned long)phys_avail[j].phys_end,
-		    vm_page_queues[135].pl.tqh_first);
 		vm_phys_add_seg(phys_avail[j].phys_beg, phys_avail[j].phys_end);
-		kprintf("CHKPT-B%d: after vm_phys_add_seg q135=%p\n",
-		    j, vm_page_queues[135].pl.tqh_first);
 	}
-	kprintf("CHKPT-C: queue[135].tqh_first=%p (after vm_phys_add_seg loop)\n",
-	    vm_page_queues[135].pl.tqh_first);
 #else
 	/*
 	 * For dense configurations, page_range spans from first to last
@@ -515,13 +485,8 @@ vm_page_startup(void)
 			vm_dma_reserved = total / 16;
 	}
 #endif
-	kprintf("CHKPT-D: queue[135].tqh_first=%p (before alist_init)\n",
-	    vm_page_queues[135].pl.tqh_first);
-	kprintf("  vm_contig_ameta=%p\n", vm_contig_ameta);
 	alist_init(&vm_contig_alist, 65536, vm_contig_ameta,
 		   ALIST_RECORDS_65536);
-	kprintf("CHKPT-E: queue[135].tqh_first=%p (after alist_init)\n",
-	    vm_page_queues[135].pl.tqh_first);
 
 	/*
 	 * Initialize the mem entry structures now, and put them in the free
@@ -530,13 +495,7 @@ vm_page_startup(void)
 	if (bootverbose && ctob(physmem) >= 400LL*1024*1024*1024)
 		kprintf("initializing vm_page_array ");
 	new_end = trunc_page(end - page_range * sizeof(struct vm_page));
-	kprintf("CHKPT-F: queue[135].tqh_first=%p (before pmap_map for vm_page_array)\n",
-	    vm_page_queues[135].pl.tqh_first);
-	kprintf("  new_end=0x%lx end=0x%lx page_range=%lu\n",
-	    (unsigned long)new_end, (unsigned long)end, (unsigned long)page_range);
 	mapped = pmap_map(&vaddr, new_end, end, VM_PROT_READ | VM_PROT_WRITE);
-	kprintf("CHKPT-G: queue[135].tqh_first=%p (after pmap_map)\n",
-	    vm_page_queues[135].pl.tqh_first);
 	vm_page_array = (vm_page_t)mapped;
 
 #if defined(__x86_64__) && !defined(_KERNEL_VIRTUAL)
@@ -557,14 +516,7 @@ vm_page_startup(void)
 	 * PHYS_TO_VM_PAGE() operates properly even on pages not in the
 	 * map.
 	 */
-	kprintf("vm_page_array=%p size=%lu (phys new_end=0x%lx end=0x%lx)\n",
-	    vm_page_array, (unsigned long)(page_range * sizeof(struct vm_page)),
-	    (unsigned long)new_end, (unsigned long)end);
-	kprintf("vm_page_queues[135]=%p (tqh_first before bzero=%p)\n",
-	    &vm_page_queues[135], vm_page_queues[135].pl.tqh_first);
 	bzero((caddr_t) vm_page_array, page_range * sizeof(struct vm_page));
-	kprintf("vm_page_queues[135].tqh_first after bzero=%p\n",
-	    vm_page_queues[135].pl.tqh_first);
 	vm_page_array_size = page_range;
 	if (bootverbose && ctob(physmem) >= 400LL*1024*1024*1024)
 		kprintf("vm_page_array_size = 0x%zx\n", vm_page_array_size);
