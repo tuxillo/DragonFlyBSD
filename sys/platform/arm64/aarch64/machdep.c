@@ -376,8 +376,18 @@ arm64_pmap_bootstrap(struct arm64_phys_range *ranges, int count)
 	 * So DMAP and kernel use different L0 entries - no conflict.
 	 */
 
-	/* Find the physical address range to map */
-	dmap_phys_base = ranges[0].start & ~0x1fffffULL;  /* 2MB align down */
+	/*
+	 * Find the physical address range to map.
+	 *
+	 * IMPORTANT: We must include the kernel load address (ARM64_PHYSBASE)
+	 * in the DMAP range, even if the EFI memory map's first usable range
+	 * starts higher. The kernel's page tables (including pre-allocated
+	 * L3 tables in BSS) are at physical addresses starting from
+	 * ARM64_PHYSBASE, and pmap_enter() uses PHYS_TO_DMAP() to access them.
+	 *
+	 * If dmap_phys_base > ARM64_PHYSBASE, PHYS_TO_DMAP() would underflow.
+	 */
+	dmap_phys_base = ARM64_PHYSBASE & ~0x1fffffULL;  /* 2MB align down */
 	dmap_phys_max = 0;
 	for (int i = 0; i < count; i++) {
 		if (ranges[i].end > dmap_phys_max)
