@@ -177,7 +177,12 @@ pmap_alloc_l3(pmap_t pmap __unused, pd_entry_t *l2, vm_offset_t va)
 	l3 = kern_l3_pages[kern_l3_next++];
 	bzero(l3, PAGE_SIZE);
 
-	l3_pa = DMAP_TO_PHYS((vm_offset_t)l3);
+	/*
+	 * Get physical address of the L3 table. The kern_l3_pages array
+	 * is in kernel BSS, so use pmap_kextract() which handles both
+	 * DMAP and kernel address translation.
+	 */
+	l3_pa = pmap_kextract((vm_offset_t)l3);
 
 	/* Install L2 entry pointing to new L3 table */
 	*l2 = l3_pa | L2_TABLE;
@@ -446,15 +451,52 @@ pmap_extract_done(void *handle __unused)
 }
 
 /*
+ * Physical address of the kernel load address.
+ * Set by initarm() based on where UEFI loaded us.
+ */
+vm_paddr_t kern_phys_base = 0x40000000UL;	/* Default QEMU load address */
+
+/*
  * Extract kernel virtual address to physical.
  *
- * For arm64 with identity DMAP, VA == PA for physical memory.
- * This will need to be updated when we have a real DMAP offset.
+ * For DMAP addresses, use the DMAP_TO_PHYS macro.
+ * For kernel text/data/bss addresses (KERNBASE region), use the
+ * AT S1E1R instruction to query the MMU for the translation.
  */
 vm_paddr_t
 pmap_kextract(vm_offset_t va)
 {
-	return (DMAP_TO_PHYS(va));
+	uint64_t par;
+
+	/* Check if this is a DMAP address */
+	if (va >= DMAP_MIN_ADDRESS && va < DMAP_MAX_ADDRESS)
+		return (DMAP_TO_PHYS(va));
+
+	/*
+	 * For kernel addresses, use address translation instruction.
+	 * AT S1E1R performs a stage 1 EL1 read translation and stores
+	 * the result in PAR_EL1.
+	 */
+	__asm __volatile(
+		"at s1e1r, %1\n"
+		"isb\n"
+		"mrs %0, par_el1"
+		: "=r"(par) : "r"(va)
+	);
+
+	/* Check for translation failure (bit 0 set) */
+	if (par & 1) {
+		/*
+		 * Translation failed. For kernel BSS during early boot,
+		 * fall back to simple KERNBASE-relative calculation.
+		 */
+		if (va >= KERNBASE)
+			return (kern_phys_base + (va - KERNBASE));
+		return (0);
+	}
+
+	/* Extract physical address from PAR_EL1 */
+	return ((par & 0x0000fffffffff000UL) | (va & PAGE_MASK));
 }
 
 /*
