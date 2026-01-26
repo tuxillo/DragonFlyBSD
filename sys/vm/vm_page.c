@@ -524,10 +524,21 @@ vm_page_startup(void)
 			    (unsigned long)phys_avail[i].phys_beg,
 			    (unsigned long)phys_avail[i].phys_end);
 			pa = phys_avail[i].phys_beg;
+			if (progress == 0) {
+				kprintf("  first page pa=0x%lx\n",
+				    (unsigned long)pa);
+			}
 			while (pa < phys_avail[i].phys_end) {
+				if (progress == 0) {
+					kprintf("  calling vm_add_new_page\n");
+				}
 				vm_add_new_page(pa, &badcount);
+				if (progress == 0) {
+					kprintf("  vm_add_new_page returned\n");
+				}
 				pa += PAGE_SIZE;
-				if (++progress % 10000 == 0)
+				++progress;
+				if (progress % 10000 == 0)
 					kprintf("  %ld pages added\n", progress);
 			}
 		}
