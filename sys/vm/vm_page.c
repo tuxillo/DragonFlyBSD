@@ -130,7 +130,7 @@ vm_uart_puthex(u_int64_t value)
 		vm_uart_putc(hex[(value >> shift) & 0xf]);
 }
 
-static void
+static void __attribute__((unused))
 vm_uart_putdec(u_int64_t value)
 {
 	char buf[21];  /* max 20 digits for 64-bit + null */
@@ -296,15 +296,23 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	static int call_count = 0;
 
 #ifdef __aarch64__
-	/* Debug: every iteration from 360-370 */
-	if (call_count >= 360 && call_count < 370) {
-		vm_uart_puts("add[");
-		vm_uart_putdec(call_count);
-		vm_uart_puts("]\r\n");
+	/* Debug: detailed output at iteration 365 where we hang */
+	if (call_count == 365) {
+		vm_uart_puts("add[365] ENTRY pa=0x");
+		vm_uart_puthex(pa);
+		vm_uart_puts("\r\n");
 	}
 #endif
 
 	m = PHYS_TO_VM_PAGE(pa);
+
+#ifdef __aarch64__
+	if (call_count == 365) {
+		vm_uart_puts("add[365] after PHYS_TO_VM_PAGE m=0x");
+		vm_uart_puthex((u_int64_t)(uintptr_t)m);
+		vm_uart_puts("\r\n");
+	}
+#endif
 
 	/*
 	 * For VM_PHYSSEG_SPARSE, PHYS_TO_VM_PAGE can return NULL for
@@ -327,6 +335,10 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	 * is pre-initialized, so use m->queue as a check.
 	 */
 	if (m->queue) {
+#ifdef __aarch64__
+		if (call_count == 365)
+			vm_uart_puts("add[365] duplicate pa check failed\r\n");
+#endif
 		if (*badcountp < 10) {
 			kprintf("vm_add_new_page: duplicate pa %016jx\n",
 				(intmax_t)pa);
@@ -339,6 +351,10 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 		return;
 	}
 
+#ifdef __aarch64__
+	if (call_count == 365)
+		vm_uart_puts("add[365] setting m->phys_addr\r\n");
+#endif
 	m->phys_addr = pa;
 	m->flags = 0;
 	m->pat_mode = PAT_WRITE_BACK;
@@ -382,13 +398,29 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	 *
 	 * NOTE: Non-atomic increments are safe during single-CPU boot.
 	 */
+#ifdef __aarch64__
+	if (call_count == 365)
+		vm_uart_puts("add[365] setting m->queue\r\n");
+#endif
 	m->queue = m->pc + PQ_FREE;
 	KKASSERT(m->dirty == 0);
 
+#ifdef __aarch64__
+	if (call_count == 365)
+		vm_uart_puts("add[365] incrementing vmstats\r\n");
+#endif
 	vmstats.v_page_count++;
 	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
+#ifdef __aarch64__
+	if (call_count == 365)
+		vm_uart_puts("add[365] calling TAILQ_INSERT_HEAD\r\n");
+#endif
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
+#ifdef __aarch64__
+	if (call_count == 365)
+		vm_uart_puts("add[365] DONE\r\n");
+#endif
 	++vpq->lcnt;
 	call_count++;
 }
