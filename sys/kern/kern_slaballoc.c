@@ -259,16 +259,6 @@ kmem_lim_size(void)
     limsize = (size_t)vmstats.v_page_count * PAGE_SIZE;
     if (limsize > KvaSize)
 	limsize = KvaSize;
-#ifdef __aarch64__
-    /* Debug: show intermediate values */
-    static int kmem_lim_debug = 0;
-    if (!kmem_lim_debug) {
-	kmem_lim_debug = 1;
-	kprintf("kmem_lim_size: v_page_count=%ld PAGE_SIZE=%d raw_limsize=0x%zx KvaSize=0x%lx result=%zu MB\n",
-	    vmstats.v_page_count, PAGE_SIZE, (size_t)vmstats.v_page_count * PAGE_SIZE,
-	    (unsigned long)KvaSize, limsize / (1024 * 1024));
-    }
-#endif
     return (limsize / (1024 * 1024));
 }
 
@@ -380,11 +370,6 @@ malloc_init(void *data)
 
     limsize = kmem_lim_size() * (1024 * 1024);
     type->ks_limit = limsize / 10;
-#ifdef __aarch64__
-    kprintf("malloc_init(%s): v_page_count=%ld KvaSize=0x%lx kmem_lim=%zu limsize=%zu ks_limit=%zu\n",
-	type->ks_shortdesc, vmstats.v_page_count, (unsigned long)KvaSize,
-	kmem_lim_size(), limsize, type->ks_limit);
-#endif
     if (type->ks_flags & KSF_OBJSIZE)
 	    malloc_mgt_init(type, &type->ks_mgt, type->ks_objsize);
 
@@ -879,10 +864,6 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
 	int i;
 	long ttl;
 
-#ifdef __aarch64__
-	kprintf("kmalloc(%s): limit check - loosememuse=%zu ks_limit=%zu ncpus=%d\n",
-	    type->ks_shortdesc, type->ks_loosememuse, type->ks_limit, ncpus);
-#endif
 	for (i = ttl = 0; i < ncpus; ++i)
 	    ttl += type->ks_use[i].memuse;
 	type->ks_loosememuse = ttl;	/* not MP synchronized */
@@ -893,10 +874,6 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
 		logmemory(malloc_end, NULL, type, size, flags);
 		return(NULL);
 	    }
-#ifdef __aarch64__
-	    kprintf("kmalloc(%s): PANIC - ttl=%ld ks_limit=%zu ncpus=%d\n",
-		type->ks_shortdesc, ttl, type->ks_limit, ncpus);
-#endif
 	    panic("%s: malloc limit exceeded", type->ks_shortdesc);
 	}
     }
