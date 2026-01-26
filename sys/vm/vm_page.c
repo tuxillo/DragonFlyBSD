@@ -516,35 +516,13 @@ vm_page_startup(void)
 	vmstats.v_page_count = 0;
 	vmstats.v_free_count = 0;
 
-	/*
-	 * DEBUG: Add just a few pages to time the operation.
-	 */
-	kprintf("vm_page_startup: DEBUG timing single page add\n");
-	{
-		volatile int dummy;
-		int j;
-
-		/* First, time a simple loop to establish baseline */
-		kprintf("vm_page_startup: timing 1M iterations of empty loop...\n");
-		for (j = 0; j < 1000000; j++) {
-			dummy = j;
-		}
-		kprintf("vm_page_startup: 1M empty iterations done\n");
-
-		/* Now add ONE page */
-		kprintf("vm_page_startup: adding first page...\n");
-		if (phys_avail[0].phys_end) {
-			pa = phys_avail[0].phys_beg;
+	for (i = 0; phys_avail[i].phys_end; ++i) {
+		pa = phys_avail[i].phys_beg;
+		while (pa < phys_avail[i].phys_end) {
 			vm_add_new_page(pa, &badcount);
+			pa += PAGE_SIZE;
 		}
-		kprintf("vm_page_startup: first page added, v_page_count=%ld\n",
-		    (long)vmstats.v_page_count);
 	}
-
-	/* Set fake counts so boot can continue */
-	kprintf("vm_page_startup: setting fake counts for remaining pages\n");
-	vmstats.v_page_count = npages;
-	vmstats.v_free_count = npages;
 	kprintf("vm_page_startup: free queues done, v_page_count=%ld\n",
 	    (long)vmstats.v_page_count);
 	if (virtual2_start)
