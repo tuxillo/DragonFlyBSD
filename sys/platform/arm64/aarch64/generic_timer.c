@@ -221,14 +221,19 @@ arm64_timer_init(void *dummy __unused)
 	 * Register the free-running cputimer.
 	 */
 	arm64_cputimer.freq = freq;
+	kprintf("ARM64 timer: calling cputimer_register\n");
 	cputimer_register(&arm64_cputimer);
+	kprintf("ARM64 timer: calling cputimer_select\n");
 	cputimer_select(&arm64_cputimer, 0);
+	kprintf("ARM64 timer: cputimer registered\n");
 
 	/*
 	 * Register the interrupt cputimer.
 	 */
 	arm64_cputimer_intr.freq = freq;
+	kprintf("ARM64 timer: calling cputimer_intr_register\n");
 	cputimer_intr_register(&arm64_cputimer_intr);
+	kprintf("ARM64 timer: calling cputimer_intr_select\n");
 	cputimer_intr_select(&arm64_cputimer_intr, 0);
 
 	kprintf("ARM64 timer: registered cputimer and cputimer_intr\n");
