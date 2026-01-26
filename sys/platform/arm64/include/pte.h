@@ -133,10 +133,12 @@ typedef	uint64_t	pt_entry_t;		/* page table entry */
 /*
  * Memory attribute indices for MAIR_EL1
  * These must match the MAIR setup in locore.s
+ * Actual VM_MEMATTR_* values are defined in machine/vm.h
  */
-#define	VM_MEMATTR_DEVICE	0	/* Device-nGnRnE */
-#define	VM_MEMATTR_UNCACHEABLE	1	/* Normal, Non-cacheable */
-#define	VM_MEMATTR_WRITE_BACK	2	/* Normal, Write-back */
-#define	VM_MEMATTR_WRITE_THROUGH 3	/* Normal, Write-through */
+#define	MAIR_IDX_DEVICE_nGnRnE	0	/* Device-nGnRnE */
+#define	MAIR_IDX_UNCACHEABLE	1	/* Normal, Non-cacheable */
+#define	MAIR_IDX_WRITE_BACK	2	/* Normal, Write-back */
+#define	MAIR_IDX_WRITE_THROUGH	3	/* Normal, Write-through */
+#define	MAIR_IDX_DEVICE_nGnRE	4	/* Device-nGnRE */
 
 #endif /* !_MACHINE_PTE_H_ */

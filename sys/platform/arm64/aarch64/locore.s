@@ -45,21 +45,39 @@
 
 .equ	TCR_VALUE, 0xb5103510
 
-.equ	MAIR_VALUE, 0x0000ff00
+/*
+ * MAIR_EL1 - Memory Attribute Indirection Register
+ * Must match VM_MEMATTR_* indices in machine/vm.h:
+ *   Index 0: Device-nGnRnE (0x00)
+ *   Index 1: Normal Non-cacheable (0x44)
+ *   Index 2: Normal Write-back (0xff)
+ *   Index 3: Normal Write-through (0xbb)
+ *   Index 4: Device-nGnRE (0x04)
+ */
+.equ	MAIR_VALUE, 0x000004bbff4400
 
 .equ	PTE_BLOCK, 0x1
 .equ	PTE_TABLE, 0x3
 .equ	PTE_AF, 0x400
 .equ	PTE_SH_INNER, 0x300
 .equ	PTE_AP_RO, 0x80
-.equ	PTE_ATTRIDX_NORMAL, 0x4
+.equ	PTE_ATTRIDX_NORMAL, 0x8		/* Index 2 (write-back) << 2 */
 .equ	PTE_PXN, 0x0020000000000000
 .equ	PTE_UXN, 0x0040000000000000
 
-.equ	PTE_BLOCK_DEVICE, 0x0060000000000701
-.equ	PTE_BLOCK_NORMAL, 0x0000000040000705
-.equ	PTE_L2_TEXT, 0x0000000040000785
-.equ	PTE_L2_DATA, 0x0060000040200705
+/*
+ * PTE flags for block mappings (using MAIR index 2 = write-back):
+ *   Bits [1:0]  = 0x1  (block descriptor)
+ *   Bits [4:2]  = 0x2  (MAIR index 2 = write-back)
+ *   Bits [9:8]  = 0x3  (inner shareable)
+ *   Bit  [10]   = 0x1  (access flag)
+ *   Bit  [53]   = PXN (privileged execute never)
+ *   Bit  [54]   = UXN (user execute never)
+ */
+.equ	PTE_BLOCK_DEVICE, 0x0060000000000701	/* MAIR idx 0 (device), PXN+UXN */
+.equ	PTE_BLOCK_NORMAL, 0x0000000040000709	/* MAIR idx 2 (WB), SH=IS, AF */
+.equ	PTE_L2_TEXT, 0x0000000040000789		/* MAIR idx 2 (WB), SH=IS, AF, AP=RO */
+.equ	PTE_L2_DATA, 0x0060000040200709		/* MAIR idx 2 (WB), SH=IS, AF, PXN+UXN */
 
 .equ	KERNBASE, 0xffffff8000000000
 .equ	KERN_LOAD, 0x0000000040000000

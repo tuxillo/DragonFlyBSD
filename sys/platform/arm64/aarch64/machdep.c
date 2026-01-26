@@ -81,7 +81,15 @@ md_strcmp(const char *a, const char *b)
 
 typedef u_long vm_offset_t;
 
-#define	PTE_BLOCK_NORMAL_FLAGS	0x705
+/*
+ * PTE block flags for normal memory (using MAIR index 2 = write-back):
+ *   Bits [1:0]  = 0x1  (block descriptor)
+ *   Bits [4:2]  = 0x2  (MAIR index 2 = write-back)
+ *   Bits [9:8]  = 0x3  (inner shareable)
+ *   Bit  [10]   = 0x1  (access flag)
+ * Must match locore.s PTE_BLOCK_NORMAL (lower 12 bits: 0x709)
+ */
+#define	PTE_BLOCK_NORMAL_FLAGS	0x709
 
 #define	MODINFOMD_EFI_MAP	0x1004
 
