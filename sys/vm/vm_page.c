@@ -514,12 +514,14 @@ vm_page_startup(void)
 				last_pa = new_end;
 			else
 				last_pa = phys_avail[i].phys_end;
+			kprintf("vm_page_startup: range[%d] pa=0x%lx-0x%lx\n",
+			    i, (unsigned long)pa, (unsigned long)last_pa);
 			while (pa < last_pa && npages-- > 0) {
 				vm_add_new_page(pa, &badcount);
 				pa += PAGE_SIZE;
 				progress++;
-				/* Print progress every 4096 pages (16MB) */
-				if ((progress & 0xfff) == 0)
+				/* Print progress every 1024 pages (4MB) */
+				if ((progress & 0x3ff) == 0)
 					kprintf("vm_page_startup: added %d pages\n", progress);
 			}
 		}
