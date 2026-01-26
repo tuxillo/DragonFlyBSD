@@ -102,6 +102,21 @@ _start:
 	msr	sctlr_el1, x1
 	isb
 
+	/*
+	 * Zero the BSS section BEFORE creating page tables.
+	 * The page tables (ttbr0_l0, etc.) are in BSS, so we must zero BSS
+	 * first, then build the page tables into the zeroed memory.
+	 * With MMU off, we access physical memory directly.
+	 */
+	ldr	x15, .Lbss_start
+	ldr	x14, .Lbss_end
+1:
+	cmp	x15, x14
+	b.hs	2f
+	stp	xzr, xzr, [x15], #16
+	b	1b
+2:
+
 	/* Build minimal identity page tables and enable MMU */
 	bl	create_pagetables
 	bl	start_mmu
@@ -110,63 +125,6 @@ _start:
 	adrp	x1, initstack_end
 	add	x1, x1, :lo12:initstack_end
 	mov	sp, x1
-
-	/* Debug: print '0' to show we reached this point */
-	ldr	x1, =0x09000000
-	mov	w2, #'0'
-	strb	w2, [x1]
-
-	/*
-	 * Zero the BSS section.
-	 * This is critical - global variables in BSS must be zero-initialized
-	 * before any C code runs. Without this, structures like vm_page_queues[]
-	 * will contain garbage, causing crashes in vm_page_startup().
-	 */
-	ldr	x15, .Lbss_start
-	ldr	x14, .Lbss_end
-
-	/* Debug: print 'S' and BSS start address */
-	ldr	x1, =0x09000000
-	mov	w2, #'S'
-	strb	w2, [x1]
-	mov	x3, #60
-5:
-	lsr	x4, x15, x3
-	and	x4, x4, #0xf
-	cmp	x4, #10
-	blt	6f
-	add	x4, x4, #('a' - 10)
-	b	7f
-6:
-	add	x4, x4, #'0'
-7:
-	strb	w4, [x1]
-	subs	x3, x3, #4
-	bge	5b
-	mov	w2, #'\r'
-	strb	w2, [x1]
-	mov	w2, #'\n'
-	strb	w2, [x1]
-
-	/* Debug: print 'W' right before first BSS write */
-	ldr	x1, =0x09000000
-	mov	w2, #'W'
-	strb	w2, [x1]
-
-1:
-	cmp	x15, x14
-	b.hs	2f			/* Exit if x15 >= x14 */
-	stp	xzr, xzr, [x15], #16	/* Store 16 bytes of zeros, post-increment */
-
-	/* Debug: print '.' after first write only (once) - actually skip this, too noisy */
-
-	b	1b
-2:
-
-	/* Debug: print '1' to show BSS zeroing completed */
-	ldr	x1, =0x09000000
-	mov	w2, #'1'
-	strb	w2, [x1]
 
 	/* Call early C entry with modulep */
 	mov	x0, x19
