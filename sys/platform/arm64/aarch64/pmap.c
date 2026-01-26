@@ -78,6 +78,141 @@ vm_offset_t KvaEnd;
 vm_offset_t KvaSize;
 
 /*
+ * Page tables from locore.s
+ */
+extern pd_entry_t ttbr0_l0[];
+extern pd_entry_t ttbr0_l1[];
+extern pd_entry_t ttbr1_l0[];
+extern pd_entry_t ttbr1_l1[];
+extern pd_entry_t ttbr1_l2[];
+
+/*
+ * Pre-allocated L3 pages for early kernel mappings.
+ * 16 pages = 16 * 512 entries = 8192 PTEs = 32MB of mappable KVA.
+ * This matches FreeBSD's approach for early boot before kmalloc works.
+ */
+#define NKERN_L3_PAGES	16
+static pt_entry_t kern_l3_pages[NKERN_L3_PAGES][Ln_ENTRIES] __aligned(PAGE_SIZE);
+static int kern_l3_next = 0;
+
+/*
+ * Default PTE bit mappings for ARM64.
+ * These map DragonFly's logical bit indices to ARM64 PTE bits.
+ */
+static uint64_t pmap_bits_default[PG_BITS_SIZE] = {
+	[PG_V_IDX]       = ATTR_DESCR_VALID,
+	[PG_RW_IDX]      = 0,                    /* 0 = RW on ARM64 */
+	[PG_U_IDX]       = ATTR_S1_AP(ATTR_S1_AP_USER),
+	[PG_A_IDX]       = ATTR_AF,
+	[PG_M_IDX]       = ATTR_DBM,
+	[PG_W_IDX]       = (1UL << 55),          /* Software: wired */
+	[PG_MANAGED_IDX] = (1UL << 56),          /* Software: managed */
+	[PG_NX_IDX]      = ATTR_S1_XN,
+};
+
+/*
+ * Memory attribute index to PTE bits mapping.
+ */
+static uint64_t pmap_cache_bits_default[PAT_INDEX_SIZE] = {
+	[0] = ATTR_S1_IDX(MAIR_IDX_DEVICE_nGnRnE),
+	[1] = ATTR_S1_IDX(MAIR_IDX_UNCACHEABLE),
+	[2] = ATTR_S1_IDX(MAIR_IDX_WRITE_BACK),
+	[3] = ATTR_S1_IDX(MAIR_IDX_WRITE_THROUGH),
+	[4] = ATTR_S1_IDX(MAIR_IDX_DEVICE_nGnRE),
+};
+
+/*
+ * Protection codes: VM_PROT_* -> PTE bits.
+ * Initialized by pmap_init_protection_codes().
+ */
+static uint64_t protection_codes_default[PROTECTION_CODES_SIZE];
+
+/*
+ * Page table walking helper functions.
+ * These navigate the ARM64 4-level page table structure.
+ */
+static __inline pd_entry_t *
+pmap_l0(pmap_t pmap, vm_offset_t va)
+{
+	return (&pmap->pm_l0[pmap_l0_index(va)]);
+}
+
+static __inline pd_entry_t *
+pmap_l0_to_l1(pd_entry_t *l0, vm_offset_t va)
+{
+	pd_entry_t l0e = *l0;
+	pd_entry_t *l1 = (pd_entry_t *)PHYS_TO_DMAP(l0e & ATTR_ADDR);
+	return (&l1[pmap_l1_index(va)]);
+}
+
+static __inline pd_entry_t *
+pmap_l1_to_l2(pd_entry_t *l1, vm_offset_t va)
+{
+	pd_entry_t l1e = *l1;
+	pd_entry_t *l2 = (pd_entry_t *)PHYS_TO_DMAP(l1e & ATTR_ADDR);
+	return (&l2[pmap_l2_index(va)]);
+}
+
+static __inline pt_entry_t *
+pmap_l2_to_l3(pd_entry_t *l2, vm_offset_t va)
+{
+	pd_entry_t l2e = *l2;
+	pt_entry_t *l3 = (pt_entry_t *)PHYS_TO_DMAP(l2e & ATTR_ADDR);
+	return (&l3[pmap_l3_index(va)]);
+}
+
+/*
+ * Allocate a new L3 page table from the pre-allocated pool.
+ * This is used during early boot before kmalloc is available.
+ */
+static pt_entry_t *
+pmap_alloc_l3(pmap_t pmap __unused, pd_entry_t *l2, vm_offset_t va)
+{
+	pt_entry_t *l3;
+	vm_paddr_t l3_pa;
+
+	if (kern_l3_next >= NKERN_L3_PAGES)
+		panic("pmap_alloc_l3: out of pre-allocated L3 pages");
+
+	l3 = kern_l3_pages[kern_l3_next++];
+	bzero(l3, PAGE_SIZE);
+
+	l3_pa = DMAP_TO_PHYS((vm_offset_t)l3);
+
+	/* Install L2 entry pointing to new L3 table */
+	*l2 = l3_pa | L2_TABLE;
+	__asm __volatile("dsb ishst" ::: "memory");
+
+	return (&l3[pmap_l3_index(va)]);
+}
+
+/*
+ * Get a pointer to the PTE for a given virtual address.
+ * Allocates L3 tables as needed from the pre-allocated pool.
+ */
+static pt_entry_t *
+pmap_vtopte(pmap_t pmap, vm_offset_t va)
+{
+	pd_entry_t *l0, *l1, *l2;
+
+	l0 = pmap_l0(pmap, va);
+	if ((*l0 & ATTR_DESCR_MASK) != L0_TABLE)
+		panic("pmap_vtopte: no L0 entry for va 0x%lx", va);
+
+	l1 = pmap_l0_to_l1(l0, va);
+	if ((*l1 & ATTR_DESCR_MASK) != L1_TABLE)
+		panic("pmap_vtopte: no L1 entry for va 0x%lx", va);
+
+	l2 = pmap_l1_to_l2(l1, va);
+	if ((*l2 & ATTR_DESCR_MASK) != L2_TABLE) {
+		/* Need to allocate L3 table */
+		return pmap_alloc_l3(pmap, l2, va);
+	}
+
+	return pmap_l2_to_l3(l2, va);
+}
+
+/*
  * Initialize the pmap module.
  */
 void
@@ -178,12 +313,80 @@ pmap_init_proc(struct proc *p __unused)
 
 /*
  * Enter a mapping.
+ *
+ * Maps a physical page into the given pmap's address space with the
+ * specified protection. Updates vm_page flags and pmap statistics.
  */
 void
-pmap_enter(pmap_t pmap __unused, vm_offset_t va __unused,
-    struct vm_page *m __unused, vm_prot_t prot __unused,
-    boolean_t wired __unused, struct vm_map_entry *entry __unused)
+pmap_enter(pmap_t pmap, vm_offset_t va, struct vm_page *m, vm_prot_t prot,
+    boolean_t wired, struct vm_map_entry *entry __unused)
 {
+	pt_entry_t *ptep;
+	pt_entry_t newpte, origpte;
+	vm_paddr_t pa;
+	int flags, nflags;
+
+	if (pmap == NULL)
+		return;
+
+	va = trunc_page(va);
+	pa = VM_PAGE_TO_PHYS(m);
+
+	/* Get PTE pointer */
+	ptep = pmap_vtopte(pmap, va);
+	origpte = *ptep;
+
+	/* Build new PTE */
+	newpte = pa | L3_PAGE | ATTR_AF | ATTR_SH(ATTR_SH_IS);
+	newpte |= ATTR_S1_IDX(MAIR_IDX_WRITE_BACK);
+
+	/* Protection bits */
+	if (!(prot & VM_PROT_WRITE))
+		newpte |= ATTR_S1_AP(ATTR_S1_AP_RO);
+	if (!(prot & VM_PROT_EXECUTE))
+		newpte |= ATTR_S1_XN;
+	if (va < VM_MAX_USER_ADDRESS)
+		newpte |= ATTR_S1_AP(ATTR_S1_AP_USER) | ATTR_S1_PXN;
+
+	/* Software bits */
+	if (wired)
+		newpte |= pmap->pmap_bits[PG_W_IDX];
+	if ((m->flags & PG_FICTITIOUS) == 0)
+		newpte |= pmap->pmap_bits[PG_MANAGED_IDX];
+
+	/* Update vm_page flags */
+	flags = m->flags;
+	for (;;) {
+		nflags = PG_MAPPED;
+		if (prot & VM_PROT_WRITE)
+			nflags |= PG_WRITEABLE;
+		if (flags & PG_MAPPED)
+			nflags |= PG_MAPPEDMULTI;
+		if (flags == (flags | nflags))
+			break;
+		if (atomic_fcmpset_int(&m->flags, &flags, flags | nflags))
+			break;
+	}
+
+	/* Store the PTE */
+	*ptep = newpte;
+
+	/* TLB invalidate */
+	__asm __volatile(
+		"dsb ishst\n"
+		"tlbi vaae1is, %0\n"
+		"dsb ish\n"
+		"isb"
+		: : "r"(va >> 12)
+	);
+
+	/* Update statistics */
+	if ((origpte & ATTR_DESCR_VALID) == 0) {
+		pmap->pm_stats.resident_count++;
+	}
+	if (wired && (origpte == 0 || !(origpte & pmap->pmap_bits[PG_W_IDX]))) {
+		pmap->pm_stats.wired_count++;
+	}
 }
 
 /*
@@ -256,31 +459,63 @@ pmap_kextract(vm_offset_t va)
 
 /*
  * Enter a kernel mapping.
+ *
+ * Maps a physical address into the kernel address space with
+ * read/write/execute permissions and write-back caching.
  */
 void
-pmap_kenter(vm_offset_t va __unused, vm_paddr_t pa __unused)
+pmap_kenter(vm_offset_t va, vm_paddr_t pa)
 {
+	pt_entry_t *ptep;
+	pt_entry_t npte;
+
+	npte = pa | L3_PAGE | ATTR_AF | ATTR_SH(ATTR_SH_IS) |
+	       ATTR_S1_IDX(MAIR_IDX_WRITE_BACK);
+
+	ptep = pmap_vtopte(kernel_pmap, va);
+	*ptep = npte;
+
+	/* TLB invalidate */
+	__asm __volatile(
+		"dsb ishst\n"
+		"tlbi vaae1is, %0\n"
+		"dsb ish\n"
+		"isb"
+		: : "r"(va >> 12)
+	);
 }
 
 /*
  * Enter a kernel mapping without invalidation.
  */
 int
-pmap_kenter_noinval(vm_offset_t va __unused, vm_paddr_t pa __unused)
+pmap_kenter_noinval(vm_offset_t va, vm_paddr_t pa)
 {
+	pt_entry_t *ptep;
+	pt_entry_t npte;
+
+	npte = pa | L3_PAGE | ATTR_AF | ATTR_SH(ATTR_SH_IS) |
+	       ATTR_S1_IDX(MAIR_IDX_WRITE_BACK);
+
+	ptep = pmap_vtopte(kernel_pmap, va);
+	*ptep = npte;
+
+	/* No TLB invalidate - caller will handle batched invalidation */
+	__asm __volatile("dsb ishst" ::: "memory");
+
 	return (0);
 }
 
 /*
  * Enter a kernel mapping quickly.
  *
- * For arm64 early boot with identity DMAP, this is a no-op since
- * physical memory is already accessible via TTBR0 identity map.
+ * Same as pmap_kenter() for now. In the future this could skip
+ * locking for single-CPU early boot.
  */
 int
-pmap_kenter_quick(vm_offset_t va __unused, vm_paddr_t pa __unused)
+pmap_kenter_quick(vm_offset_t va, vm_paddr_t pa)
 {
-	/* Identity map via TTBR0 - no explicit mapping needed */
+	pmap_kenter(va, pa);
 	return (0);
 }
 
@@ -612,4 +847,56 @@ int
 is_globaldata_space(vm_offset_t addr __unused, vm_offset_t size __unused)
 {
 	return (0);
+}
+
+/*
+ * Initialize protection codes.
+ *
+ * This pre-computes PTE bits for each possible VM_PROT_* combination.
+ */
+static void
+pmap_init_protection_codes(void)
+{
+	uint64_t *kp = protection_codes_default;
+	int prot;
+
+	for (prot = 0; prot < PROTECTION_CODES_SIZE; prot++) {
+		*kp = 0;
+
+		/* ARM64: AP[2]=1 means read-only, AP[2]=0 means read-write */
+		if (!(prot & VM_PROT_WRITE))
+			*kp |= ATTR_S1_AP(ATTR_S1_AP_RO);
+
+		/* XN bit for non-executable */
+		if (!(prot & VM_PROT_EXECUTE))
+			*kp |= ATTR_S1_XN;
+
+		kp++;
+	}
+
+	bcopy(protection_codes_default, kernel_pmap->protection_codes,
+	      sizeof(protection_codes_default));
+}
+
+/*
+ * Bootstrap the pmap module.
+ *
+ * This is called early in arm64_init() to set up the kernel pmap
+ * before any VM operations that need pmap_enter()/pmap_kenter().
+ */
+void
+pmap_bootstrap(void)
+{
+	/* Set up kernel_pmap to use TTBR1 page tables */
+	kernel_pmap->pm_l0 = ttbr1_l0;
+	kernel_pmap->pm_l0_paddr = DMAP_TO_PHYS((vm_offset_t)ttbr1_l0);
+
+	/* Copy default bit mappings */
+	bcopy(pmap_bits_default, kernel_pmap->pmap_bits,
+	      sizeof(pmap_bits_default));
+	bcopy(pmap_cache_bits_default, kernel_pmap->pmap_cache_bits_pte,
+	      sizeof(pmap_cache_bits_default));
+
+	/* Initialize protection codes */
+	pmap_init_protection_codes();
 }

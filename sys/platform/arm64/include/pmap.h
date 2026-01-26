@@ -35,6 +35,9 @@
 #ifndef _SYS_TYPES_H_
 #include <sys/types.h>
 #endif
+#ifndef _MACHINE_PTE_H_
+#include <machine/pte.h>
+#endif
 
 struct pmap;
 struct vm_page;
@@ -61,8 +64,32 @@ typedef struct pmap_statistics *pmap_statistics_t;
 
 typedef char vm_memattr_t;	/* memory attribute type */
 
+/*
+ * PTE bit indices for pmap_bits[] array.
+ * These provide an abstraction layer between DragonFly's generic VM code
+ * and ARM64-specific PTE bit layouts.
+ */
+#define PG_V_IDX        0   /* Valid */
+#define PG_RW_IDX       1   /* Read/Write (ARM64: inverted - 0=RW) */
+#define PG_U_IDX        2   /* User accessible */
+#define PG_A_IDX        3   /* Accessed */
+#define PG_M_IDX        4   /* Modified/Dirty */
+#define PG_W_IDX        5   /* Wired (software bit) */
+#define PG_MANAGED_IDX  6   /* Managed page (software bit) */
+#define PG_N_IDX        7   /* Non-cacheable */
+#define PG_NX_IDX       8   /* No Execute */
+#define PG_BITS_SIZE    16
+
+#define PROTECTION_CODES_SIZE   8
+#define PAT_INDEX_SIZE          8  /* Memory attribute indices */
+
 struct pmap {
 	struct pmap_statistics pm_stats;
+	pd_entry_t *pm_l0;                  /* L0 page table (kernel VA) */
+	vm_paddr_t pm_l0_paddr;             /* L0 page table (physical) */
+	uint64_t pmap_bits[PG_BITS_SIZE];
+	uint64_t pmap_cache_bits_pte[PAT_INDEX_SIZE];
+	uint64_t protection_codes[PROTECTION_CODES_SIZE];
 };
 
 typedef struct pmap *pmap_t;
@@ -78,6 +105,7 @@ extern char *ptvmmap;
 
 void	pmap_release(struct pmap *pmap);
 void	pmap_page_set_memattr(struct vm_page *m, vm_memattr_t ma);
+void	pmap_bootstrap(void);
 
 /*
  * ARM64 does not emulate AD bits in software; the hardware handles them.

@@ -827,13 +827,18 @@ initstack:
 	.space	BOOT_STACK_SIZE
 initstack_end:
 	.p2align	12
+	.global	ttbr0_l0
 ttbr0_l0:
 	.space	4096
+	.global	ttbr0_l1
 ttbr0_l1:
 	.space	4096
+	.global	ttbr1_l0
 ttbr1_l0:
 	.space	4096
+	.global	ttbr1_l1
 ttbr1_l1:
 	.space	4096
+	.global	ttbr1_l2
 ttbr1_l2:
 	.space	4096

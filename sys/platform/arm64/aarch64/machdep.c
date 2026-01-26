@@ -817,6 +817,14 @@ initarm(uintptr_t modulep)
 		arm64_gdinit_full();
 
 		/*
+		 * Bootstrap the pmap module.
+		 * This initializes kernel_pmap's page table pointers and
+		 * protection codes before any VM operations that need
+		 * pmap_enter() or pmap_kenter().
+		 */
+		pmap_bootstrap();
+
+		/*
 		 * Initialize kernel virtual address space parameters.
 		 * These are used by kmem_init() during VM initialization.
 		 *
