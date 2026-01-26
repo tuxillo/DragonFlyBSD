@@ -803,7 +803,13 @@ initarm(uintptr_t modulep)
 		 * Initialize basic tunables (hz, stathz, etc.).
 		 * This must be after kern_envp is set since TUNABLE_*
 		 * macros access it.
+		 *
+		 * Set ncpus = 1 before init_param1() - the malloc subsystem
+		 * depends on ncpus being set, and many MALLOC_DEFINE types
+		 * use M_TEMP during their init which requires ncpus != 0.
 		 */
+		ncpus = 1;
+		ncpus_fit = 1;
 		init_param1();
 		kprintf("init_param1() done, hz=%d\n", hz);
 
