@@ -445,6 +445,7 @@ vm_page_startup(void)
 	 * For sparse configurations, page_range is the sum of pages in all
 	 * segments (no gaps).  Register each segment with vm_phys.
 	 */
+	kprintf("vm_page_startup: using VM_PHYSSEG_SPARSE\n");
 	page_range = 0;
 	for (int j = 0; phys_avail[j].phys_end; ++j) {
 		vm_paddr_t seg_pages;
