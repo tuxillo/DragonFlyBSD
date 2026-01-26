@@ -102,6 +102,53 @@
 #include <sys/spinlock2.h>
 
 /*
+ * ARM64 direct UART debug output - bypasses kprintf for early boot debugging.
+ * This writes directly to PL011 UART at 0x09000000.
+ */
+#ifdef __aarch64__
+static volatile u_int32_t *const vm_uart_base = (u_int32_t *)0x09000000;
+
+static void
+vm_uart_putc(char ch)
+{
+	*vm_uart_base = (u_int32_t)(unsigned char)ch;
+}
+
+static void
+vm_uart_puts(const char *str)
+{
+	while (*str != '\0')
+		vm_uart_putc(*str++);
+}
+
+static void
+vm_uart_puthex(u_int64_t value)
+{
+	const char *hex = "0123456789abcdef";
+	int shift;
+	for (shift = 60; shift >= 0; shift -= 4)
+		vm_uart_putc(hex[(value >> shift) & 0xf]);
+}
+
+static void
+vm_uart_putdec(u_int64_t value)
+{
+	char buf[21];  /* max 20 digits for 64-bit + null */
+	char *p = &buf[20];
+	*p = '\0';
+	if (value == 0) {
+		vm_uart_putc('0');
+		return;
+	}
+	while (value > 0) {
+		*--p = '0' + (value % 10);
+		value /= 10;
+	}
+	vm_uart_puts(p);
+}
+#endif /* __aarch64__ */
+
+/*
  * Cache necessary elements in the hash table itself to avoid indirecting
  * through random vm_page's when doing a lookup.  The hash table is
  * heuristical and it is ok for races to mess up any or all fields.
@@ -248,15 +295,28 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	vm_page_t m;
 	static int call_count = 0;
 
-	/* Print entry for first 15 calls, then every 10000 */
-	if (call_count < 15 || (call_count % 10000) == 0)
-		kprintf("vm_add_new_page[%d]: pa=%#jx\n",
-			call_count, (uintmax_t)pa);
+#ifdef __aarch64__
+	/* Direct UART debug output for first 15 calls, then every 10000 */
+	if (call_count < 15 || (call_count % 10000) == 0) {
+		vm_uart_puts("vm_add_new_page[");
+		vm_uart_putdec(call_count);
+		vm_uart_puts("]: pa=0x");
+		vm_uart_puthex(pa);
+		vm_uart_puts("\r\n");
+	}
+#endif
 
 	m = PHYS_TO_VM_PAGE(pa);
 
-	if (call_count < 15 || (call_count % 10000) == 0)
-		kprintf("  [%d] m=%p\n", call_count, m);
+#ifdef __aarch64__
+	if (call_count < 15 || (call_count % 10000) == 0) {
+		vm_uart_puts("  [");
+		vm_uart_putdec(call_count);
+		vm_uart_puts("] m=0x");
+		vm_uart_puthex((u_int64_t)(uintptr_t)m);
+		vm_uart_puts("\r\n");
+	}
+#endif
 
 	/*
 	 * For VM_PHYSSEG_SPARSE, PHYS_TO_VM_PAGE can return NULL for
@@ -265,8 +325,9 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	 */
 #ifdef VM_PHYSSEG_SPARSE
 	if (m == NULL) {
-		kprintf("vm_add_new_page: PHYS_TO_VM_PAGE returned NULL "
-		    "for pa=%016jx\n", (intmax_t)pa);
+		vm_uart_puts("vm_add_new_page: PHYS_TO_VM_PAGE returned NULL for pa=0x");
+		vm_uart_puthex(pa);
+		vm_uart_puts("\r\n");
 		call_count++;
 		return;
 	}
@@ -303,9 +364,17 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	m->pc ^= ((pa >> PAGE_SHIFT) / (PQ_L2_SIZE * PQ_L2_SIZE));
 	m->pc &= PQ_L2_MASK;
 
-	if (call_count < 15 || (call_count % 10000) == 0)
-		kprintf("  [%d] queue=%d pc=%d\n", call_count,
-			m->pc + PQ_FREE, m->pc);
+#ifdef __aarch64__
+	if (call_count < 15 || (call_count % 10000) == 0) {
+		vm_uart_puts("  [");
+		vm_uart_putdec(call_count);
+		vm_uart_puts("] queue=");
+		vm_uart_putdec(m->pc + PQ_FREE);
+		vm_uart_puts(" pc=");
+		vm_uart_putdec(m->pc);
+		vm_uart_puts("\r\n");
+	}
+#endif
 
 	/*
 	 * Reserve a certain number of contiguous low memory pages for
@@ -328,9 +397,13 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 		m->wire_count = 1;
 		vmstats.v_wire_count++;
 		alist_free(&vm_contig_alist, pa >> PAGE_SHIFT, 1);
-		if (call_count < 15 || (call_count % 10000) == 0)
-			kprintf("  [%d] DMA reserved path, returning\n",
-				call_count);
+#ifdef __aarch64__
+		if (call_count < 15 || (call_count % 10000) == 0) {
+			vm_uart_puts("  [");
+			vm_uart_putdec(call_count);
+			vm_uart_puts("] DMA reserved path, returning\r\n");
+		}
+#endif
 		call_count++;
 		return;
 	}
@@ -346,11 +419,21 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	vmstats.v_page_count++;
 	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
-	if (call_count < 15 || (call_count % 10000) == 0)
-		kprintf("  [%d] calling TAILQ_INSERT_HEAD\n", call_count);
+#ifdef __aarch64__
+	if (call_count < 15 || (call_count % 10000) == 0) {
+		vm_uart_puts("  [");
+		vm_uart_putdec(call_count);
+		vm_uart_puts("] calling TAILQ_INSERT_HEAD\r\n");
+	}
+#endif
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
-	if (call_count < 15 || (call_count % 10000) == 0)
-		kprintf("  [%d] TAILQ_INSERT_HEAD done\n", call_count);
+#ifdef __aarch64__
+	if (call_count < 15 || (call_count % 10000) == 0) {
+		vm_uart_puts("  [");
+		vm_uart_putdec(call_count);
+		vm_uart_puts("] TAILQ_INSERT_HEAD done\r\n");
+	}
+#endif
 	++vpq->lcnt;
 	call_count++;
 }
