@@ -235,19 +235,34 @@ vm_set_page_size(void)
  *
  * Must be called in a critical section.
  */
+static int vm_add_new_page_debug = 1;  /* Only print for first few calls */
+
 static void
 vm_add_new_page(vm_paddr_t pa, int *badcountp)
 {
 	struct vpgqueues *vpq;
 	vm_page_t m;
 
+	if (vm_add_new_page_debug) {
+		kprintf("vm_add_new_page: pa=0x%lx first_page=0x%lx\n",
+		    (unsigned long)pa, (unsigned long)first_page);
+	}
+
 	m = PHYS_TO_VM_PAGE(pa);
+
+	if (vm_add_new_page_debug) {
+		kprintf("vm_add_new_page: m=%p (idx=%ld)\n",
+		    m, (long)(m - vm_page_array));
+	}
 
 	/*
 	 * Make sure it isn't a duplicate (due to BIOS page range overlaps,
 	 * which we consider bugs... but don't crash).  Note that m->phys_addr
 	 * is pre-initialized, so use m->queue as a check.
 	 */
+	if (vm_add_new_page_debug) {
+		kprintf("vm_add_new_page: checking m->queue\n");
+	}
 	if (m->queue) {
 		if (*badcountp < 10) {
 			kprintf("vm_add_new_page: duplicate pa %016jx\n",
@@ -260,6 +275,9 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 		return;
 	}
 
+	if (vm_add_new_page_debug) {
+		kprintf("vm_add_new_page: setting m->phys_addr\n");
+	}
 	m->phys_addr = pa;
 	m->flags = 0;
 	m->pat_mode = PAT_WRITE_BACK;
@@ -284,15 +302,36 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	 * WARNING! Once PG_FICTITIOUS is set, vm_page_wire*()
 	 *	    and vm_page_unwire*() calls have no effect.
 	 */
+	if (vm_add_new_page_debug) {
+		kprintf("vm_add_new_page: pa=0x%lx vm_low_phys_reserved=0x%lx\n",
+		    (unsigned long)pa, (unsigned long)vm_low_phys_reserved);
+	}
 	if (pa < vm_low_phys_reserved) {
+		if (vm_add_new_page_debug) {
+			kprintf("vm_add_new_page: low mem path\n");
+		}
 		atomic_add_long(&vmstats.v_page_count, 1);
+		if (vm_add_new_page_debug) {
+			kprintf("vm_add_new_page: after v_page_count\n");
+		}
 		atomic_add_long(&vmstats.v_dma_pages, 1);
 		m->flags |= PG_FICTITIOUS | PG_UNQUEUED;
 		m->queue = PQ_NONE;
 		m->wire_count = 1;
 		atomic_add_long(&vmstats.v_wire_count, 1);
+		if (vm_add_new_page_debug) {
+			kprintf("vm_add_new_page: calling alist_free\n");
+		}
 		alist_free(&vm_contig_alist, pa >> PAGE_SHIFT, 1);
+		if (vm_add_new_page_debug) {
+			kprintf("vm_add_new_page: low mem done\n");
+			vm_add_new_page_debug = 0;  /* Disable after first */
+		}
 		return;
+	}
+
+	if (vm_add_new_page_debug) {
+		kprintf("vm_add_new_page: general page path\n");
 	}
 
 	/*
@@ -301,10 +340,27 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	m->queue = m->pc + PQ_FREE;
 	KKASSERT(m->dirty == 0);
 
+	if (vm_add_new_page_debug) {
+		kprintf("vm_add_new_page: calling atomic_add_long v_page_count\n");
+	}
 	atomic_add_long(&vmstats.v_page_count, 1);
+	if (vm_add_new_page_debug) {
+		kprintf("vm_add_new_page: calling atomic_add_long v_free_count\n");
+	}
 	atomic_add_long(&vmstats.v_free_count, 1);
+	if (vm_add_new_page_debug) {
+		kprintf("vm_add_new_page: getting vpq\n");
+	}
 	vpq = &vm_page_queues[m->queue];
+	if (vm_add_new_page_debug) {
+		kprintf("vm_add_new_page: TAILQ_INSERT_HEAD vpq=%p m->queue=%d\n",
+		    vpq, m->queue);
+	}
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
+	if (vm_add_new_page_debug) {
+		kprintf("vm_add_new_page: done, disabling debug\n");
+		vm_add_new_page_debug = 0;  /* Disable after first */
+	}
 	++vpq->lcnt;
 }
 
