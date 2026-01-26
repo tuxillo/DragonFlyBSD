@@ -70,8 +70,39 @@
 
 #define KERNBASE		((vm_offset_t)0xffffff8000000000UL)
 
-#define PHYS_TO_DMAP(x)		((vm_offset_t)(x))
-#define DMAP_TO_PHYS(x)		((vm_paddr_t)(x))
+/*
+ * Direct Map (DMAP) region.
+ *
+ * ARM64 uses a direct map to provide kernel virtual addresses for all
+ * physical memory. This allows the kernel to access any physical address
+ * without explicit mapping.
+ *
+ * The DMAP region is 95 TiB (matching FreeBSD's layout):
+ *   DMAP_MIN_ADDRESS = 0xffffa00000000000
+ *   DMAP_MAX_ADDRESS = 0xffffff0000000000
+ *
+ * Translation:
+ *   PHYS_TO_DMAP(pa) = (pa - dmap_phys_base) + DMAP_MIN_ADDRESS
+ *   DMAP_TO_PHYS(va) = (va - DMAP_MIN_ADDRESS) + dmap_phys_base
+ */
+#define	DMAP_MIN_ADDRESS	((vm_offset_t)0xffffa00000000000UL)
+#define	DMAP_MAX_ADDRESS	((vm_offset_t)0xffffff0000000000UL)
+
+#define	PMAP_HAS_DMAP		1
+
+/* Helper macros for bounds checking */
+#define	PHYS_IN_DMAP(pa)	((pa) >= dmap_phys_base && (pa) < dmap_phys_max)
+#define	VIRT_IN_DMAP(va)	((va) >= DMAP_MIN_ADDRESS && (va) < dmap_max_addr)
+
+/* Address translation macros */
+#define	PHYS_TO_DMAP(pa)	(((vm_offset_t)(pa) - dmap_phys_base) + DMAP_MIN_ADDRESS)
+#define	DMAP_TO_PHYS(va)	(((vm_paddr_t)(va) - DMAP_MIN_ADDRESS) + dmap_phys_base)
+
+#ifndef LOCORE
+extern vm_paddr_t dmap_phys_base;	/* Lowest physical address in DMAP */
+extern vm_paddr_t dmap_phys_max;	/* Highest physical address + 1 */
+extern vm_offset_t dmap_max_addr;	/* Highest virtual address in DMAP */
+#endif
 
 /*
  * Use sparse physical memory segment tracking on arm64.

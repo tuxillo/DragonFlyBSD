@@ -45,6 +45,7 @@
 #include <vm/vm_extern.h>
 #include <vm/vm_pager.h>
 #include <machine/pmap.h>
+#include <machine/pte.h>
 #include <machine/md_var.h>
 #include <machine/pcb.h>
 
@@ -57,6 +58,14 @@ struct pmap *kernel_pmap = &kernel_pmap_store;
 vm_phystable_t phys_avail[16];
 vm_phystable_t dump_avail[16];
 long physmem;
+
+/*
+ * Direct Map (DMAP) global variables.
+ * These track the physical address range mapped into the DMAP region.
+ */
+vm_paddr_t dmap_phys_base;	/* Lowest physical address in DMAP (2MB aligned) */
+vm_paddr_t dmap_phys_max;	/* Highest physical address + 1 */
+vm_offset_t dmap_max_addr;	/* Highest virtual address in DMAP */
 
 vm_offset_t virtual_start;
 vm_offset_t virtual_end;

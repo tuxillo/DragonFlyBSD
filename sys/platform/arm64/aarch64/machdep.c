@@ -260,6 +260,9 @@ arm64_pmap_bootstrap(struct arm64_phys_range *ranges, int count)
 {
 	u_int64_t best_size;
 	int best;
+	u_int64_t pa;
+	u_int64_t va;
+	u_int64_t *l0, *l1, *l2;
 
 	if (count == 0) {
 		uart_puts("[arm64] pmap bootstrap: no ranges\r\n");
@@ -318,23 +321,23 @@ arm64_pmap_bootstrap(struct arm64_phys_range *ranges, int count)
 		((u_int64_t *)(uintptr_t)pt)[511] =
 		    ((pt + 4096) & ~0xfffULL) | 0x3;
 
-		u_int64_t l2 = arm64_boot_alloc(4096, 4096);
-		if (l2 != 0) {
-			arm64_zero_page(l2);
+		u_int64_t l2_kern = arm64_boot_alloc(4096, 4096);
+		if (l2_kern != 0) {
+			arm64_zero_page(l2_kern);
 			((u_int64_t *)(uintptr_t)(pt + 4096))[0] =
-			    (l2 & ~0xfffULL) | 0x3;
+			    (l2_kern & ~0xfffULL) | 0x3;
 			/*
 			 * Map 16MB of kernel space (8 x 2MB blocks).
 			 * kernend is around 0x40cb0000 (~12MB), so we need
 			 * at least 7 entries. Map 8 to be safe.
 			 */
 			for (int i = 0; i < 8; i++) {
-				((u_int64_t *)(uintptr_t)l2)[i] =
+				((u_int64_t *)(uintptr_t)l2_kern)[i] =
 				    (ARM64_PHYSBASE + (i * 0x200000)) |
 				    PTE_BLOCK_NORMAL_FLAGS;
 			}
 			uart_puts("[arm64] pt l2=0x");
-			uart_puthex(l2);
+			uart_puthex(l2_kern);
 			uart_puts(" (8 entries, 16MB)\r\n");
 		} else {
 			uart_puts("[arm64] boot_alloc l2 failed\r\n");
@@ -348,7 +351,95 @@ arm64_pmap_bootstrap(struct arm64_phys_range *ranges, int count)
 		uart_puts("\r\n");
 	} else {
 		uart_puts("[arm64] boot_alloc pt failed\r\n");
+		return;
 	}
+
+	/*
+	 * Now set up DMAP (Direct Map) for all physical memory.
+	 *
+	 * DMAP maps all physical memory into kernel VA space at a fixed offset:
+	 *   DMAP_MIN_ADDRESS = 0xffffa00000000000
+	 *   PHYS_TO_DMAP(pa) = (pa - dmap_phys_base) + DMAP_MIN_ADDRESS
+	 *
+	 * We use 2MB block mappings (L2 level) for efficiency.
+	 *
+	 * L0 index for DMAP_MIN_ADDRESS: (0xffffa00000000000 >> 39) & 0x1FF = 500
+	 * L0 index for KERNBASE:         (0xffffff8000000000 >> 39) & 0x1FF = 510
+	 * So DMAP and kernel use different L0 entries - no conflict.
+	 */
+
+	/* Find the physical address range to map */
+	dmap_phys_base = ranges[0].start & ~0x1fffffULL;  /* 2MB align down */
+	dmap_phys_max = 0;
+	for (int i = 0; i < count; i++) {
+		if (ranges[i].end > dmap_phys_max)
+			dmap_phys_max = ranges[i].end;
+	}
+	dmap_phys_max = (dmap_phys_max + 0x1fffffULL) & ~0x1fffffULL;  /* 2MB align up */
+
+	uart_puts("[arm64] DMAP: phys_base=0x");
+	uart_puthex(dmap_phys_base);
+	uart_puts(" phys_max=0x");
+	uart_puthex(dmap_phys_max);
+	uart_puts("\r\n");
+
+	/*
+	 * Calculate how many 2MB blocks we need.
+	 * Each L2 table covers 512 * 2MB = 1GB.
+	 * Each L1 entry points to an L2 table (or is a 1GB block, but we use tables).
+	 * Each L0 entry points to an L1 table covering 512GB.
+	 */
+	l0 = (u_int64_t *)(uintptr_t)pt;  /* Reuse the L0 table */
+
+	for (pa = dmap_phys_base; pa < dmap_phys_max; pa += 0x200000) {
+		int l0_idx, l1_idx, l2_idx;
+
+		/* Calculate DMAP VA for this PA */
+		va = 0xffffa00000000000ULL + (pa - dmap_phys_base);
+
+		/* Extract page table indices */
+		l0_idx = (va >> 39) & 0x1ff;
+		l1_idx = (va >> 30) & 0x1ff;
+		l2_idx = (va >> 21) & 0x1ff;
+
+		/* Ensure L1 table exists for this L0 index */
+		if ((l0[l0_idx] & 0x3) != 0x3) {
+			u_int64_t new_l1 = arm64_boot_alloc(4096, 4096);
+			if (new_l1 == 0) {
+				uart_puts("[arm64] DMAP: L1 alloc failed\r\n");
+				break;
+			}
+			arm64_zero_page(new_l1);
+			l0[l0_idx] = (new_l1 & ~0xfffULL) | 0x3;
+		}
+		l1 = (u_int64_t *)(uintptr_t)(l0[l0_idx] & ~0xfffULL);
+
+		/* Ensure L2 table exists for this L1 index */
+		if ((l1[l1_idx] & 0x3) != 0x3) {
+			u_int64_t new_l2 = arm64_boot_alloc(4096, 4096);
+			if (new_l2 == 0) {
+				uart_puts("[arm64] DMAP: L2 alloc failed\r\n");
+				break;
+			}
+			arm64_zero_page(new_l2);
+			l1[l1_idx] = (new_l2 & ~0xfffULL) | 0x3;
+		}
+		l2 = (u_int64_t *)(uintptr_t)(l1[l1_idx] & ~0xfffULL);
+
+		/* Create 2MB block mapping */
+		l2[l2_idx] = (pa & ~0x1fffffULL) | PTE_BLOCK_NORMAL_FLAGS;
+	}
+
+	/* Set dmap_max_addr */
+	dmap_max_addr = 0xffffa00000000000ULL + (dmap_phys_max - dmap_phys_base);
+
+	uart_puts("[arm64] DMAP: mapped 0x");
+	uart_puthex(dmap_phys_base);
+	uart_puts("-0x");
+	uart_puthex(dmap_phys_max);
+	uart_puts(" -> 0xffffa00000000000-0x");
+	uart_puthex(dmap_max_addr);
+	uart_puts("\r\n");
 }
 
 static void
