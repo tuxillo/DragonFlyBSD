@@ -303,7 +303,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	static int call_count = 0;
 
 	/* Debug: trace entry and PHYS_TO_VM_PAGE call */
-	if (call_count < 5 || (call_count % 1000) == 0) {
+	if (call_count < 10 || (call_count % 1000) == 0) {
 		vm_uart_puts("add[");
 		vm_uart_putdec(call_count);
 		vm_uart_puts("] pa=0x");
@@ -316,7 +316,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	m = PHYS_TO_VM_PAGE(pa);
 
 	/* Debug: trace after PHYS_TO_VM_PAGE */
-	if (call_count < 5 || (call_count % 1000) == 0) {
+	if (call_count < 10 || (call_count % 1000) == 0) {
 		vm_uart_puts("  m=0x");
 		vm_uart_puthex((uint64_t)m);
 		vm_uart_puts("\r\n");
@@ -337,6 +337,11 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	}
 #endif
 
+	/* Debug: trace before m->queue check */
+	if (call_count < 10) {
+		vm_uart_puts("  chk_dup\r\n");
+	}
+
 	/*
 	 * Make sure it isn't a duplicate (due to BIOS page range overlaps,
 	 * which we consider bugs... but don't crash).  Note that m->phys_addr
@@ -355,6 +360,11 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 		return;
 	}
 
+	/* Debug: trace after duplicate check, before page init */
+	if (call_count < 10) {
+		vm_uart_puts("  init\r\n");
+	}
+
 	m->phys_addr = pa;
 	m->flags = 0;
 	m->pat_mode = PAT_WRITE_BACK;
@@ -367,6 +377,11 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	m->pc ^= ((pa >> PAGE_SHIFT) / PQ_L2_SIZE);
 	m->pc ^= ((pa >> PAGE_SHIFT) / (PQ_L2_SIZE * PQ_L2_SIZE));
 	m->pc &= PQ_L2_MASK;
+
+	/* Debug: trace after page init, before reserved check */
+	if (call_count < 10) {
+		vm_uart_puts("  rsvd?\r\n");
+	}
 
 	/*
 	 * Reserve a certain number of contiguous low memory pages for
@@ -398,14 +413,33 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	 *
 	 * NOTE: Non-atomic increments are safe during single-CPU boot.
 	 */
+	/* Debug: trace before queue assignment */
+	if (call_count < 10) {
+		vm_uart_puts("  queue\r\n");
+	}
+
 	m->queue = m->pc + PQ_FREE;
 	KKASSERT(m->dirty == 0);
 
 	vmstats.v_page_count++;
 	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
+
+	/* Debug: trace before TAILQ_INSERT_HEAD */
+	if (call_count < 10) {
+		vm_uart_puts("  tailq q=");
+		vm_uart_putdec(m->queue);
+		vm_uart_puts("\r\n");
+	}
+
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
 	++vpq->lcnt;
+
+	/* Debug: trace completion */
+	if (call_count < 10) {
+		vm_uart_puts("  done\r\n");
+	}
+
 	call_count++;
 }
 
