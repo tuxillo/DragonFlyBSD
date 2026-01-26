@@ -173,6 +173,9 @@ vm_page_queue_init(void)
 {
 	int i;
 
+	kprintf("vm_page_queue_init: vm_page_queues=%p PQ_COUNT=%d\n",
+	    vm_page_queues, PQ_COUNT);
+
 	for (i = 0; i < PQ_L2_SIZE; i++)
 		vm_page_queues[PQ_FREE+i].cnt_offset =
 			offsetof(struct vmstats, v_free_count);
@@ -327,6 +330,13 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	vmstats.v_page_count++;
 	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
+
+	/* Debug: check for corrupted queue before insert */
+	if (vpq->pl.tqh_first != NULL) {
+		kprintf("vm_add_new_page: queue %d tqh_first=%p (expected NULL)\n",
+		    m->queue, vpq->pl.tqh_first);
+	}
+
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
 	++vpq->lcnt;
 }
