@@ -7,6 +7,8 @@ platform/arm64/aarch64/machdep.c	standard
 platform/arm64/aarch64/pmap.c	standard
 platform/arm64/aarch64/support.c	standard
 platform/arm64/aarch64/busdma_machdep.c	standard
+platform/arm64/aarch64/gic.c		standard
+platform/arm64/aarch64/generic_timer.c	standard
 cpu/aarch64/misc/in_cksum2.c		optional	inet
 cpu/aarch64/misc/in_cksum2.c		optional	inet6
 dev/serial/pl011/pl011_cons.c	optional	pl011

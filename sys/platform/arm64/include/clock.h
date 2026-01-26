@@ -1,9 +1,35 @@
 /*
  * Kernel interface to machine-dependent clock driver.
- * Garrett Wollman, September 1994.
- * This file is in the public domain.
+ * ARM64 Generic Timer register access.
  *
- * $FreeBSD: src/sys/i386/include/clock.h,v 1.38.2.1 2002/11/02 04:41:50 iwasaki Exp $
+ * Copyright (c) 2026 The DragonFly Project.  All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ *
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in
+ *    the documentation and/or other materials provided with the
+ *    distribution.
+ * 3. Neither the name of The DragonFly Project nor the names of its
+ *    contributors may be used to endorse or promote products derived
+ *    from this software without specific, prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
+ * COPYRIGHT HOLDERS OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+ * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
+ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+ * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
  */
 
 #ifndef _MACHINE_CLOCK_H_
@@ -25,30 +51,99 @@ typedef struct TOTALDELAY {
 	sysclock_t	last_clock;
 } TOTALDELAY;
 
-#endif
+/*
+ * ARM64 Generic Timer control register bits
+ */
+#define GT_CTRL_ENABLE		(1 << 0)	/* Timer enable */
+#define GT_CTRL_INT_MASK	(1 << 1)	/* Interrupt mask */
+#define GT_CTRL_INT_STAT	(1 << 2)	/* Interrupt status */
 
-typedef u_int64_t tsc_uclock_t;
-typedef int64_t tsc_sclock_t;
+/*
+ * ARM64 Generic Timer register access functions
+ *
+ * We use the virtual timer (CNTV) for compatibility with hypervisors.
+ * The virtual counter (CNTVCT) provides a free-running monotonic counter.
+ */
 
-#ifdef _KERNEL
+/*
+ * Read the virtual counter value.
+ * This is the primary timekeeping source.
+ */
+static __inline uint64_t
+arm64_read_cntvct(void)
+{
+	uint64_t val;
+	__asm __volatile("isb; mrs %0, cntvct_el0" : "=r"(val));
+	return val;
+}
 
-extern int	adjkerntz;
-extern int	disable_rtc_set;
-extern int	tsc_present;
-extern int	tsc_invariant;
-extern int	tsc_mpsync;
-extern int	wall_cmos_clock;
-extern tsc_uclock_t tsc_frequency;
-extern tsc_uclock_t tsc_oneus_approx;	/* do not use for fine calc, min 1 */
-extern int	i8254_cputimer_disable;	/* No need to initialize i8254 cputimer. */
+/*
+ * Read the counter frequency (Hz).
+ * This is set by firmware (QEMU sets it to 62.5 MHz typically).
+ */
+static __inline uint32_t
+arm64_read_cntfrq(void)
+{
+	uint64_t val;
+	__asm __volatile("mrs %0, cntfrq_el0" : "=r"(val));
+	return (uint32_t)val;
+}
 
-int	CHECKTIMEOUT(TOTALDELAY *);
-int	rtcin (int val);
-int	acquire_timer2 (int mode);
-int	release_timer2 (void);
-int	sysbeep (int pitch, int period);
-void	timer_restore (void);
+/*
+ * Write the virtual timer countdown value.
+ * The timer fires when the countdown reaches zero.
+ */
+static __inline void
+arm64_write_cntv_tval(int32_t val)
+{
+	__asm __volatile("msr cntv_tval_el0, %0; isb" :: "r"((uint64_t)val));
+}
 
+/*
+ * Write the virtual timer control register.
+ */
+static __inline void
+arm64_write_cntv_ctl(uint32_t val)
+{
+	__asm __volatile("msr cntv_ctl_el0, %0; isb" :: "r"((uint64_t)val));
+}
+
+/*
+ * Read the virtual timer control register.
+ */
+static __inline uint32_t
+arm64_read_cntv_ctl(void)
+{
+	uint64_t val;
+	__asm __volatile("mrs %0, cntv_ctl_el0" : "=r"(val));
+	return (uint32_t)val;
+}
+
+/*
+ * Read the virtual timer countdown value.
+ */
+static __inline int32_t
+arm64_read_cntv_tval(void)
+{
+	uint64_t val;
+	__asm __volatile("mrs %0, cntv_tval_el0" : "=r"(val));
+	return (int32_t)val;
+}
+
+/*
+ * Read the physical counter value (for debugging).
+ */
+static __inline uint64_t
+arm64_read_cntpct(void)
+{
+	uint64_t val;
+	__asm __volatile("isb; mrs %0, cntpct_el0" : "=r"(val));
+	return val;
+}
+
+/*
+ * Timecounter initialization structure for ARM64.
+ */
 typedef struct timecounter_init {
 	char *name;
 	void (*configure)(void);

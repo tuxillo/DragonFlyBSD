@@ -80,11 +80,15 @@ cpu_lfence(void)
 static __inline void
 cpu_enable_intr(void)
 {
+	/* Clear IRQ and FIQ mask bits in DAIF */
+	__asm __volatile("msr daifclr, #3" ::: "memory");
 }
 
 static __inline void
 cpu_disable_intr(void)
 {
+	/* Set IRQ and FIQ mask bits in DAIF */
+	__asm __volatile("msr daifset, #3" ::: "memory");
 }
 
 static __inline void

@@ -552,33 +552,73 @@ print_ec_done:
 	b	exception_spin
 
 /*
- * IRQ exception handler - just print marker and spin
+ * IRQ exception handler - handles timer interrupts via GIC.
+ *
+ * This is a minimal handler for early boot.  It saves caller-saved
+ * registers, acknowledges the interrupt via GIC, dispatches timer
+ * interrupts, signals EOI, and returns.
+ *
+ * ARM64 ABI caller-saved: x0-x18, x29(fp), x30(lr)
+ * We also need to save the exception state (ELR, SPSR).
  */
 exception_irq:
-	mov	x1, #0x09000000
-	mov	w0, #'\r'
-	strb	w0, [x1]
-	mov	w0, #'\n'
-	strb	w0, [x1]
-	mov	w0, #'!'
-	strb	w0, [x1]
-	mov	w0, #'!'
-	strb	w0, [x1]
-	mov	w0, #'!'
-	strb	w0, [x1]
-	mov	w0, #' '
-	strb	w0, [x1]
-	mov	w0, #'I'
-	strb	w0, [x1]
-	mov	w0, #'R'
-	strb	w0, [x1]
-	mov	w0, #'Q'
-	strb	w0, [x1]
-	mov	w0, #'\r'
-	strb	w0, [x1]
-	mov	w0, #'\n'
-	strb	w0, [x1]
-	b	exception_spin
+	/*
+	 * Save caller-saved registers and exception state.
+	 * We allocate a 288-byte frame:
+	 *   [sp+0..143]   x0-x17 (18 regs * 8 bytes = 144)
+	 *   [sp+144..159] x18, x29 (fp)
+	 *   [sp+160..175] x30 (lr), padding
+	 *   [sp+176..191] elr_el1, spsr_el1
+	 *   [sp+192..287] Reserved/alignment
+	 */
+	sub	sp, sp, #288
+	stp	x0,  x1,  [sp, #0]
+	stp	x2,  x3,  [sp, #16]
+	stp	x4,  x5,  [sp, #32]
+	stp	x6,  x7,  [sp, #48]
+	stp	x8,  x9,  [sp, #64]
+	stp	x10, x11, [sp, #80]
+	stp	x12, x13, [sp, #96]
+	stp	x14, x15, [sp, #112]
+	stp	x16, x17, [sp, #128]
+	stp	x18, x29, [sp, #144]
+	str	x30, [sp, #160]
+	
+	/* Save exception state */
+	mrs	x0, elr_el1
+	mrs	x1, spsr_el1
+	stp	x0, x1, [sp, #176]
+	
+	/*
+	 * Call the IRQ dispatch handler in C.
+	 * This will:
+	 * 1. Read GICC_IAR to acknowledge and get IRQ number
+	 * 2. Handle the IRQ (timer, etc.)
+	 * 3. Write GICC_EOIR to signal EOI
+	 */
+	bl	arm64_irq_handler
+	
+	/* Restore exception state */
+	ldp	x0, x1, [sp, #176]
+	msr	elr_el1, x0
+	msr	spsr_el1, x1
+	
+	/* Restore caller-saved registers */
+	ldp	x0,  x1,  [sp, #0]
+	ldp	x2,  x3,  [sp, #16]
+	ldp	x4,  x5,  [sp, #32]
+	ldp	x6,  x7,  [sp, #48]
+	ldp	x8,  x9,  [sp, #64]
+	ldp	x10, x11, [sp, #80]
+	ldp	x12, x13, [sp, #96]
+	ldp	x14, x15, [sp, #112]
+	ldp	x16, x17, [sp, #128]
+	ldp	x18, x29, [sp, #144]
+	ldr	x30, [sp, #160]
+	add	sp, sp, #288
+	
+	/* Return from exception */
+	eret
 
 /*
  * FIQ exception handler - just print marker and spin

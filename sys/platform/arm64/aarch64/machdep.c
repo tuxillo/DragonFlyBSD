@@ -53,6 +53,7 @@
 #include <vm/vm.h>
 #include <vm/vm_extern.h>
 #include <vm/pmap.h>
+#include <machine/gic.h>
 #include <net/if.h>
 #include <net/if_var.h>
 #include <netinet/if_ether.h>
@@ -90,6 +91,23 @@ typedef u_long vm_offset_t;
  * Must match locore.s PTE_BLOCK_NORMAL (lower 12 bits: 0x709)
  */
 #define	PTE_BLOCK_NORMAL_FLAGS	0x709
+
+/*
+ * PTE block flags for device memory (using MAIR index 0 = device-nGnRnE):
+ *   Bits [1:0]  = 0x1  (block descriptor)
+ *   Bits [4:2]  = 0x0  (MAIR index 0 = device-nGnRnE)
+ *   Bit  [10]   = 0x1  (access flag)
+ *   Bit  [53]   = 0x1  (PXN - privileged execute never)
+ *   Bit  [54]   = 0x1  (UXN - user execute never)
+ * Must match locore.s PTE_BLOCK_DEVICE (lower 12 bits: 0x701, upper: PXN+UXN)
+ */
+#define	PTE_BLOCK_DEVICE_FLAGS	0x0060000000000701ULL
+
+/*
+ * Device memory region: QEMU virt machine has devices at 0x00000000-0x40000000.
+ * We map this region with device memory attributes to allow GIC access.
+ */
+#define	DEVICE_REGION_END	0x40000000ULL
 
 #define	MODINFOMD_EFI_MAP	0x1004
 
@@ -379,15 +397,14 @@ arm64_pmap_bootstrap(struct arm64_phys_range *ranges, int count)
 	/*
 	 * Find the physical address range to map.
 	 *
-	 * IMPORTANT: We must include the kernel load address (ARM64_PHYSBASE)
-	 * in the DMAP range, even if the EFI memory map's first usable range
-	 * starts higher. The kernel's page tables (including pre-allocated
-	 * L3 tables in BSS) are at physical addresses starting from
-	 * ARM64_PHYSBASE, and pmap_enter() uses PHYS_TO_DMAP() to access them.
-	 *
-	 * If dmap_phys_base > ARM64_PHYSBASE, PHYS_TO_DMAP() would underflow.
+	 * IMPORTANT: We start DMAP at physical address 0 to include device
+	 * memory regions (GIC at 0x08000000, etc.) as well as kernel RAM.
+	 * Device memory regions (below DEVICE_REGION_END) are mapped with
+	 * device memory attributes (uncached, non-reorderable).
+	 * Normal RAM (at and above DEVICE_REGION_END) is mapped with
+	 * normal cacheable attributes.
 	 */
-	dmap_phys_base = ARM64_PHYSBASE & ~0x1fffffULL;  /* 2MB align down */
+	dmap_phys_base = 0;
 	dmap_phys_max = 0;
 	for (int i = 0; i < count; i++) {
 		if (ranges[i].end > dmap_phys_max)
@@ -444,8 +461,17 @@ arm64_pmap_bootstrap(struct arm64_phys_range *ranges, int count)
 		}
 		l2 = (u_int64_t *)(uintptr_t)(l1[l1_idx] & ~0xfffULL);
 
-		/* Create 2MB block mapping */
-		l2[l2_idx] = (pa & ~0x1fffffULL) | PTE_BLOCK_NORMAL_FLAGS;
+		/*
+		 * Create 2MB block mapping.
+		 * Use device memory attributes for addresses below DEVICE_REGION_END
+		 * (where MMIO devices like GIC are located).
+		 * Use normal cacheable attributes for RAM.
+		 */
+		if (pa < DEVICE_REGION_END) {
+			l2[l2_idx] = (pa & ~0x1fffffULL) | PTE_BLOCK_DEVICE_FLAGS;
+		} else {
+			l2[l2_idx] = (pa & ~0x1fffffULL) | PTE_BLOCK_NORMAL_FLAGS;
+		}
 	}
 
 	/* Set dmap_max_addr */
@@ -839,6 +865,13 @@ initarm(uintptr_t modulep)
 		 * pmap_enter() or pmap_kenter().
 		 */
 		pmap_bootstrap();
+
+		/*
+		 * Initialize the GIC (interrupt controller).
+		 * This must be done after DMAP is set up (gic_init uses PHYS_TO_DMAP)
+		 * and before timer SYSINIT runs (timer enables its IRQ in the GIC).
+		 */
+		gic_init();
 
 		/*
 		 * Initialize kernel virtual address space parameters.

@@ -148,6 +148,7 @@ extern struct cputimer *sys_cputimer;
 #define CPUTIMER_VMM		9
 #define CPUTIMER_VMM1		10
 #define CPUTIMER_VMM2		11
+#define CPUTIMER_ARM64		12
 
 #define CPUTIMER_PRI_DUMMY	-10
 #define CPUTIMER_PRI_8254	0
@@ -224,6 +225,7 @@ struct cputimer_intr {
 #define CPUTIMER_INTR_LAPIC		1
 #define CPUTIMER_INTR_VKERNEL		2
 #define CPUTIMER_INTR_VMM		3
+#define CPUTIMER_INTR_ARM64		4
 
 /* NOTE: Keep the new values less than CPUTIMER_INTR_PRIO_MAX */
 #define CPUTIMER_INTR_PRIO_8254		0
