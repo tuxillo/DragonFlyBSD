@@ -296,7 +296,13 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	static int call_count = 0;
 
 #ifdef __aarch64__
-	/* Debug: detailed output at iteration 365 where we hang */
+	/* Debug: show progress every 100 iterations */
+	if ((call_count % 100) == 0) {
+		vm_uart_puts("add[");
+		vm_uart_putdec(call_count);
+		vm_uart_puts("]\r\n");
+	}
+	/* Detailed output at iteration 365 where we hang */
 	if (call_count == 365) {
 		vm_uart_puts("add[365] ENTRY pa=0x");
 		vm_uart_puthex(pa);
