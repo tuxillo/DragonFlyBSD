@@ -296,8 +296,9 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	static int call_count = 0;
 
 #ifdef __aarch64__
-	/* Debug: show progress every 100 iterations */
-	if ((call_count % 100) == 0) {
+	/* Debug: show progress every 100 iterations, every 10 between 300-400 */
+	if ((call_count % 100) == 0 ||
+	    (call_count >= 300 && call_count < 400 && (call_count % 10) == 0)) {
 		vm_uart_puts("add[");
 		vm_uart_putdec(call_count);
 		vm_uart_puts("]\r\n");
