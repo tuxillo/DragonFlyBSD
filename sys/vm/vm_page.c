@@ -246,12 +246,26 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	struct vpgqueues *vpq;
 	vm_page_t m;
 	static int call_count = 0;
+	static void *last_q101_tqh_first = NULL;
 	int debug = 0;
 
 	++call_count;
 	/* Debug for first 3 pages and page 364 (pa=0x4216c000) */
 	if (call_count <= 3 || pa == 0x4216c000)
 		debug = 1;
+
+	/*
+	 * Watch queue 101 for any change - detect corruption early
+	 */
+	{
+		struct vpgqueues *vpq101 = &vm_page_queues[101];
+		if (vpq101->pl.tqh_first != last_q101_tqh_first) {
+			kprintf("vm_add_new_page[%d]: queue 101 CHANGED: %p -> %p (pa=0x%lx)\n",
+			    call_count, last_q101_tqh_first, vpq101->pl.tqh_first,
+			    (unsigned long)pa);
+			last_q101_tqh_first = vpq101->pl.tqh_first;
+		}
+	}
 
 	if (debug) {
 		kprintf("vm_add_new_page[%d]: pa=0x%lx\n",
