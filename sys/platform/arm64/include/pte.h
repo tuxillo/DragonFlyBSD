@@ -32,7 +32,17 @@
 #ifndef _MACHINE_PTE_H_
 #define	_MACHINE_PTE_H_
 
+/*
+ * Define UINT64_C if not already provided. This is needed for
+ * the PTE attribute masks that require 64-bit constants.
+ */
+#ifndef UINT64_C
+#define	UINT64_C(c)	(c ## UL)
+#endif
+
 #ifndef LOCORE
+#include <sys/types.h>
+
 typedef	uint64_t	pd_entry_t;		/* page directory entry */
 typedef	uint64_t	pt_entry_t;		/* page table entry */
 #endif
