@@ -525,7 +525,14 @@ vm_page_startup(void)
 	 * PHYS_TO_VM_PAGE() operates properly even on pages not in the
 	 * map.
 	 */
+	kprintf("vm_page_array=%p size=%lu (phys new_end=0x%lx end=0x%lx)\n",
+	    vm_page_array, (unsigned long)(page_range * sizeof(struct vm_page)),
+	    (unsigned long)new_end, (unsigned long)end);
+	kprintf("vm_page_queues[135]=%p (tqh_first before bzero=%p)\n",
+	    &vm_page_queues[135], vm_page_queues[135].pl.tqh_first);
 	bzero((caddr_t) vm_page_array, page_range * sizeof(struct vm_page));
+	kprintf("vm_page_queues[135].tqh_first after bzero=%p\n",
+	    vm_page_queues[135].pl.tqh_first);
 	vm_page_array_size = page_range;
 	if (bootverbose && ctob(physmem) >= 400LL*1024*1024*1024)
 		kprintf("vm_page_array_size = 0x%zx\n", vm_page_array_size);
