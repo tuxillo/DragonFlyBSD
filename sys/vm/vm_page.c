@@ -549,12 +549,16 @@ vm_page_startup(void)
 			pa = phys_avail[i].phys_beg;
 			kprintf("  range %d start\n", i);
 			while (pa < phys_avail[i].phys_end) {
+				if (progress >= 360 && progress <= 375)
+					kprintf("  page %ld: pa=0x%lx\n", progress, (unsigned long)pa);
 				vm_add_new_page(pa, &badcount);
+				if (progress >= 360 && progress <= 375)
+					kprintf("  page %ld done\n", progress);
 				pa += PAGE_SIZE;
 				++progress;
 				if (progress == 1)
 					kprintf("  first page done\n");
-				if (progress % 5000 == 0)
+				if (progress % 100 == 0)
 					kprintf("  %ld pages\n", progress);
 			}
 			kprintf("  range %d done\n", i);
