@@ -516,9 +516,13 @@ vm_page_startup(void)
 	vmstats.v_page_count = 0;
 	vmstats.v_free_count = 0;
 
+	kprintf("vm_page_startup: entering free queue loop\n");
 	{
 		long progress = 0;
 		for (i = 0; phys_avail[i].phys_end; ++i) {
+			kprintf("  range[%d]: 0x%lx-0x%lx\n", i,
+			    (unsigned long)phys_avail[i].phys_beg,
+			    (unsigned long)phys_avail[i].phys_end);
 			pa = phys_avail[i].phys_beg;
 			while (pa < phys_avail[i].phys_end) {
 				vm_add_new_page(pa, &badcount);
