@@ -111,6 +111,11 @@ _start:
 	add	x1, x1, :lo12:initstack_end
 	mov	sp, x1
 
+	/* Debug: print '0' to show we reached this point */
+	ldr	x1, =0x09000000
+	mov	w2, #'0'
+	strb	w2, [x1]
+
 	/*
 	 * Zero the BSS section.
 	 * This is critical - global variables in BSS must be zero-initialized
@@ -125,6 +130,11 @@ _start:
 	stp	xzr, xzr, [x15], #16	/* Store 16 bytes of zeros, post-increment */
 	b	1b
 2:
+
+	/* Debug: print '1' to show BSS zeroing completed */
+	ldr	x1, =0x09000000
+	mov	w2, #'1'
+	strb	w2, [x1]
 
 	/* Call early C entry with modulep */
 	mov	x0, x19
