@@ -296,8 +296,8 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	static int call_count = 0;
 
 #ifdef __aarch64__
-	/* Direct UART debug output for first 15 calls, then every 10000 */
-	if (call_count < 15 || (call_count % 10000) == 0) {
+	/* Direct UART debug output for first 25 calls, then every 10000 */
+	if (call_count < 25 || (call_count % 10000) == 0) {
 		vm_uart_puts("vm_add_new_page[");
 		vm_uart_putdec(call_count);
 		vm_uart_puts("]: pa=0x");
@@ -309,7 +309,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	m = PHYS_TO_VM_PAGE(pa);
 
 #ifdef __aarch64__
-	if (call_count < 15 || (call_count % 10000) == 0) {
+	if (call_count < 25 || (call_count % 10000) == 0) {
 		vm_uart_puts("  [");
 		vm_uart_putdec(call_count);
 		vm_uart_puts("] m=0x");
@@ -365,7 +365,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	m->pc &= PQ_L2_MASK;
 
 #ifdef __aarch64__
-	if (call_count < 15 || (call_count % 10000) == 0) {
+	if (call_count < 25 || (call_count % 10000) == 0) {
 		vm_uart_puts("  [");
 		vm_uart_putdec(call_count);
 		vm_uart_puts("] queue=");
@@ -398,7 +398,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 		vmstats.v_wire_count++;
 		alist_free(&vm_contig_alist, pa >> PAGE_SHIFT, 1);
 #ifdef __aarch64__
-		if (call_count < 15 || (call_count % 10000) == 0) {
+		if (call_count < 25 || (call_count % 10000) == 0) {
 			vm_uart_puts("  [");
 			vm_uart_putdec(call_count);
 			vm_uart_puts("] DMA reserved path, returning\r\n");
@@ -420,7 +420,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
 #ifdef __aarch64__
-	if (call_count < 15 || (call_count % 10000) == 0) {
+	if (call_count < 25 || (call_count % 10000) == 0) {
 		vm_uart_puts("  [");
 		vm_uart_putdec(call_count);
 		vm_uart_puts("] calling TAILQ_INSERT_HEAD\r\n");
@@ -428,7 +428,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 #endif
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
 #ifdef __aarch64__
-	if (call_count < 15 || (call_count % 10000) == 0) {
+	if (call_count < 25 || (call_count % 10000) == 0) {
 		vm_uart_puts("  [");
 		vm_uart_putdec(call_count);
 		vm_uart_puts("] TAILQ_INSERT_HEAD done\r\n");
