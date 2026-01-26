@@ -454,6 +454,8 @@ vm_page_startup(void)
 		page_range += seg_pages;
 		vm_phys_add_seg(phys_avail[j].phys_beg, phys_avail[j].phys_end);
 	}
+	kprintf("vm_page_startup: registered %d segments, page_range=%lu\n",
+		vm_phys_nsegs, (unsigned long)page_range);
 #else
 	/*
 	 * For dense configurations, page_range spans from first to last
@@ -497,6 +499,8 @@ vm_page_startup(void)
 	new_end = trunc_page(end - page_range * sizeof(struct vm_page));
 	mapped = pmap_map(&vaddr, new_end, end, VM_PROT_READ | VM_PROT_WRITE);
 	vm_page_array = (vm_page_t)mapped;
+	kprintf("vm_page_startup: vm_page_array=%p, vaddr=%lx\n",
+		vm_page_array, (unsigned long)vaddr);
 
 #if defined(__x86_64__) && !defined(_KERNEL_VIRTUAL)
 	/*
@@ -518,6 +522,8 @@ vm_page_startup(void)
 	 */
 	bzero((caddr_t) vm_page_array, page_range * sizeof(struct vm_page));
 	vm_page_array_size = page_range;
+	kprintf("vm_page_startup: bzero complete, array_size=%zu\n",
+		vm_page_array_size);
 	if (bootverbose && ctob(physmem) >= 400LL*1024*1024*1024)
 		kprintf("vm_page_array_size = 0x%zx\n", vm_page_array_size);
 
@@ -527,6 +533,7 @@ vm_page_startup(void)
 	 * each segment.  This must be done before we can use PHYS_TO_VM_PAGE().
 	 */
 	vm_phys_init();
+	kprintf("vm_page_startup: vm_phys_init complete\n");
 
 	/*
 	 * Initialize page structures per-segment.  Each segment's pages
@@ -544,6 +551,8 @@ vm_page_startup(void)
 				++page_idx;
 			}
 		}
+		kprintf("vm_page_startup: page structures initialized, count=%lu\n",
+			page_idx);
 	}
 #else
 	/*
@@ -569,6 +578,7 @@ vm_page_startup(void)
 	vmstats.v_page_count = 0;
 	vmstats.v_free_count = 0;
 
+	kprintf("vm_page_startup: adding pages to free queues\n");
 	for (i = 0; phys_avail[i].phys_end; ++i) {
 		pa = phys_avail[i].phys_beg;
 		while (pa < phys_avail[i].phys_end) {
