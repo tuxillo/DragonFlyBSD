@@ -93,31 +93,54 @@ cputimer_select(struct cputimer *timer, int pri)
     sysclock_t oldclock, newclock;
     struct cputimer *oldtimer;
 
+    kprintf("cputimer_select: enter timer=%p pri=%d\n", timer, pri);
+    kprintf("cputimer_select: timer->name=%s timer->freq=%u\n",
+	timer->name, (unsigned)timer->freq);
+
     /*
      * Calculate helper fields
      */
+    kprintf("cputimer_select: calling cputimer_set_frequency\n");
     cputimer_set_frequency(timer, timer->freq);
+    kprintf("cputimer_select: cputimer_set_frequency done\n");
 
     /*
      * Install a new cputimer if its priority allows it.
      */
     if (pri == 0)
 	pri = timer->pri;
+    kprintf("cputimer_select: sys_cputimer=%p sys_cputimer->pri=%d pri=%d\n",
+	sys_cputimer, sys_cputimer->pri, pri);
     if (pri >= sys_cputimer->pri) {
 	oldtimer = sys_cputimer;
+	kprintf("cputimer_select: oldtimer=%p oldtimer->count=%p\n",
+	    oldtimer, oldtimer->count);
+	kprintf("cputimer_select: calling oldtimer->count()\n");
 	oldclock = oldtimer->count();
+	kprintf("cputimer_select: oldclock=%ju\n", (uintmax_t)oldclock);
+	kprintf("cputimer_select: timer->construct=%p\n", timer->construct);
+	kprintf("cputimer_select: calling timer->construct()\n");
 	timer->construct(timer, oldclock);
+	kprintf("cputimer_select: construct done\n");
+	kprintf("cputimer_select: timer->count=%p\n", timer->count);
+	kprintf("cputimer_select: calling timer->count()\n");
 	newclock = timer->count();
+	kprintf("cputimer_select: newclock=%ju\n", (uintmax_t)newclock);
 	if (newclock < oldclock) {
 		kprintf("Warning: timer %s jumped backward! "
 			"oldclock=%ju, newclock=%ju\n",
 			timer->name, (uintmax_t)oldclock, (uintmax_t)newclock);
 	}
+	kprintf("cputimer_select: calling cputimer_intr_config\n");
 	cputimer_intr_config(timer);
+	kprintf("cputimer_select: cputimer_intr_config done\n");
 	sys_cputimer = timer;
+	kprintf("cputimer_select: calling oldtimer->destruct\n");
 	oldtimer->destruct(oldtimer);
+	kprintf("cputimer_select: calling systimer_changed\n");
 	systimer_changed();
     }
+    kprintf("cputimer_select: done\n");
 }
 
 /*
