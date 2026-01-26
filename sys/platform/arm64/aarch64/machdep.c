@@ -49,6 +49,7 @@
 #include <machine/globaldata.h>
 #include <machine/pcb.h>
 #include <machine/vmparam.h>
+#include <machine/clock.h>
 #include <cpu/tls.h>
 #include <vm/vm.h>
 #include <vm/vm_extern.h>

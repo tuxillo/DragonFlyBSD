@@ -39,6 +39,15 @@
 #include <sys/types.h>
 #endif
 
+/*
+ * tsc_uclock_t - high-resolution timestamp type.
+ *
+ * On x86 this comes from the TSC (Time Stamp Counter).
+ * On ARM64 we use CNTVCT_EL0 (virtual counter) which serves
+ * the same purpose - a monotonically increasing counter.
+ */
+typedef uint64_t tsc_uclock_t;
+
 #ifdef _KERNEL
 
 #ifndef _SYS_SYSTIMER_H_
