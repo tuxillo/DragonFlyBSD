@@ -102,60 +102,6 @@
 #include <sys/spinlock2.h>
 
 /*
- * ARM64 direct UART debug output - bypasses kprintf for early boot debugging.
- * This writes directly to PL011 UART at 0x09000000.
- * NOTE: These functions are NOT static because vm_phys.c also uses them.
- */
-#ifdef __aarch64__
-static volatile u_int32_t *const vm_uart_base = (u_int32_t *)0x09000000;
-
-/* Function prototypes */
-void vm_uart_putc(char ch);
-void vm_uart_puts(const char *str);
-void vm_uart_puthex(u_int64_t value);
-void vm_uart_putdec(u_int64_t value);
-
-void
-vm_uart_putc(char ch)
-{
-	*vm_uart_base = (u_int32_t)(unsigned char)ch;
-}
-
-void
-vm_uart_puts(const char *str)
-{
-	while (*str != '\0')
-		vm_uart_putc(*str++);
-}
-
-void
-vm_uart_puthex(u_int64_t value)
-{
-	const char *hex = "0123456789abcdef";
-	int shift;
-	for (shift = 60; shift >= 0; shift -= 4)
-		vm_uart_putc(hex[(value >> shift) & 0xf]);
-}
-
-void
-vm_uart_putdec(u_int64_t value)
-{
-	char buf[21];  /* max 20 digits for 64-bit + null */
-	char *p = &buf[20];
-	*p = '\0';
-	if (value == 0) {
-		vm_uart_putc('0');
-		return;
-	}
-	while (value > 0) {
-		*--p = '0' + (value % 10);
-		value /= 10;
-	}
-	vm_uart_puts(p);
-}
-#endif /* __aarch64__ */
-
-/*
  * Cache necessary elements in the hash table itself to avoid indirecting
  * through random vm_page's when doing a lookup.  The hash table is
  * heuristical and it is ok for races to mess up any or all fields.
@@ -300,25 +246,8 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 {
 	struct vpgqueues *vpq;
 	vm_page_t m;
-	static int call_count = 0;
-
-	/* Debug: trace entry and PHYS_TO_VM_PAGE call - print first 25 pages */
-	if (call_count < 25 || (call_count % 1000) == 0) {
-		vm_uart_puts("add[");
-		vm_uart_putdec(call_count);
-		vm_uart_puts("] pa=0x");
-		vm_uart_puthex(pa);
-		vm_uart_puts("\r\n");
-	}
 
 	m = PHYS_TO_VM_PAGE(pa);
-
-	/* Debug: trace after PHYS_TO_VM_PAGE */
-	if (call_count < 25) {
-		vm_uart_puts("  m=0x");
-		vm_uart_puthex((uint64_t)m);
-		vm_uart_puts("\r\n");
-	}
 
 	/*
 	 * For VM_PHYSSEG_SPARSE, PHYS_TO_VM_PAGE can return NULL for
@@ -327,18 +256,11 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	 */
 #ifdef VM_PHYSSEG_SPARSE
 	if (m == NULL) {
-		vm_uart_puts("vm_add_new_page: PHYS_TO_VM_PAGE returned NULL for pa=0x");
-		vm_uart_puthex(pa);
-		vm_uart_puts("\r\n");
-		call_count++;
+		kprintf("vm_add_new_page: PHYS_TO_VM_PAGE returned NULL "
+		    "for pa=%016jx\n", (intmax_t)pa);
 		return;
 	}
 #endif
-
-	/* Debug: trace before m->queue check */
-	if (call_count < 25) {
-		vm_uart_puts("  chk_dup\r\n");
-	}
 
 	/*
 	 * Make sure it isn't a duplicate (due to BIOS page range overlaps,
@@ -354,13 +276,7 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 			kprintf("vm_add_new_page: duplicate pa (many more)\n");
 			++*badcountp;
 		}
-		call_count++;
 		return;
-	}
-
-	/* Debug: trace after duplicate check, before page init */
-	if (call_count < 25) {
-		vm_uart_puts("  init\r\n");
 	}
 
 	m->phys_addr = pa;
@@ -375,11 +291,6 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	m->pc ^= ((pa >> PAGE_SHIFT) / PQ_L2_SIZE);
 	m->pc ^= ((pa >> PAGE_SHIFT) / (PQ_L2_SIZE * PQ_L2_SIZE));
 	m->pc &= PQ_L2_MASK;
-
-	/* Debug: trace after page init, before reserved check */
-	if (call_count < 25) {
-		vm_uart_puts("  rsvd?\r\n");
-	}
 
 	/*
 	 * Reserve a certain number of contiguous low memory pages for
@@ -402,7 +313,6 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 		m->wire_count = 1;
 		vmstats.v_wire_count++;
 		alist_free(&vm_contig_alist, pa >> PAGE_SHIFT, 1);
-		call_count++;
 		return;
 	}
 
@@ -411,34 +321,14 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	 *
 	 * NOTE: Non-atomic increments are safe during single-CPU boot.
 	 */
-	/* Debug: trace before queue assignment */
-	if (call_count < 25) {
-		vm_uart_puts("  queue\r\n");
-	}
-
 	m->queue = m->pc + PQ_FREE;
 	KKASSERT(m->dirty == 0);
 
 	vmstats.v_page_count++;
 	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
-
-	/* Debug: trace before TAILQ_INSERT_HEAD */
-	if (call_count < 25) {
-		vm_uart_puts("  tailq q=");
-		vm_uart_putdec(m->queue);
-		vm_uart_puts("\r\n");
-	}
-
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
 	++vpq->lcnt;
-
-	/* Debug: trace completion */
-	if (call_count < 25) {
-		vm_uart_puts("  done\r\n");
-	}
-
-	call_count++;
 }
 
 /*
@@ -555,7 +445,6 @@ vm_page_startup(void)
 	 * For sparse configurations, page_range is the sum of pages in all
 	 * segments (no gaps).  Register each segment with vm_phys.
 	 */
-	kprintf("vm_page_startup: using VM_PHYSSEG_SPARSE\n");
 	page_range = 0;
 	for (int j = 0; phys_avail[j].phys_end; ++j) {
 		vm_paddr_t seg_pages;
@@ -564,8 +453,6 @@ vm_page_startup(void)
 		page_range += seg_pages;
 		vm_phys_add_seg(phys_avail[j].phys_beg, phys_avail[j].phys_end);
 	}
-	kprintf("vm_page_startup: registered %d segments, page_range=%lu\n",
-		vm_phys_nsegs, (unsigned long)page_range);
 #else
 	/*
 	 * For dense configurations, page_range spans from first to last
@@ -609,8 +496,6 @@ vm_page_startup(void)
 	new_end = trunc_page(end - page_range * sizeof(struct vm_page));
 	mapped = pmap_map(&vaddr, new_end, end, VM_PROT_READ | VM_PROT_WRITE);
 	vm_page_array = (vm_page_t)mapped;
-	kprintf("vm_page_startup: vm_page_array=%p, vaddr=%lx\n",
-		vm_page_array, (unsigned long)vaddr);
 
 #if defined(__x86_64__) && !defined(_KERNEL_VIRTUAL)
 	/*
@@ -632,8 +517,6 @@ vm_page_startup(void)
 	 */
 	bzero((caddr_t) vm_page_array, page_range * sizeof(struct vm_page));
 	vm_page_array_size = page_range;
-	kprintf("vm_page_startup: bzero complete, array_size=%zu\n",
-		vm_page_array_size);
 	if (bootverbose && ctob(physmem) >= 400LL*1024*1024*1024)
 		kprintf("vm_page_array_size = 0x%zx\n", vm_page_array_size);
 
@@ -643,7 +526,6 @@ vm_page_startup(void)
 	 * each segment.  This must be done before we can use PHYS_TO_VM_PAGE().
 	 */
 	vm_phys_init();
-	kprintf("vm_page_startup: vm_phys_init complete\n");
 
 	/*
 	 * Initialize page structures per-segment.  Each segment's pages
@@ -661,8 +543,6 @@ vm_page_startup(void)
 				++page_idx;
 			}
 		}
-		kprintf("vm_page_startup: page structures initialized, count=%lu\n",
-			page_idx);
 	}
 #else
 	/*
@@ -688,48 +568,13 @@ vm_page_startup(void)
 	vmstats.v_page_count = 0;
 	vmstats.v_free_count = 0;
 
-	kprintf("vm_page_startup: adding pages to free queues\n");
-	kprintf("vm_page_startup: vm_low_phys_reserved=%#jx\n",
-		(uintmax_t)vm_low_phys_reserved);
-	kprintf("vm_page_startup: first phys_avail[0].phys_beg=%#jx\n",
-		(uintmax_t)phys_avail[0].phys_beg);
-#ifdef __aarch64__
-	/* Print vm_phys_nsegs to verify segment registration */
-	vm_uart_puts("vm_page_startup: vm_phys_nsegs=");
-	vm_uart_putdec(vm_phys_nsegs);
-	vm_uart_puts("\r\n");
-
-	/* Print all segment boundaries */
 	for (i = 0; phys_avail[i].phys_end; ++i) {
-		vm_uart_puts("  seg[");
-		vm_uart_putdec(i);
-		vm_uart_puts("]: 0x");
-		vm_uart_puthex(phys_avail[i].phys_beg);
-		vm_uart_puts(" - 0x");
-		vm_uart_puthex(phys_avail[i].phys_end);
-		vm_uart_puts(" (");
-		vm_uart_putdec((phys_avail[i].phys_end - phys_avail[i].phys_beg) >> PAGE_SHIFT);
-		vm_uart_puts(" pages)\r\n");
-	}
-#endif
-	for (i = 0; phys_avail[i].phys_end; ++i) {
-#ifdef __aarch64__
-		vm_uart_puts("Starting segment ");
-		vm_uart_putdec(i);
-		vm_uart_puts("\r\n");
-#endif
 		pa = phys_avail[i].phys_beg;
 		while (pa < phys_avail[i].phys_end) {
 			vm_add_new_page(pa, &badcount);
 			pa += PAGE_SIZE;
 		}
 	}
-
-#ifdef __aarch64__
-	vm_uart_puts("vm_page_startup: page loop complete, count=");
-	vm_uart_putdec(vmstats.v_page_count);
-	vm_uart_puts("\r\n");
-#endif
 
 	if (virtual2_start)
 		virtual2_start = vaddr;

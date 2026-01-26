@@ -42,10 +42,27 @@ cpu_ccfence(void)
 	__asm __volatile("" ::: "memory");
 }
 
+/*
+ * Memory barrier functions for ARM64.
+ *
+ * ARM64 has a weakly-ordered memory model, so we need real hardware
+ * barriers, not just compiler fences.
+ *
+ * dmb ishst - Data Memory Barrier, Inner Shareable, Store
+ *             Ensures all stores before the barrier are visible before
+ *             any stores after the barrier.
+ *
+ * dmb ishld - Data Memory Barrier, Inner Shareable, Load
+ *             Ensures all loads before the barrier complete before
+ *             any loads after the barrier.
+ *
+ * dmb ish   - Data Memory Barrier, Inner Shareable
+ *             Full barrier for both loads and stores.
+ */
 static __inline void
 cpu_sfence(void)
 {
-	__asm __volatile("" ::: "memory");
+	__asm __volatile("dmb ishst" ::: "memory");
 }
 
 static __inline void
@@ -57,7 +74,7 @@ cpu_mfence(void)
 static __inline void
 cpu_lfence(void)
 {
-	__asm __volatile("" ::: "memory");
+	__asm __volatile("dmb ishld" ::: "memory");
 }
 
 static __inline void

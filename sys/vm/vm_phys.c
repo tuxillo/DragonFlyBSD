@@ -166,67 +166,13 @@ vm_phys_seg_paddr_to_vm_page(struct vm_phys_seg *seg, vm_paddr_t pa)
  *
  * This is the core of PHYS_TO_VM_PAGE() for VM_PHYSSEG_SPARSE.
  */
-
-/* Forward declare UART functions for debug output */
-#ifdef __aarch64__
-extern void vm_uart_puts(const char *s);
-extern void vm_uart_puthex(uint64_t val);
-extern void vm_uart_putdec(uint64_t val);
-static int vm_phys_debug_count = 0;
-#endif
-
 vm_page_t
 vm_phys_paddr_to_vm_page(vm_paddr_t pa)
 {
 	struct vm_phys_seg *seg;
-#ifdef __aarch64__
-	int segind;
 
-	/* Debug: trace first few calls */
-	if (vm_phys_debug_count < 5) {
-		vm_uart_puts("  p2v: pa=0x");
-		vm_uart_puthex(pa);
-		vm_uart_puts(" nsegs=");
-		vm_uart_putdec(vm_phys_nsegs);
-	}
-
-	segind = vm_phys_lookup_segind(pa);
-
-	if (vm_phys_debug_count < 5) {
-		vm_uart_puts(" segind=");
-		vm_uart_putdec(segind);
-	}
-
-	if (segind < vm_phys_nsegs) {
-		seg = &vm_phys_segs[segind];
-		if (vm_phys_debug_count < 5) {
-			vm_uart_puts(" seg.start=0x");
-			vm_uart_puthex(seg->start);
-			vm_uart_puts(" seg.end=0x");
-			vm_uart_puthex(seg->end);
-			vm_uart_puts(" first_page=0x");
-			vm_uart_puthex((uint64_t)seg->first_page);
-		}
-		if (pa >= seg->start) {
-			vm_page_t result = vm_phys_seg_paddr_to_vm_page(seg, pa);
-			if (vm_phys_debug_count < 5) {
-				vm_uart_puts(" -> 0x");
-				vm_uart_puthex((uint64_t)result);
-				vm_uart_puts("\r\n");
-				vm_phys_debug_count++;
-			}
-			return (result);
-		}
-	}
-	if (vm_phys_debug_count < 5) {
-		vm_uart_puts(" -> NULL\r\n");
-		vm_phys_debug_count++;
-	}
-	return (NULL);
-#else
 	seg = vm_phys_paddr_to_seg(pa);
 	if (seg != NULL)
 		return (vm_phys_seg_paddr_to_vm_page(seg, pa));
 	return (NULL);
-#endif
 }
