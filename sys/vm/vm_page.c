@@ -98,6 +98,7 @@
 #include <machine/bus_dma.h>
 
 #include <vm/vm_page2.h>
+#include <vm/vm_phys.h>
 #include <sys/spinlock2.h>
 
 /*
@@ -245,38 +246,21 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 {
 	struct vpgqueues *vpq;
 	vm_page_t m;
-	static int call_count = 0;
-	static void *last_q101_tqh_first = NULL;
-	int debug = 0;
-
-	++call_count;
-	/* Debug for first 3 pages and page 364 (pa=0x4216c000) */
-	if (call_count <= 3 || pa == 0x4216c000)
-		debug = 1;
-
-	/*
-	 * Watch queue 101 for any change - detect corruption early
-	 */
-	{
-		struct vpgqueues *vpq101 = &vm_page_queues[101];
-		if (vpq101->pl.tqh_first != last_q101_tqh_first) {
-			kprintf("vm_add_new_page[%d]: queue 101 CHANGED: %p -> %p (pa=0x%lx)\n",
-			    call_count, last_q101_tqh_first, vpq101->pl.tqh_first,
-			    (unsigned long)pa);
-			last_q101_tqh_first = vpq101->pl.tqh_first;
-		}
-	}
-
-	if (debug) {
-		kprintf("vm_add_new_page[%d]: pa=0x%lx\n",
-		    call_count, (unsigned long)pa);
-	}
 
 	m = PHYS_TO_VM_PAGE(pa);
 
-	if (debug) {
-		kprintf("  [%d] m=%p m->queue=%d\n", call_count, m, m->queue);
+	/*
+	 * For VM_PHYSSEG_SPARSE, PHYS_TO_VM_PAGE can return NULL for
+	 * addresses in gaps.  This should not happen if phys_avail[]
+	 * is consistent with vm_phys_segs[], but check just in case.
+	 */
+#ifdef VM_PHYSSEG_SPARSE
+	if (m == NULL) {
+		kprintf("vm_add_new_page: PHYS_TO_VM_PAGE returned NULL "
+		    "for pa=%016jx\n", (intmax_t)pa);
+		return;
 	}
+#endif
 
 	/*
 	 * Make sure it isn't a duplicate (due to BIOS page range overlaps,
@@ -338,36 +322,13 @@ vm_add_new_page(vm_paddr_t pa, int *badcountp)
 	 * NOTE: Non-atomic increments are safe during single-CPU boot.
 	 */
 	m->queue = m->pc + PQ_FREE;
-	if (debug) {
-		kprintf("  [%d] queue=%d pc=%d\n", call_count,
-		    m->queue, m->pc);
-	}
 	KKASSERT(m->dirty == 0);
 
 	vmstats.v_page_count++;
 	vmstats.v_free_count++;
 	vpq = &vm_page_queues[m->queue];
-	/* Check for corruption of queue 101 */
-	if (m->queue == 101 || call_count >= 360) {
-		struct vpgqueues *vpq101 = &vm_page_queues[101];
-		if (vpq101->pl.tqh_first != NULL) {
-			kprintf("  [%d] CORRUPTION: queue 101 tqh_first=%p (should be NULL or valid)\n",
-			    call_count, vpq101->pl.tqh_first);
-		}
-	}
-	if (debug) {
-		kprintf("  [%d] vpq=%p vpq->pl.tqh_first=%p\n",
-		    call_count, vpq, vpq->pl.tqh_first);
-		kprintf("  [%d] calling TAILQ_INSERT_HEAD\n", call_count);
-	}
 	TAILQ_INSERT_HEAD(&vpq->pl, m, pageq);
-	if (debug) {
-		kprintf("  [%d] TAILQ_INSERT_HEAD done\n", call_count);
-	}
 	++vpq->lcnt;
-	if (debug) {
-		kprintf("  [%d] done\n", call_count);
-	}
 }
 
 /*
@@ -402,8 +363,6 @@ vm_page_startup(void)
 	vm_page_t m;
 	int badcount __unused;
 
-	kprintf("vm_page_startup: vaddr=0x%lx\n", (unsigned long)vaddr);
-
 	total = 0;
 	badcount = 0;
 	biggestsize = 0;
@@ -413,7 +372,6 @@ vm_page_startup(void)
 	/*
 	 * Make sure ranges are page-aligned.
 	 */
-	kprintf("vm_page_startup: aligning phys_avail ranges\n");
 	for (i = 0; phys_avail[i].phys_end; ++i) {
 		phys_avail[i].phys_beg = round_page64(phys_avail[i].phys_beg);
 		phys_avail[i].phys_end = trunc_page64(phys_avail[i].phys_end);
@@ -424,7 +382,6 @@ vm_page_startup(void)
 	/*
 	 * Locate largest block
 	 */
-	kprintf("vm_page_startup: finding largest block\n");
 	for (i = 0; phys_avail[i].phys_end; ++i) {
 		vm_paddr_t size = phys_avail[i].phys_end -
 				  phys_avail[i].phys_beg;
@@ -437,9 +394,6 @@ vm_page_startup(void)
 	}
 	--i;	/* adjust to last entry for use down below */
 
-	kprintf("vm_page_startup: biggestone=%d total=0x%lx\n",
-	    (int)biggestone, (unsigned long)total);
-
 	end = phys_avail[biggestone].phys_end;
 	end = trunc_page(end);
 
@@ -447,14 +401,7 @@ vm_page_startup(void)
 	 * Initialize the queue headers for the free queue, the active queue
 	 * and the inactive queue.
 	 */
-	kprintf("vm_page_startup: calling vm_page_queue_init\n");
 	vm_page_queue_init();
-	/* Debug: verify queue 101 was properly initialized */
-	{
-		struct vpgqueues *vpq101 = &vm_page_queues[101];
-		kprintf("vm_page_startup: queue 101 after init: vpq=%p tqh_first=%p tqh_last=%p\n",
-		    vpq101, vpq101->pl.tqh_first, vpq101->pl.tqh_last);
-	}
 
 #if !defined(_KERNEL_VIRTUAL)
 	/*
@@ -482,38 +429,39 @@ vm_page_startup(void)
 	 * Compute the number of pages of memory that will be available for
 	 * use (taking into account the overhead of a page structure per
 	 * page).
+	 *
+	 * For VM_PHYSSEG_SPARSE (arm64), we only allocate vm_page structures
+	 * for actual physical pages - no wasted entries for gaps between
+	 * memory regions.  This requires registering each phys_avail range
+	 * as a separate segment.
+	 *
+	 * For VM_PHYSSEG_DENSE (x86_64), we allocate vm_page structures for
+	 * the entire range from first to last physical page, including gaps.
 	 */
 	first_page = phys_avail[0].phys_beg / PAGE_SIZE;
-	page_range = phys_avail[i].phys_end / PAGE_SIZE - first_page;
-	npages = (total - (page_range * sizeof(struct vm_page))) / PAGE_SIZE;
 
-	kprintf("vm_page_startup: first_page=0x%lx page_range=0x%lx npages=%ld\n",
-	    (unsigned long)first_page, (unsigned long)page_range, (long)npages);
-
+#ifdef VM_PHYSSEG_SPARSE
 	/*
-	 * Debug: print all phys_avail[] ranges and detect gaps
+	 * For sparse configurations, page_range is the sum of pages in all
+	 * segments (no gaps).  Register each segment with vm_phys.
 	 */
-	kprintf("vm_page_startup: phys_avail[] ranges (%d total):\n", i);
-	{
-		int j;
-		vm_paddr_t prev_end = 0;
-		for (j = 0; phys_avail[j].phys_end; ++j) {
-			vm_paddr_t gap = 0;
-			if (j > 0 && phys_avail[j].phys_beg > prev_end)
-				gap = phys_avail[j].phys_beg - prev_end;
-			kprintf("  [%d] 0x%lx - 0x%lx (%ld pages)%s%s\n",
-			    j,
-			    (unsigned long)phys_avail[j].phys_beg,
-			    (unsigned long)phys_avail[j].phys_end,
-			    (long)((phys_avail[j].phys_end - phys_avail[j].phys_beg) / PAGE_SIZE),
-			    gap ? " GAP=" : "",
-			    gap ? "" : "");
-			if (gap)
-				kprintf("       *** GAP: %ld pages (0x%lx bytes) before this range!\n",
-				    (long)(gap / PAGE_SIZE), (unsigned long)gap);
-			prev_end = phys_avail[j].phys_end;
-		}
+	page_range = 0;
+	for (int j = 0; phys_avail[j].phys_end; ++j) {
+		vm_paddr_t seg_pages;
+		seg_pages = (phys_avail[j].phys_end - phys_avail[j].phys_beg) /
+			    PAGE_SIZE;
+		page_range += seg_pages;
+		vm_phys_add_seg(phys_avail[j].phys_beg, phys_avail[j].phys_end);
 	}
+#else
+	/*
+	 * For dense configurations, page_range spans from first to last
+	 * physical page (may include gaps).
+	 */
+	page_range = phys_avail[i].phys_end / PAGE_SIZE - first_page;
+#endif
+
+	npages = (total - (page_range * sizeof(struct vm_page))) / PAGE_SIZE;
 
 #ifndef _KERNEL_VIRTUAL
 	/*
@@ -546,12 +494,8 @@ vm_page_startup(void)
 	if (bootverbose && ctob(physmem) >= 400LL*1024*1024*1024)
 		kprintf("initializing vm_page_array ");
 	new_end = trunc_page(end - page_range * sizeof(struct vm_page));
-	kprintf("vm_page_startup: new_end=0x%lx end=0x%lx\n",
-	    (unsigned long)new_end, (unsigned long)end);
-	kprintf("vm_page_startup: calling pmap_map for vm_page_array\n");
 	mapped = pmap_map(&vaddr, new_end, end, VM_PROT_READ | VM_PROT_WRITE);
 	vm_page_array = (vm_page_t)mapped;
-	kprintf("vm_page_startup: vm_page_array=0x%lx\n", (unsigned long)mapped);
 
 #if defined(__x86_64__) && !defined(_KERNEL_VIRTUAL)
 	/*
@@ -571,14 +515,40 @@ vm_page_startup(void)
 	 * PHYS_TO_VM_PAGE() operates properly even on pages not in the
 	 * map.
 	 */
-	kprintf("vm_page_startup: bzero vm_page_array (%ld bytes)\n",
-	    (long)(page_range * sizeof(struct vm_page)));
 	bzero((caddr_t) vm_page_array, page_range * sizeof(struct vm_page));
 	vm_page_array_size = page_range;
 	if (bootverbose && ctob(physmem) >= 400LL*1024*1024*1024)
-		kprintf("size = 0x%zx\n", vm_page_array_size);
+		kprintf("vm_page_array_size = 0x%zx\n", vm_page_array_size);
 
-	kprintf("vm_page_startup: initializing page structures\n");
+#ifdef VM_PHYSSEG_SPARSE
+	/*
+	 * For sparse configurations, initialize first_page pointers in
+	 * each segment.  This must be done before we can use PHYS_TO_VM_PAGE().
+	 */
+	vm_phys_init();
+
+	/*
+	 * Initialize page structures per-segment.  Each segment's pages
+	 * are stored contiguously in vm_page_array with no gaps.
+	 */
+	{
+		u_long page_idx = 0;
+		for (int j = 0; phys_avail[j].phys_end; ++j) {
+			vm_paddr_t seg_pa = phys_avail[j].phys_beg;
+			while (seg_pa < phys_avail[j].phys_end) {
+				m = &vm_page_array[page_idx];
+				spin_init(&m->spin, "vm_page");
+				m->phys_addr = seg_pa;
+				seg_pa += PAGE_SIZE;
+				++page_idx;
+			}
+		}
+	}
+#else
+	/*
+	 * For dense configurations, initialize pages assuming contiguous
+	 * physical addresses from first_page.
+	 */
 	m = &vm_page_array[0];
 	pa = ptoa(first_page);
 	for (i = 0; i < page_range; ++i) {
@@ -587,18 +557,7 @@ vm_page_startup(void)
 		pa += PAGE_SIZE;
 		++m;
 	}
-	kprintf("vm_page_startup: done initializing page structures\n");
-
-	/*
-	 * Debug: show vm_page_array bounds for verification
-	 */
-	kprintf("vm_page_startup: vm_page_array=%p to %p (size=%ld entries)\n",
-	    vm_page_array,
-	    &vm_page_array[vm_page_array_size],
-	    (long)vm_page_array_size);
-	kprintf("vm_page_startup: vm_page_queues=%p to %p\n",
-	    vm_page_queues,
-	    &vm_page_queues[PQ_COUNT]);
+#endif
 
 	/*
 	 * Construct the free queue(s) in ascending order (by physical
@@ -606,51 +565,22 @@ vm_page_startup(void)
 	 * last rather than first.  On large-memory machines, this avoids
 	 * the exhaustion of low physical memory before isa_dma_init has run.
 	 */
-	kprintf("vm_page_startup: constructing free queues (%ld pages)\n",
-	    (long)npages);
 	vmstats.v_page_count = 0;
 	vmstats.v_free_count = 0;
 
-	kprintf("vm_page_startup: entering free queue loop\n");
-	{
-		long progress = 0;
-		for (i = 0; phys_avail[i].phys_end; ++i) {
-			pa = phys_avail[i].phys_beg;
-			kprintf("  range %d start (pa=0x%lx)\n", i, (unsigned long)pa);
-			while (pa < phys_avail[i].phys_end) {
-				vm_page_t m_check = PHYS_TO_VM_PAGE(pa);
-				/*
-				 * Verify PHYS_TO_VM_PAGE returns valid pointer
-				 */
-				if (m_check < vm_page_array || 
-				    m_check >= &vm_page_array[vm_page_array_size]) {
-					kprintf("  *** OUT OF BOUNDS: page %ld pa=0x%lx -> m=%p\n",
-					    progress, (unsigned long)pa, m_check);
-					kprintf("      valid range: %p - %p\n",
-					    vm_page_array, &vm_page_array[vm_page_array_size]);
-					kprintf("      atop(pa)=0x%lx first_page=0x%lx diff=%ld\n",
-					    (unsigned long)atop(pa),
-					    (unsigned long)first_page,
-					    (long)(atop(pa) - first_page));
-					panic("PHYS_TO_VM_PAGE out of bounds");
-				}
-				vm_add_new_page(pa, &badcount);
-				pa += PAGE_SIZE;
-				++progress;
-				if (progress % 10000 == 0)
-					kprintf("  %ld pages\n", progress);
-			}
-			kprintf("  range %d done (%ld pages so far)\n", i, progress);
+	for (i = 0; phys_avail[i].phys_end; ++i) {
+		pa = phys_avail[i].phys_beg;
+		while (pa < phys_avail[i].phys_end) {
+			vm_add_new_page(pa, &badcount);
+			pa += PAGE_SIZE;
 		}
 	}
-	kprintf("vm_page_startup: free queues done, v_page_count=%ld\n",
-	    (long)vmstats.v_page_count);
+
 	if (virtual2_start)
 		virtual2_start = vaddr;
 	else
 		virtual_start = vaddr;
 	mycpu->gd_vmstats = vmstats;
-	kprintf("vm_page_startup: returning\n");
 }
 
 /*

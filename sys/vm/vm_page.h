@@ -92,9 +92,7 @@
 #include <sys/spinlock.h>
 #endif
 
-#ifdef __x86_64__
 #include <machine/vmparam.h>
-#endif
 
 #endif
 
@@ -451,8 +449,24 @@ extern vm_pindex_t first_page;		/* first physical page number */
 #define VM_PAGE_TO_PHYS(entry)	\
 		((entry)->phys_addr)
 
+/*
+ * PHYS_TO_VM_PAGE() - Convert a physical address to a vm_page pointer.
+ *
+ * For VM_PHYSSEG_SPARSE (arm64), this requires a segment lookup since
+ * physical memory may be non-contiguous.  The function returns NULL
+ * for addresses in gaps between segments.
+ *
+ * For VM_PHYSSEG_DENSE (x86_64), this is a simple arithmetic operation
+ * since physical memory is effectively contiguous (small gaps are absorbed
+ * into the vm_page_array).
+ */
+#ifdef VM_PHYSSEG_SPARSE
+vm_page_t vm_phys_paddr_to_vm_page(vm_paddr_t pa);
+#define PHYS_TO_VM_PAGE(pa)	vm_phys_paddr_to_vm_page(pa)
+#else
 #define PHYS_TO_VM_PAGE(pa)	\
 		(&vm_page_array[atop(pa) - first_page])
+#endif
 
 
 #if PAGE_SIZE == 4096

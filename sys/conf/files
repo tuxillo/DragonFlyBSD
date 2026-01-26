@@ -2071,6 +2071,7 @@ vm/vm_meter.c			standard
 vm/vm_mmap.c			standard
 vm/vm_object.c			standard
 vm/vm_page.c			standard
+vm/vm_phys.c			standard
 vm/vm_pageout.c			standard
 vm/vm_swapcache.c		standard
 vm/vm_pager.c			standard

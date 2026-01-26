@@ -73,4 +73,11 @@
 #define PHYS_TO_DMAP(x)		((vm_offset_t)(x))
 #define DMAP_TO_PHYS(x)		((vm_paddr_t)(x))
 
+/*
+ * Use sparse physical memory segment tracking on arm64.
+ * EFI systems often have non-contiguous physical memory regions,
+ * and this enables proper PHYS_TO_VM_PAGE() handling for such systems.
+ */
+#define VM_PHYSSEG_SPARSE
+
 #endif /* _MACHINE_VMPARAM_H_ */
