@@ -157,6 +157,7 @@ static u_int64_t arm64_boot_alloc_base;
 static u_int64_t arm64_boot_alloc_end;
 static u_int64_t arm64_boot_alloc_next;
 static u_int64_t arm64_ttbr1_candidate;
+static uintptr_t arm64_kernend;		/* VA of kernel end from loader */
 
 /*
  * Early boot globaldata and thread0.
@@ -756,6 +757,7 @@ parse_modulep(uintptr_t modulep)
 		uart_puts("[arm64] kernend=0x");
 		uart_puthex((u_int64_t)kernend);
 		uart_puts("\r\n");
+		arm64_kernend = kernend;  /* Save for later use */
 	}
 }
 
@@ -951,13 +953,18 @@ initarm(uintptr_t modulep)
 		KvaSize = KvaEnd - KvaStart;
 
 		/*
-		 * virtual_start begins after the kernel's static allocations.
-		 * Use arm64_boot_alloc_next which tracks our bootstrap allocations.
-		 * Convert to high VA for kernel space.
+		 * virtual_start begins after the kernel image.
+		 * Use arm64_kernend which is the VA of the end of the kernel
+		 * as reported by the loader. This is already a high VA.
 		 *
-		 * Formula: VA = PA - arm64_kern_physbase + KERNBASE
+		 * Round up to page boundary for safety.
 		 */
-		virtual_start = KERNBASE + (arm64_boot_alloc_next - arm64_kern_physbase);
+		if (arm64_kernend != 0) {
+			virtual_start = (arm64_kernend + PAGE_MASK) & ~PAGE_MASK;
+		} else {
+			/* Fallback if kernend wasn't found */
+			virtual_start = KERNBASE + 0x1000000;  /* KERNBASE + 16MB */
+		}
 		virtual_end = VM_MAX_KERNEL_ADDRESS;
 
 		/* No secondary KVA range for now */
