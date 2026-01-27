@@ -142,6 +142,10 @@ cninit(void)
 {
 	struct consdev *best_cp, *cp, **list;
 
+#ifdef __aarch64__
+	kprintf("ARM64 cninit: entered\n");
+#endif
+
 	/*
 	 * Workaround for token acquisition and releases during the
 	 * console init.  For some reason if lwkt_gettoken()'s mpcount
@@ -169,6 +173,9 @@ cninit(void)
 	best_cp = NULL;
 	SET_FOREACH(list, cons_set) {
 		cp = *list;
+#ifdef __aarch64__
+		kprintf("ARM64 cninit: probing console %p cn_probe=%p\n", cp, cp->cn_probe);
+#endif
 		if (cp->cn_probe == NULL)
 			continue;
 		(*cp->cn_probe)(cp);
@@ -190,7 +197,16 @@ cninit(void)
 	 * Initialize console, then attach to it.  This ordering allows
 	 * debugging using the previous console, if any.
 	 */
-	(*best_cp->cn_init)(best_cp);
+#ifdef __aarch64__
+	kprintf("ARM64 cninit: best console %p cn_init=%p\n", best_cp, best_cp->cn_init);
+#endif
+	if (best_cp->cn_init != NULL) {
+		(*best_cp->cn_init)(best_cp);
+	} else {
+#ifdef __aarch64__
+		kprintf("ARM64 cninit: WARNING cn_init is NULL\n");
+#endif
+	}
 	if (cn_tab != NULL && cn_tab != best_cp) {
 		/* Turn off the previous console.  */
 		if (cn_tab->cn_term != NULL)
@@ -219,8 +235,17 @@ cninit_finish(void)
 {
 	if ((cn_tab == NULL) || cn_mute)
 		return;
+#ifdef __aarch64__
+	kprintf("ARM64 cninit_finish: cn_tab=%p cn_dev=%p cn_init_fini=%p\n",
+	    cn_tab, cn_tab->cn_dev, cn_tab->cn_init_fini);
+#endif
 	if (cn_tab->cn_dev == NULL) {
-		cn_tab->cn_init_fini(cn_tab);
+#ifdef __aarch64__
+		kprintf("ARM64 cninit_finish: calling cn_init_fini\n");
+#endif
+		if (cn_tab->cn_init_fini != NULL) {
+			cn_tab->cn_init_fini(cn_tab);
+		}
 		if (cn_tab->cn_dev == NULL) {
 			kprintf("Unable to hook console! cn_tab %p\n", cn_tab);
 			return;
