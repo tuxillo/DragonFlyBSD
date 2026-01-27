@@ -127,7 +127,6 @@ DRIVER_MODULE(nexus, root, nexus_driver, nexus_devclass, NULL, NULL);
 static int
 nexus_probe(device_t dev)
 {
-	kprintf("ARM64 nexus: probe\n");
 	device_quiet(dev);	/* suppress attach message for neatness */
 
 	/*
@@ -154,14 +153,12 @@ nexus_probe(device_t dev)
 	    rman_manage_region(&irq_rman, 0, ~0u))
 		panic("nexus_probe irq_rman");
 
-	kprintf("ARM64 nexus: probe complete\n");
 	return bus_generic_probe(dev);
 }
 
 static int
 nexus_attach(device_t dev)
 {
-	kprintf("ARM64 nexus: attach\n");
 	/*
 	 * First, let our child driver's identify any child devices that
 	 * they can find. Once that is done attach any devices that we
@@ -178,7 +175,6 @@ nexus_attach(device_t dev)
 	 */
 	bus_generic_attach(dev);
 
-	kprintf("ARM64 nexus: attach complete\n");
 	return 0;
 }
 
@@ -391,9 +387,6 @@ nexus_setup_intr(device_t bus, device_t child, struct resource *irq,
 	 * Get the IRQ number from the resource.
 	 */
 	irqnum = rman_get_start(irq);
-
-	kprintf("nexus_setup_intr: child=%s irq=%d\n",
-	    device_get_nameunit(child), irqnum);
 
 	/*
 	 * Activate the resource if needed.

@@ -236,7 +236,8 @@ vtmmio_attach(device_t dev)
 	device_t child;
 	int rid;
 
-	kprintf("vtmmio_attach: called for %s\n", device_get_nameunit(dev));
+	if (bootverbose)
+		kprintf("vtmmio_attach: called for %s\n", device_get_nameunit(dev));
 
 	sc = device_get_softc(dev);
 	sc->dev = dev;
@@ -250,10 +251,9 @@ vtmmio_attach(device_t dev)
 		return (ENXIO);
 	}
 
-	kprintf("vtmmio_attach: memory allocated, reading version\n");
-
 	sc->vtmmio_version = vtmmio_read_config_4(sc, VIRTIO_MMIO_VERSION);
-	kprintf("vtmmio_attach: version=%u\n", sc->vtmmio_version);
+	if (bootverbose)
+		kprintf("vtmmio_attach: version=%u\n", sc->vtmmio_version);
 	if (sc->vtmmio_version != 1) {
 		device_printf(dev, "unsupported version: %#x\n",
 		    sc->vtmmio_version);
@@ -265,7 +265,6 @@ vtmmio_attach(device_t dev)
 
 	/* Tell the host we've noticed this device. */
 	vtmmio_set_status(dev, VIRTIO_CONFIG_STATUS_ACK);
-	kprintf("vtmmio_attach: status set to ACK\n");
 
 	if ((child = device_add_child(dev, NULL, -1)) == NULL) {
 		device_printf(dev, "cannot create child device\n");
@@ -274,10 +273,8 @@ vtmmio_attach(device_t dev)
 		return (ENOMEM);
 	}
 
-	kprintf("vtmmio_attach: child device created, calling probe_and_attach_child\n");
 	sc->vtmmio_child_dev = child;
 	vtmmio_probe_and_attach_child(sc);
-	kprintf("vtmmio_attach: probe_and_attach_child returned\n");
 
 	return (0);
 }
@@ -454,20 +451,12 @@ vtmmio_intr_alloc(device_t dev, int *cnt, int use_config, int *cpus)
 
 	(void)use_config;
 
-	kprintf("vtmmio_intr_alloc: called for %s, cnt=%d\n",
-	    device_get_nameunit(dev), *cnt);
-
 	sc = device_get_softc(dev);
 
-	if (sc->vtmmio_nintr_res > 0) {
-		kprintf("vtmmio_intr_alloc: already have %d intr resources\n",
-		    sc->vtmmio_nintr_res);
+	if (sc->vtmmio_nintr_res > 0)
 		return (EINVAL);
-	}
-	if (*cnt <= 0) {
-		kprintf("vtmmio_intr_alloc: invalid cnt=%d\n", *cnt);
+	if (*cnt <= 0)
 		return (EINVAL);
-	}
 
 	*cnt = 1;
 	ires = &sc->vtmmio_intr_res[0];
@@ -475,21 +464,15 @@ vtmmio_intr_alloc(device_t dev, int *cnt, int use_config, int *cpus)
 	ires->rid = 0;
 	TAILQ_INIT(&ires->ls);
 
-	kprintf("vtmmio_intr_alloc: allocating IRQ resource rid=0\n");
 	ires->irq = bus_alloc_resource_any(dev, SYS_RES_IRQ, &ires->rid,
 	    RF_ACTIVE);
-	if (ires->irq == NULL) {
-		kprintf("vtmmio_intr_alloc: bus_alloc_resource_any failed\n");
+	if (ires->irq == NULL)
 		return (ENXIO);
-	}
-
-	kprintf("vtmmio_intr_alloc: IRQ allocated successfully\n");
 
 	if (cpus != NULL)
 		cpus[0] = rman_get_cpuid(ires->irq);
 
 	sc->vtmmio_nintr_res = 1;
-	kprintf("vtmmio_intr_alloc: success, nintr_res=%d\n", sc->vtmmio_nintr_res);
 	return (0);
 }
 

@@ -135,8 +135,6 @@ arm64_cputimer_count(void)
 static void
 arm64_timer_intr_reload(struct cputimer_intr *cti __unused, sysclock_t reload)
 {
-	static int reload_count = 0;
-
 	/*
 	 * Mask the interrupt first to prevent spurious fires.
 	 */
@@ -149,12 +147,6 @@ arm64_timer_intr_reload(struct cputimer_intr *cti __unused, sysclock_t reload)
 		 */
 		arm64_write_cntv_tval((int32_t)reload);
 		arm64_write_cntv_ctl(GT_CTRL_ENABLE);
-
-		if (++reload_count <= 5) {
-			kprintf("ARM64: timer reload #%d, tval=%u, ctl=0x%x\n",
-			    reload_count, (unsigned)reload,
-			    arm64_read_cntv_ctl());
-		}
 	}
 }
 
@@ -164,21 +156,10 @@ arm64_timer_intr_reload(struct cputimer_intr *cti __unused, sysclock_t reload)
 static void
 arm64_timer_intr_enable(struct cputimer_intr *cti __unused)
 {
-	uint32_t ctl;
-
-	kprintf("ARM64 timer: enabling IRQ %d in GIC\n", GIC_VIRT_TIMER_IRQ);
-
 	/*
 	 * Enable the virtual timer IRQ in the GIC.
 	 */
 	gic_enable_irq(GIC_VIRT_TIMER_IRQ);
-
-	/*
-	 * Show current timer control state.
-	 */
-	ctl = arm64_read_cntv_ctl();
-	kprintf("ARM64 timer: CNTV_CTL_EL0 = 0x%x (ENABLE=%d, IMASK=%d, ISTATUS=%d)\n",
-	    ctl, (ctl & 1), (ctl >> 1) & 1, (ctl >> 2) & 1);
 }
 
 /*
@@ -216,11 +197,6 @@ void
 arm64_timer_intr(void *frame)
 {
 	sysclock_t count;
-	static int timer_intr_count = 0;
-
-	if (++timer_intr_count <= 5) {
-		kprintf("ARM64: timer interrupt #%d\n", timer_intr_count);
-	}
 
 	/*
 	 * Mask the interrupt to acknowledge.
@@ -269,9 +245,7 @@ arm64_timer_init(void *dummy __unused)
 	 * and cputimer_intr_reload() requires sys_cputimer_intr to be set.
 	 */
 	arm64_cputimer_intr.freq = freq;
-	kprintf("ARM64 timer: calling cputimer_intr_register\n");
 	cputimer_intr_register(&arm64_cputimer_intr);
-	kprintf("ARM64 timer: calling cputimer_intr_select\n");
 	cputimer_intr_select(&arm64_cputimer_intr, 0);
 
 	/*
@@ -285,12 +259,8 @@ arm64_timer_init(void *dummy __unused)
 	 */
 	tsc_frequency = freq;
 
-	kprintf("ARM64 timer: calling cputimer_register\n");
 	cputimer_register(&arm64_cputimer);
-	kprintf("ARM64 timer: calling cputimer_select\n");
 	cputimer_select(&arm64_cputimer, 0);
-
-	kprintf("ARM64 timer: registered cputimer and cputimer_intr\n");
 }
 
 /*
