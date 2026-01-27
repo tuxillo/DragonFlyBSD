@@ -59,6 +59,14 @@ static void arm64_timer_intr_initclock(struct cputimer_intr *, boolean_t);
 void arm64_timer_intr(void *);
 
 /*
+ * tsc_frequency - high-resolution counter frequency.
+ *
+ * On ARM64 this is the generic timer counter frequency (CNTFRQ_EL0).
+ * Referenced by generic kernel code in kern_clock.c to populate kpmap->tsc_freq.
+ */
+tsc_uclock_t tsc_frequency;
+
+/*
  * cputimer - free-running monotonic counter
  *
  * This provides the sys_cputimer interface using the ARM64 virtual counter.
@@ -234,6 +242,13 @@ arm64_timer_init(void *dummy __unused)
 	 * Now register and select the free-running cputimer.
 	 */
 	arm64_cputimer.freq = freq;
+
+	/*
+	 * Set tsc_frequency for generic kernel code (kern_clock.c).
+	 * On ARM64 this is the generic timer counter frequency.
+	 */
+	tsc_frequency = freq;
+
 	kprintf("ARM64 timer: calling cputimer_register\n");
 	cputimer_register(&arm64_cputimer);
 	kprintf("ARM64 timer: calling cputimer_select\n");

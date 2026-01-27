@@ -164,6 +164,17 @@ typedef struct timecounter_init {
 	};					\
 	DATA_SET(timecounter_init_set, name##_timer);
 
+/*
+ * tsc_frequency - high-resolution counter frequency.
+ *
+ * On x86 this is the TSC frequency. On ARM64 we use the
+ * generic timer counter frequency (CNTFRQ_EL0).
+ *
+ * This variable is referenced by generic kernel code in kern_clock.c
+ * to populate kpmap->tsc_freq.
+ */
+extern tsc_uclock_t tsc_frequency;
+
 #endif /* _KERNEL */
 
 #endif /* !_MACHINE_CLOCK_H_ */
