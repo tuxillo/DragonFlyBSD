@@ -1399,6 +1399,9 @@ _kfree(void *ptr, struct malloc_type *type)
     SLChunk *bchunk;
     int rsignal;
 
+#ifdef __aarch64__
+    kprintf("_kfree: ptr=%p type=%p\n", ptr, type);
+#endif
     logmemory_quick(free_beg);
     gd = mycpu;
     slgd = &gd->gd_slab;
@@ -1428,6 +1431,9 @@ _kfree(void *ptr, struct malloc_type *type)
      * This code is never called via an ipi.
      */
     kup = btokup(ptr);
+#ifdef __aarch64__
+    kprintf("_kfree: kup=%p *kup=%d\n", kup, *kup);
+#endif
     if (*kup > 0) {
 	size = *kup << PAGE_SHIFT;
 	*kup = 0;
@@ -1474,8 +1480,14 @@ _kfree(void *ptr, struct malloc_type *type)
      */
     z = (SLZone *)((uintptr_t)ptr & ZoneMask);
     kup = btokup(z);
+#ifdef __aarch64__
+    kprintf("_kfree: zone case, z=%p kup=%p *kup=%d\n", z, kup, *kup);
+#endif
     KKASSERT(*kup < 0);
     KKASSERT(z->z_Magic == ZALLOC_SLAB_MAGIC);
+#ifdef __aarch64__
+    kprintf("_kfree: z_CpuGd=%p gd=%p\n", z->z_CpuGd, gd);
+#endif
 
     /*
      * If we do not own the zone then use atomic ops to free to the
