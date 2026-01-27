@@ -1500,9 +1500,31 @@ cpu_thread_exit(void)
 }
 
 void
-cpu_set_thread_handler(struct thread *td __unused,
-    void (*retfunc)(void) __unused, void *func __unused, void *arg __unused)
+cpu_set_thread_handler(thread_t td, void (*rfunc)(void), void *func, void *arg)
 {
+	/*
+	 * Set up the PCB for cpu_kthread_restore():
+	 *   pcb_x19 = argument to thread function
+	 *   pcb_x20 = return function (called when thread func returns)
+	 *   pcb_lr  = thread function to call
+	 */
+	td->td_pcb->pcb_x19 = (register_t)arg;
+	td->td_pcb->pcb_x20 = (register_t)rfunc;
+	td->td_pcb->pcb_lr = (register_t)func;
+
+	/*
+	 * Set the switch function for this thread.
+	 */
+	td->td_switch = cpu_lwkt_switch;
+
+	/*
+	 * Push cpu_kthread_restore onto the stack. ARM64 requires 16-byte
+	 * stack alignment, so we push 16 bytes (address + padding).
+	 * When cpu_lwkt_switch() switches to this thread, it will 'ret'
+	 * to cpu_kthread_restore.
+	 */
+	td->td_sp -= 16;
+	*(void **)td->td_sp = cpu_kthread_restore;
 }
 
 void

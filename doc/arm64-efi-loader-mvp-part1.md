@@ -1258,15 +1258,16 @@ panic: cpu_lwkt_switch: real context switch not implemented
 
 Implement ARM64 context switching for the Light Weight Kernel Thread (LWKT) subsystem to allow the kernel to switch between threads.
 
-### Status: PENDING
+### Status: COMPLETE ✅
 
-The kernel currently panics with:
+The LWKT context switching mechanism has been implemented. The kernel now successfully switches between threads and continues boot significantly further.
+
+**Previous panic:**
 ```
 panic: cpu_lwkt_switch: real context switch not implemented
-cpuid = 0
-boot() called on cpu#0
-Uptime: 1s
 ```
+
+**Current state:** Kernel boots through SYSINIT 02380000, then hits an instruction abort (NULL function pointer) - a different issue unrelated to context switching.
 
 ### Key Differences from FreeBSD
 
@@ -1275,213 +1276,6 @@ DragonFly's LWKT system is different from FreeBSD's thread system:
 - **DragonFly uses restore functions on the stack** - when switching, the restore function address is pushed to the stack, and `ret` jumps to it
 - **The switch function returns the old thread** - `td_switch()` returns `thread_t` (the old thread) for `lwkt_switch_return()` processing
 
-### Files to Create/Modify
-
-| File | Action | Description |
-|------|--------|-------------|
-| `sys/platform/arm64/aarch64/swtch.S` | **Create** | Assembly context switch functions |
-| `sys/platform/arm64/include/pcb.h` | **Modify** | Add/reorganize PCB fields for callee-saved registers |
-| `sys/platform/arm64/aarch64/genassym.c` | **Modify** | Add offset constants for assembly |
-| `sys/platform/arm64/aarch64/machdep.c` | **Modify** | Remove C stubs, add extern declarations, fix idle thread setup |
-| `sys/platform/arm64/conf/files` | **Modify** | Add `swtch.S` to build |
-
-### Implementation Details
-
-#### 1. PCB Structure Changes (`pcb.h`)
-
-The current PCB structure is too simple. We need dedicated fields for callee-saved registers:
-
-```c
-struct pcb {
-    /* Callee-saved registers (x19-x28) */
-    register_t  pcb_x19;
-    register_t  pcb_x20;
-    register_t  pcb_x21;
-    register_t  pcb_x22;
-    register_t  pcb_x23;
-    register_t  pcb_x24;
-    register_t  pcb_x25;
-    register_t  pcb_x26;
-    register_t  pcb_x27;
-    register_t  pcb_x28;
-    register_t  pcb_x29;    /* Frame pointer */
-    register_t  pcb_lr;     /* Link register (x30) */
-    register_t  pcb_sp;     /* Stack pointer */
-    
-    /* Other fields */
-    register_t  pcb_onfault;
-    uint32_t    pcb_flags;
-};
-```
-
-#### 2. genassym.c Additions
-
-Add offset constants for assembly access:
-
-```c
-ASSYM(TD_PCB, offsetof(struct thread, td_pcb));
-ASSYM(TD_SP, offsetof(struct thread, td_sp));
-ASSYM(GD_CURTHREAD, offsetof(struct globaldata, gd_curthread));
-
-ASSYM(PCB_X19, offsetof(struct pcb, pcb_x19));
-ASSYM(PCB_X20, offsetof(struct pcb, pcb_x20));
-/* ... etc for x21-x28 ... */
-ASSYM(PCB_X29, offsetof(struct pcb, pcb_x29));
-ASSYM(PCB_LR, offsetof(struct pcb, pcb_lr));
-ASSYM(PCB_SP, offsetof(struct pcb, pcb_sp));
-```
-
-#### 3. swtch.S - The Core Implementation
-
-**Functions needed:**
-
-| Function | Purpose |
-|----------|---------|
-| `cpu_lwkt_switch` | Standard LWKT context switch |
-| `cpu_lwkt_restore` | Restore after LWKT switch |
-| `cpu_idle_restore` | One-time idle thread bootstrap |
-| `cpu_kthread_restore` | One-time kernel thread bootstrap |
-| `cpu_heavy_switch` | User process context switch (stub for now) |
-| `savectx` | Save current context to PCB |
-
-**cpu_lwkt_switch Algorithm:**
-
-```asm
-ENTRY(cpu_lwkt_switch)
-    // x0 = new thread (ntd)
-    // x18 = per-CPU globaldata pointer
-    
-    // 1. Get current thread from x18->gd_curthread
-    ldr     x1, [x18, #GD_CURTHREAD]    // x1 = old thread (otd)
-    
-    // 2. If switching to same thread, return early
-    cmp     x0, x1
-    beq     .Lsame_thread
-    
-    // 3. Save callee-saved registers to stack
-    stp     x29, x30, [sp, #-16]!       // Push fp, lr
-    stp     x27, x28, [sp, #-16]!
-    stp     x25, x26, [sp, #-16]!
-    stp     x23, x24, [sp, #-16]!
-    stp     x21, x22, [sp, #-16]!
-    stp     x19, x20, [sp, #-16]!
-    
-    // 4. Disable interrupts
-    msr     daifset, #2                  // Mask IRQ
-    
-    // 5. Push restore function address
-    adr     x2, cpu_lwkt_restore
-    str     x2, [sp, #-8]!
-    
-    // 6. Save current stack pointer to old thread's td_sp
-    mov     x2, sp
-    str     x2, [x1, #TD_SP]
-    
-    // 7. Set new thread as curthread
-    str     x0, [x18, #GD_CURTHREAD]
-    
-    // 8. Load new thread's stack pointer
-    ldr     x2, [x0, #TD_SP]
-    mov     sp, x2
-    
-    // 9. Return - this jumps to the restore function on new stack
-    // The restore function will return the old thread in x0
-    mov     x0, x1                       // Return old thread
-    ret
-
-.Lsame_thread:
-    mov     x0, x1                       // Return same thread
-    ret
-END(cpu_lwkt_switch)
-```
-
-**cpu_lwkt_restore Algorithm:**
-
-```asm
-ENTRY(cpu_lwkt_restore)
-    // Arrived here via ret from cpu_lwkt_switch
-    // x0 = old thread (passed through from switch)
-    
-    // 1. Pop callee-saved registers
-    ldp     x19, x20, [sp], #16
-    ldp     x21, x22, [sp], #16
-    ldp     x23, x24, [sp], #16
-    ldp     x25, x26, [sp], #16
-    ldp     x27, x28, [sp], #16
-    ldp     x29, x30, [sp], #16
-    
-    // 2. Enable interrupts
-    msr     daifclr, #2                  // Unmask IRQ
-    
-    // 3. Return old thread in x0 (for lwkt_switch_return)
-    ret
-END(cpu_lwkt_restore)
-```
-
-**cpu_idle_restore - Bootstrap for idle thread:**
-
-```asm
-ENTRY(cpu_idle_restore)
-    // One-time entry when idle thread first runs
-    // x0 = new thread (idle), x1 = old thread
-    
-    // Set up stack frame for backtrace
-    mov     x29, #0
-    
-    // Call lwkt_switch_return(old_thread) 
-    mov     x0, x1
-    bl      lwkt_switch_return
-    
-    // Enable interrupts
-    msr     daifclr, #3                  // Unmask IRQ and FIQ
-    
-    // Jump to cpu_idle (never returns)
-    b       cpu_idle
-END(cpu_idle_restore)
-```
-
-#### 4. machdep.c Changes
-
-**Remove C stub functions:**
-- Delete `cpu_lwkt_switch()` C function
-- Delete `cpu_heavy_switch()` C function
-
-**Add extern declarations:**
-```c
-/* Assembly functions in swtch.S */
-extern struct thread *cpu_lwkt_switch(struct thread *);
-extern struct thread *cpu_heavy_switch(struct thread *);
-extern void cpu_idle_restore(void);
-extern void cpu_kthread_restore(void);
-```
-
-**Fix cpu_gdinit() to set up idle thread restore:**
-```c
-void
-cpu_gdinit(struct mdglobaldata *gd, int cpu)
-{
-    if (cpu)
-        gd->mi.gd_curthread = &gd->mi.gd_idlethread;
-
-    lwkt_init_thread(&gd->mi.gd_idlethread,
-            gd->gd_prvspace->idlestack,
-            sizeof(gd->gd_prvspace->idlestack),
-            0, &gd->mi);
-    lwkt_set_comm(&gd->mi.gd_idlethread, "idle_%d", cpu);
-    gd->mi.gd_idlethread.td_switch = cpu_lwkt_switch;
-    
-    /* Push restore function onto idle thread stack */
-    gd->mi.gd_idlethread.td_sp -= sizeof(void *);
-    *(void **)gd->mi.gd_idlethread.td_sp = cpu_idle_restore;
-}
-```
-
-#### 5. conf/files Addition
-
-```
-platform/arm64/aarch64/swtch.S      standard
-```
-
 ### ARM64 Callee-Saved Register Summary
 
 Per AAPCS64 (ARM64 calling convention):
@@ -1489,43 +1283,218 @@ Per AAPCS64 (ARM64 calling convention):
 - **x29 (fp)**: Frame pointer (callee-saved)
 - **x30 (lr)**: Link register (return address)
 - **sp**: Stack pointer
-- **x18**: Platform register (we use for per-CPU data - already reserved via `-ffixed-x18`)
+- **x18**: Platform register (we use for per-CPU data - reserved via `-ffixed-x18`)
 
 Registers x0-x17 are caller-saved and don't need to be preserved across switch.
 
-### Testing Strategy
-
-1. Build kernel via arm64-port-testing subagent
-2. Run QEMU test
-3. Expected: Kernel should get past `cpu_lwkt_switch` panic
-4. Next likely failure: Other unimplemented functions or scheduler issues
-
-### Risks and Mitigations
-
-| Risk | Mitigation |
-|------|------------|
-| Stack corruption | Careful alignment (16-byte for ARM64), verify push/pop pairs match |
-| Interrupt handling during switch | Disable interrupts before stack manipulation, re-enable after |
-| x18 clobbering | x18 is reserved via `-ffixed-x18`, should be safe |
-| Missing restore functions | Implement all restore variants (idle, kthread, lwkt) |
-
 ### Success Criteria
 
-- [ ] `cpu_lwkt_switch()` implemented in assembly
-- [ ] `cpu_lwkt_restore()` implemented
-- [ ] `cpu_idle_restore()` implemented for idle thread bootstrap
-- [ ] `cpu_heavy_switch()` stub implemented (panic for now)
-- [ ] PCB structure updated with proper register fields
-- [ ] genassym.c updated with offset constants
-- [ ] Kernel can switch between threads without panicking
-- [ ] Kernel continues boot past current failure point
+- [x] `cpu_lwkt_switch()` implemented in assembly
+- [x] `cpu_lwkt_restore()` implemented
+- [x] `cpu_idle_restore()` implemented for idle thread bootstrap
+- [x] `cpu_heavy_switch()` stub implemented (panics - user processes not supported yet)
+- [x] `cpu_kthread_restore()` implemented for kernel thread bootstrap
+- [x] `savectx()` implemented for core dumps
+- [x] PCB structure updated with proper register fields
+- [x] genassym.c updated with offset constants
+- [x] Kernel can switch between threads without panicking
+- [x] Kernel continues boot past previous failure point
+
+### Files Created/Modified
+
+| File | Action | Description |
+|------|--------|-------------|
+| `sys/platform/arm64/aarch64/swtch.s` | **Created** | Assembly context switch functions |
+| `sys/platform/arm64/include/pcb.h` | **Modified** | Added callee-saved register fields (pcb_x19-pcb_x28, pcb_x29, pcb_lr, pcb_sp) |
+| `sys/platform/arm64/aarch64/genassym.c` | **Modified** | Added offset constants for assembly (TD_*, GD_*, PCB_*) |
+| `sys/platform/arm64/aarch64/machdep.c` | **Modified** | Removed C stubs, added cpu_idle(), ap_init(), updated cpu_gdinit() |
+| `sys/platform/arm64/include/smp.h` | **Modified** | Added ap_init() prototype |
+| `sys/platform/arm64/conf/files` | **Modified** | Added `swtch.s standard` |
+
+### Related Commits
+
+| Commit | Description |
+|--------|-------------|
+| 042add5899 | arm64: Implement cpu_lwkt_switch() for LWKT context switching (MVP Part 8) |
+| 99c7c9469d | arm64: Add cpu_idle() and ap_init() stubs |
+| 80a853460d | arm64: Add ap_init() prototype to smp.h |
+| f1c73f2adf | arm64: Fix copyright header in swtch.s |
+
+### Implementation Notes
+
+The implementation follows DragonFly's LWKT model (different from FreeBSD):
+- Uses `td_sp` in thread struct for stack pointer storage
+- Pushes restore function address onto stack before switching
+- `ret` instruction pops restore function and jumps to it
+- Switch function returns old thread pointer for `lwkt_switch_return()`
 
 ### Related References
 
 - DragonFly x86_64: `sys/platform/pc64/x86_64/swtch.s`
-- FreeBSD arm64: `.freebsd.orig/sys/arm64/arm64/swtch.S`
 - ARM Architecture Reference Manual - AAPCS64 calling convention
 
 ---
 
-*Last updated: 2026-01-27 (MVP Part 8 detailed implementation plan)*
+## MVP Part 9: cpu_set_thread_handler() - Kernel Thread Creation
+
+### Goal
+
+Implement `cpu_set_thread_handler()` for ARM64 to enable kernel thread creation, unblocking devfs initialization and other subsystems that spawn kernel threads.
+
+### Status: IN PROGRESS
+
+### Problem Analysis
+
+The kernel panics at **SYSINIT `SI_SUB_DEVFS_CORE` (0x2380000)** with an instruction abort at `ELR=0x0` (NULL function pointer call):
+
+```
+!!! EXC ESR=000000008600000d FAR=0000000000000000 ELR=0000000000000000 SPSR=0000000040000205
+EC=21 (IABT)
+```
+
+**Root Cause:** `cpu_set_thread_handler()` is an empty stub in the ARM64 port (`sys/platform/arm64/aarch64/machdep.c:1502-1506`).
+
+When `devfs_init()` calls `lwkt_create()` to spawn the `devfs_msg_core` kernel thread:
+1. `lwkt_create()` calls `cpu_set_thread_handler(td, lwkt_exit, func, arg)`
+2. The ARM64 stub does **nothing** - it doesn't set up the thread's stack or entry point
+3. When the scheduler switches to the new thread, it tries to "restore" to whatever garbage is on the stack
+4. The thread's stack pointer points to uninitialized memory, leading to `ret` jumping to address `0x0`
+
+### x86_64 Reference
+
+From `sys/platform/pc64/x86_64/vm_machdep.c:291-300`:
+
+```c
+void cpu_set_thread_handler(thread_t td, void (*rfunc)(void), void *func, void *arg)
+{
+    td->td_pcb->pcb_rbx = (long)func;           // Store thread function in callee-saved register
+    td->td_pcb->pcb_r12 = (long)arg;            // Store argument in callee-saved register
+    td->td_switch = cpu_lwkt_switch;            // Set switch function
+    td->td_sp -= sizeof(void *);
+    *(void **)td->td_sp = rfunc;                // Push exit function (lwkt_exit)
+    td->td_sp -= sizeof(void *);
+    *(void **)td->td_sp = cpu_kthread_restore;  // Push restore function
+}
+```
+
+### Files to Modify
+
+| File | Change |
+|------|--------|
+| `sys/platform/arm64/aarch64/machdep.c` | Implement `cpu_set_thread_handler()` |
+| `sys/platform/arm64/aarch64/swtch.s` | Update `cpu_kthread_restore()` to load rfunc into lr before jumping |
+
+### Implementation Details
+
+#### 1. `sys/platform/arm64/aarch64/machdep.c`
+
+Replace the empty stub:
+```c
+void
+cpu_set_thread_handler(struct thread *td __unused,
+    void (*retfunc)(void) __unused, void *func __unused, void *arg __unused)
+{
+}
+```
+
+With:
+```c
+void
+cpu_set_thread_handler(thread_t td, void (*rfunc)(void), void *func, void *arg)
+{
+    /*
+     * Set up the PCB for cpu_kthread_restore():
+     *   pcb_x19 = argument to thread function
+     *   pcb_x20 = return function (called when thread func returns)
+     *   pcb_lr  = thread function to call
+     */
+    td->td_pcb->pcb_x19 = (register_t)arg;
+    td->td_pcb->pcb_x20 = (register_t)rfunc;
+    td->td_pcb->pcb_lr = (register_t)func;
+    
+    /*
+     * Set the switch function for this thread.
+     */
+    td->td_switch = cpu_lwkt_switch;
+    
+    /*
+     * Push cpu_kthread_restore onto the stack. ARM64 requires 16-byte
+     * stack alignment, so we push 16 bytes (address + padding).
+     * When cpu_lwkt_switch() switches to this thread, it will 'ret'
+     * to cpu_kthread_restore.
+     */
+    td->td_sp -= 16;
+    *(void **)td->td_sp = cpu_kthread_restore;
+}
+```
+
+Also need to add extern declaration near the top of the file:
+```c
+extern void cpu_kthread_restore(void);
+```
+
+#### 2. `sys/platform/arm64/aarch64/swtch.s`
+
+Update `cpu_kthread_restore` to:
+1. Load the return function from `pcb_x20` into `x30` (lr)
+2. Load argument from `pcb_x19` into `x0`
+3. Load thread function from `pcb_lr` into a temp register
+4. Branch to thread function (which will `ret` to rfunc when done)
+
+Change from:
+```asm
+	ldr	x0, [x2, #PCB_X19]	/* argument in x0 */
+	ldr	x1, [x2, #PCB_LR]	/* function in x1 */
+
+	/*
+	 * Jump to the thread function (tail call, never returns).
+	 */
+	br	x1
+```
+
+To:
+```asm
+	/*
+	 * Load the thread function, argument, and return function from PCB.
+	 *   pcb_x19 = argument
+	 *   pcb_x20 = return function (e.g., lwkt_exit)
+	 *   pcb_lr  = thread function
+	 */
+	ldr	x0, [x2, #PCB_X19]	/* argument in x0 */
+	ldr	x30, [x2, #PCB_X20]	/* return function in lr (x30) */
+	ldr	x1, [x2, #PCB_LR]	/* thread function in x1 */
+
+	/*
+	 * Jump to the thread function. When it returns (via 'ret'),
+	 * it will return to the address in lr (x30), which is rfunc
+	 * (typically lwkt_exit or kthread_exit).
+	 */
+	br	x1
+```
+
+Also update the comment header for `cpu_kthread_restore` to document the new convention:
+```
+ *	The PCB contains:
+ *	  pcb_x19 = argument to thread function
+ *	  pcb_x20 = return function (called when thread function returns)
+ *	  pcb_lr  = thread function to call
+```
+
+### Expected Outcome
+
+After this change:
+1. `devfs_init()` will successfully create the `devfs_msg_core` kernel thread
+2. Kernel will pass `SI_SUB_DEVFS_CORE` (0x2380000)
+3. Boot will continue to later subsystems (may hit other issues)
+
+### Success Criteria
+
+- [ ] `cpu_set_thread_handler()` properly initializes PCB fields
+- [ ] `cpu_kthread_restore()` loads rfunc into lr before jumping to thread function
+- [ ] Kernel passes `SI_SUB_DEVFS_CORE` (0x2380000)
+- [ ] devfs_msg_core kernel thread starts successfully
+- [ ] Boot continues past previous failure point
+
+---
+
+*Last updated: 2026-01-27 (MVP Part 9 IN PROGRESS)*

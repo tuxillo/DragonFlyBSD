@@ -286,6 +286,7 @@ END(cpu_heavy_restore)
  *
  *	The PCB contains:
  *	  pcb_x19 = argument to thread function
+ *	  pcb_x20 = return function (called when thread function returns)
  *	  pcb_lr  = thread function to call
  *
  *	Entry: x0 = new thread (already set as curthread)
@@ -319,15 +320,20 @@ ENTRY(cpu_kthread_restore)
 	str	w2, [x19, #TD_CRITCOUNT]
 
 	/*
-	 * Load the thread function and argument from the PCB.
-	 * pcb_x19 = argument, pcb_lr = function
+	 * Load the thread function, argument, and return function from PCB.
+	 *   pcb_x19 = argument
+	 *   pcb_x20 = return function (e.g., lwkt_exit)
+	 *   pcb_lr  = thread function
 	 */
 	ldr	x2, [x19, #TD_PCB]
 	ldr	x0, [x2, #PCB_X19]	/* argument in x0 */
-	ldr	x1, [x2, #PCB_LR]	/* function in x1 */
+	ldr	x30, [x2, #PCB_X20]	/* return function in lr (x30) */
+	ldr	x1, [x2, #PCB_LR]	/* thread function in x1 */
 
 	/*
-	 * Jump to the thread function (tail call, never returns).
+	 * Jump to the thread function. When it returns (via 'ret'),
+	 * it will return to the address in lr (x30), which is rfunc
+	 * (typically lwkt_exit or kthread_exit).
 	 */
 	br	x1
 END(cpu_kthread_restore)
