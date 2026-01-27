@@ -104,10 +104,15 @@ vtmmio_parsearg(driver_t *driver, device_t parent, char *arg)
 		goto bad;
 
 	/* Create the child and assign its resources. */
+	kprintf("vtmmio_parsearg: adding child virtio_mmio at 0x%lx size 0x%lx irq %lu\n",
+	    baseaddr, sz, irq);
 	child = BUS_ADD_CHILD(parent, parent, 0, "virtio_mmio",
 	    unit ? (int)unit : -1);
-	if (child == NULL)
+	if (child == NULL) {
+		kprintf("vtmmio_parsearg: BUS_ADD_CHILD failed\n");
 		return;
+	}
+	kprintf("vtmmio_parsearg: child added successfully\n");
 	device_set_driver(child, driver);
 	bus_set_resource(child, SYS_RES_MEMORY, 0, baseaddr, sz, -1);
 	bus_set_resource(child, SYS_RES_IRQ, 0, irq, 1, -1);
@@ -125,8 +130,13 @@ vtmmio_kenv_identify(driver_t *driver, device_t parent)
 	char *val;
 	size_t n;
 
-	if ((val = kgetenv("hw.virtio.mmio.device")) == NULL)
+	kprintf("vtmmio_kenv_identify: called, checking kenv\n");
+
+	if ((val = kgetenv("hw.virtio.mmio.device")) == NULL) {
+		kprintf("vtmmio_kenv_identify: hw.virtio.mmio.device not found\n");
 		return;
+	}
+	kprintf("vtmmio_kenv_identify: found hw.virtio.mmio.device=%s\n", val);
 	vtmmio_parsearg(driver, parent, val);
 	kfreeenv(val);
 
