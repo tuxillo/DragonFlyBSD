@@ -448,12 +448,20 @@ vtmmio_intr_alloc(device_t dev, int *cnt, int use_config, int *cpus)
 
 	(void)use_config;
 
+	kprintf("vtmmio_intr_alloc: called for %s, cnt=%d\n",
+	    device_get_nameunit(dev), *cnt);
+
 	sc = device_get_softc(dev);
 
-	if (sc->vtmmio_nintr_res > 0)
+	if (sc->vtmmio_nintr_res > 0) {
+		kprintf("vtmmio_intr_alloc: already have %d intr resources\n",
+		    sc->vtmmio_nintr_res);
 		return (EINVAL);
-	if (*cnt <= 0)
+	}
+	if (*cnt <= 0) {
+		kprintf("vtmmio_intr_alloc: invalid cnt=%d\n", *cnt);
 		return (EINVAL);
+	}
 
 	*cnt = 1;
 	ires = &sc->vtmmio_intr_res[0];
@@ -461,15 +469,21 @@ vtmmio_intr_alloc(device_t dev, int *cnt, int use_config, int *cpus)
 	ires->rid = 0;
 	TAILQ_INIT(&ires->ls);
 
+	kprintf("vtmmio_intr_alloc: allocating IRQ resource rid=0\n");
 	ires->irq = bus_alloc_resource_any(dev, SYS_RES_IRQ, &ires->rid,
 	    RF_ACTIVE);
-	if (ires->irq == NULL)
+	if (ires->irq == NULL) {
+		kprintf("vtmmio_intr_alloc: bus_alloc_resource_any failed\n");
 		return (ENXIO);
+	}
+
+	kprintf("vtmmio_intr_alloc: IRQ allocated successfully\n");
 
 	if (cpus != NULL)
 		cpus[0] = rman_get_cpuid(ires->irq);
 
 	sc->vtmmio_nintr_res = 1;
+	kprintf("vtmmio_intr_alloc: success, nintr_res=%d\n", sc->vtmmio_nintr_res);
 	return (0);
 }
 
@@ -556,13 +570,26 @@ vtmmio_setup_intr(device_t dev, uint irq, lwkt_serialize_t slz)
 	struct vtmmio_intr_resource *ires;
 	int error;
 
+	kprintf("vtmmio_setup_intr: called for %s, irq=%u\n",
+	    device_get_nameunit(dev), irq);
+
 	sc = device_get_softc(dev);
-	if ((int)irq >= sc->vtmmio_nintr_res)
+	kprintf("vtmmio_setup_intr: nintr_res=%d\n", sc->vtmmio_nintr_res);
+
+	if ((int)irq >= sc->vtmmio_nintr_res) {
+		kprintf("vtmmio_setup_intr: irq %u >= nintr_res %d, returning EINVAL\n",
+		    irq, sc->vtmmio_nintr_res);
 		return (EINVAL);
+	}
 	
 	ires = &sc->vtmmio_intr_res[irq];
+	kprintf("vtmmio_setup_intr: ires->irq=%p, calling bus_setup_intr\n",
+	    ires->irq);
+
 	error = bus_setup_intr(dev, ires->irq, INTR_MPSAFE, vtmmio_intr,
 	    ires, &ires->intrhand, slz);
+
+	kprintf("vtmmio_setup_intr: bus_setup_intr returned %d\n", error);
 	return (error);
 }
 
