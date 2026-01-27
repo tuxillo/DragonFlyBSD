@@ -1176,6 +1176,15 @@ After implementation:
 - **VM access:** `ssh root@devbox.sector.int -p 6021`
 - **Workflow:** commit locally, push to Gitea, pull on VM, build, copy back to test
 
+## Related Plans
+
+- `doc/arm64-virtio-mmio-v1-plan.md` - VirtIO MMIO v1 transport for QEMU -M virt
+
+## ARM64 VirtIO MMIO v1 (In Progress)
+
+This work is tracked in `doc/arm64-virtio-mmio-v1-plan.md` and implements a
+legacy (v1) VirtIO MMIO transport plus kenv-based device enumeration.
+
 ---
 
 ## Debug Output Key (MVP Part 1)
