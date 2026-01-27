@@ -736,7 +736,17 @@ check_zone_free(SLGlobalData *slgd, SLZone *z)
 	(TAILQ_FIRST(&slgd->ZoneAry[z->z_ZoneIndex]) != z || znext)) {
 	int *kup;
 
+#ifdef __aarch64__
+	kprintf("check_zone_free: moving zone %p to FreeZones, zi=%d\n",
+		z, z->z_ZoneIndex);
+	kprintf("check_zone_free: before TAILQ_REMOVE tqh_last=%p\n",
+		slgd->ZoneAry[z->z_ZoneIndex].tqh_last);
+#endif
 	TAILQ_REMOVE(&slgd->ZoneAry[z->z_ZoneIndex], z, z_Entry);
+#ifdef __aarch64__
+	kprintf("check_zone_free: after TAILQ_REMOVE tqh_last=%p\n",
+		slgd->ZoneAry[z->z_ZoneIndex].tqh_last);
+#endif
 
 	z->z_Magic = -1;
 	TAILQ_INSERT_HEAD(&slgd->FreeZones, z, z_Entry);
@@ -906,6 +916,9 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
 
 	    z = TAILQ_LAST(&slgd->FreeZones, SLZoneList);
 	    KKASSERT(z != NULL);
+#ifdef __aarch64__
+	    kprintf("_kmalloc hysteresis: freeing zone %p from FreeZones\n", z);
+#endif
 	    TAILQ_REMOVE(&slgd->FreeZones, z, z_Entry);
 	    --slgd->NFreeZones;
 	    kup = btokup(z);
@@ -967,6 +980,20 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
     zi = zoneindex(&size, &align);
     KKASSERT(zi < NZONES);
     crit_enter();
+
+#ifdef __aarch64__
+    {
+	/* Debug: print slgd and ZoneAry info before TAILQ_LAST */
+	SLZoneList *zlist = &slgd->ZoneAry[zi];
+	kprintf("_kmalloc: slgd=%p zi=%d zlist=%p tqh_first=%p tqh_last=%p\n",
+		slgd, zi, zlist, zlist->tqh_first, zlist->tqh_last);
+	/* TAILQ_LAST will access tqh_last+8, print that address */
+	if (zlist->tqh_last) {
+		kprintf("_kmalloc: TAILQ_LAST will access %p\n",
+			(void *)((char *)zlist->tqh_last + 8));
+	}
+    }
+#endif
 
     if ((z = TAILQ_LAST(&slgd->ZoneAry[zi], SLZoneList)) != NULL) {
 	/*
