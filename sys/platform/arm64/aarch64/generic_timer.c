@@ -215,6 +215,7 @@ arm64_timer_intr_initclock(struct cputimer_intr *cti __unused,
 void
 arm64_timer_intr(void *frame)
 {
+	sysclock_t count;
 	static int timer_intr_count = 0;
 
 	if (++timer_intr_count <= 5) {
@@ -228,10 +229,12 @@ arm64_timer_intr(void *frame)
 	arm64_write_cntv_ctl(GT_CTRL_INT_MASK);
 
 	/*
-	 * Process system timers.
-	 * This calls into kern_cputimer.c to dispatch systimers.
+	 * Get current counter value and process system timers.
+	 * systimer_intr() requires a valid pointer to the current time
+	 * from the cputimer so it can compare against pending systimers.
 	 */
-	systimer_intr(NULL, 0, frame);
+	count = sys_cputimer->count();
+	systimer_intr(&count, 0, frame);
 }
 
 /*
