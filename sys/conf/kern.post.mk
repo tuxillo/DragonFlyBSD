@@ -86,7 +86,7 @@ kernel-depend: assym.s ${BEFORE_DEPEND} \
 .else
 	rm -f .newdep
 	${MAKE} -V CFILES -V SYSTEM_CFILES -V GEN_CFILES | xargs \
-		mkdep -a -f .newdep ${CFLAGS}
+		env CC="${CC}" mkdep -a -f .newdep ${CFLAGS}
 	${MAKE} -V SFILES -V SYSTEM_SFILES | xargs \
 	    env MKDEP_CPP="${CC} -E" mkdep -a -f .newdep ${ASM_CFLAGS}
 	rm -f .depend
