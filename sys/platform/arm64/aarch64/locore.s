@@ -75,13 +75,13 @@
  *   Bit  [54]   = UXN (user execute never)
  */
 .equ	PTE_BLOCK_DEVICE, 0x0060000000000701	/* MAIR idx 0 (device), PXN+UXN */
-.equ	PTE_BLOCK_NORMAL, 0x0000000040000709	/* MAIR idx 2 (WB), SH=IS, AF */
-.equ	PTE_L2_TEXT, 0x0000000040000789		/* MAIR idx 2 (WB), SH=IS, AF, AP=RO */
-.equ	PTE_L2_DATA, 0x0060000040200709		/* MAIR idx 2 (WB), SH=IS, AF, PXN+UXN */
 
 .equ	KERNBASE, 0xffffff8000000000
-.equ	KERN_LOAD, 0x0000000040000000
-.equ	KERNBASE_OFFSET, KERNBASE - KERN_LOAD
+/*
+ * KERN_LOAD is no longer hardcoded - we detect the physical load address
+ * at runtime using get_load_phys_addr. The loader may place the kernel
+ * anywhere in physical memory (e.g., 0x40000000, 0x56200000, etc.)
+ */
 
 /*
  * Export kernbase symbol for the linker.
@@ -109,6 +109,12 @@ _start:
 	bic	x1, x1, #SCTLR_I
 	msr	sctlr_el1, x1
 	isb
+
+	/*
+	 * Get the physical address we were loaded at.
+	 * Result is stored in x28 (callee-saved).
+	 */
+	bl	get_load_phys_addr
 
 	/*
 	 * Zero the BSS section BEFORE creating page tables.
@@ -780,7 +786,30 @@ uart_puthex:
 	b.ge	1b
 	ret
 
+/*
+ * Get the physical address the kernel was loaded at.
+ * This allows the kernel to be position-independent - the loader can
+ * place it anywhere in physical memory.
+ *
+ * Returns: x28 = physical address of KERNBASE (our load address)
+ */
+get_load_phys_addr:
+	/* Load the offset of get_load_phys_addr from KERNBASE */
+	ldr	x28, =(get_load_phys_addr - KERNBASE)
+	/* Load the physical address of get_load_phys_addr (PC-relative) */
+	adr	x29, get_load_phys_addr
+	/* Find the physical address of KERNBASE, i.e. our load address */
+	sub	x28, x29, x28
+	ret
+
 create_pagetables:
+	/*
+	 * x28 = physical load address (set by get_load_phys_addr)
+	 *
+	 * We build:
+	 * TTBR0: Identity map (PA == VA) for device and RAM regions
+	 * TTBR1: Kernel virtual map (VA = KERNBASE maps to PA = x28)
+	 */
 	adrp	x1, ttbr0_l0
 	add	x1, x1, :lo12:ttbr0_l0
 	adrp	x2, ttbr0_l1
@@ -788,14 +817,14 @@ create_pagetables:
 	mov	x3, xzr
 	mov	x4, #0
 
-	/* Clear L0/L1 tables for TTBR0/TTBR1 (4 pages) */
+	/* Clear L0/L1 tables for TTBR0/TTBR1 (5 pages total) */
 1:
 	stp	x3, x3, [x1], #16
 	add	x4, x4, #16
 	cmp	x4, #(4096 * 5)
 	b.lo	1b
 
-	/* L0 entry 0 -> L1 table */
+	/* TTBR0: L0 entry 0 -> L1 table */
 	adrp	x1, ttbr0_l0
 	add	x1, x1, :lo12:ttbr0_l0
 	adrp	x2, ttbr0_l1
@@ -803,15 +832,30 @@ create_pagetables:
 	orr	x3, x2, #PTE_TABLE
 	str	x3, [x1]
 
+	/*
+	 * TTBR0 L1 entries: Identity map for low memory.
+	 * We need to map:
+	 *   - Device region at 0x00000000-0x3fffffff (for UART at 0x09000000)
+	 *   - RAM region containing the kernel load address
+	 *
+	 * Calculate which 1GB block contains the kernel (x28).
+	 * L1 entry index = (x28 >> 30) & 0x1ff
+	 */
+	
 	/* L1 entry 0: device map for 0x00000000-0x3fffffff */
 	ldr	x3, =PTE_BLOCK_DEVICE
 	str	x3, [x2]
 
-	/* L1 entry 1: normal map for 0x40000000-0x7fffffff */
-	ldr	x3, =PTE_BLOCK_NORMAL
-	str	x3, [x2, #8]
+	/* L1 entry for the 1GB block containing our load address */
+	lsr	x4, x28, #30		/* Get 1GB index */
+	and	x4, x4, #0x1ff
+	lsl	x5, x4, #30		/* PA of 1GB block start */
+	ldr	x6, =0x0000000000000701	/* Base block attrs (MAIR idx 2, SH=IS, AF) */
+	orr	x3, x5, x6
+	lsl	x4, x4, #3		/* Byte offset in L1 table */
+	str	x3, [x2, x4]
 
-	/* TTBR1 L0 entry 511 -> L1 table */
+	/* TTBR1: L0 entry 511 -> L1 table (for VA 0xffffff80xxxxxxxx) */
 	adrp	x1, ttbr1_l0
 	add	x1, x1, :lo12:ttbr1_l0
 	adrp	x2, ttbr1_l1
@@ -819,7 +863,7 @@ create_pagetables:
 	orr	x3, x2, #PTE_TABLE
 	str	x3, [x1, #4088]
 
-	/* TTBR1 L1 entry 0 -> L2 table */
+	/* TTBR1: L1 entry 0 -> L2 table */
 	adrp	x1, ttbr1_l1
 	add	x1, x1, :lo12:ttbr1_l1
 	adrp	x2, ttbr1_l2
@@ -827,13 +871,42 @@ create_pagetables:
 	orr	x3, x2, #PTE_TABLE
 	str	x3, [x1]
 
-	/* TTBR1 L2 entry 0: RX text at 0x40000000 */
-	ldr	x3, =PTE_L2_TEXT
-	str	x3, [x2]
+	/*
+	 * TTBR1 L2 entries: Map kernel using x28 as base physical address.
+	 * We map multiple 2MB blocks to cover the kernel.
+	 *
+	 * L2 entry format:
+	 *   [47:21] = Physical address (2MB aligned)
+	 *   [11:10] = SH (shareability)
+	 *   [10]    = AF (access flag)
+	 *   [9:8]   = AP (access permissions)
+	 *   [4:2]   = AttrIndx (MAIR index)
+	 *   [1:0]   = Descriptor type (0b01 = block)
+	 *
+	 * We map 16MB (8 x 2MB blocks) to cover the kernel and early data.
+	 * First block is RO/executable (text), remaining blocks are RW/XN (data).
+	 */
+	
+	/* Align load address to 2MB boundary */
+	mov	x5, x28
+	bic	x5, x5, #0x1fffff
 
-	/* TTBR1 L2 entry 1: RW/XN data at 0x40200000 */
-	ldr	x3, =PTE_L2_DATA
-	str	x3, [x2, #8]
+	/* L2 entry 0: kernel text at x28 (RO, executable) */
+	mov	x3, x5
+	ldr	x4, =0x0000000000000789	/* Block attrs: MAIR idx 2, SH=IS, AF, AP=RO */
+	orr	x3, x3, x4
+	str	x3, [x2], #8
+
+	/* L2 entries 1-7: kernel data (RW, XN) */
+	ldr	x4, =0x0060000000000709	/* Block attrs: MAIR idx 2, SH=IS, AF, PXN+UXN */
+	mov	x6, #7			/* 7 more blocks */
+2:
+	add	x5, x5, #0x200000	/* Next 2MB block */
+	mov	x3, x5
+	orr	x3, x3, x4
+	str	x3, [x2], #8
+	subs	x6, x6, #1
+	b.ne	2b
 
 	ret
 
