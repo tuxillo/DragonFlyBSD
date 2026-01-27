@@ -213,6 +213,11 @@ pmap_alloc_l3(pmap_t pmap __unused, pd_entry_t *l2, vm_offset_t va)
 	 */
 	l3_pa = pmap_kextract((vm_offset_t)l3);
 
+#ifdef __aarch64__
+	kprintf("pmap_alloc_l3: allocating L3 #%d for va=0x%lx, l3=%p l3_pa=0x%lx l2=%p\n",
+		kern_l3_next - 1, va, l3, l3_pa, l2);
+#endif
+
 	/* Install L2 entry pointing to new L3 table */
 	*l2 = l3_pa | L2_TABLE;
 	__asm __volatile("dsb ishst" ::: "memory");
@@ -404,6 +409,14 @@ pmap_enter(pmap_t pmap, vm_offset_t va, struct vm_page *m, vm_prot_t prot,
 
 	/* Store the PTE */
 	*ptep = newpte;
+
+#ifdef __aarch64__
+	/* Debug: trace kernel slab mappings */
+	if (va >= 0xffffff8000000000UL && va < 0xffffff9000000000UL) {
+		kprintf("pmap_enter: va=0x%lx pa=0x%lx ptep=%p pte=0x%lx\n",
+			va, pa, ptep, newpte);
+	}
+#endif
 
 	/* TLB invalidate */
 	__asm __volatile(
