@@ -235,3 +235,57 @@ monitor or logs.
 6. Done: update `sys/conf/files` and ARM64 kernel config.
 7. Done: update `doc/arm64-efi-loader-mvp-part1.md` to reference this plan.
 8. Pending: add arm64 `machine/bus.h` support, then build via arm64-port-testing agent and validate with QEMU.
+
+---
+
+## Blocker: Missing ARM64 Bus Headers
+
+### Problem
+
+The VirtIO MMIO driver includes `<machine/bus.h>` and `<machine/resource.h>`,
+which do not exist for the ARM64 platform. The kernel build fails because
+these machine-specific headers are missing.
+
+### Analysis
+
+**DragonFly bus architecture differs from FreeBSD:**
+
+- **FreeBSD** uses a `struct bus_space` with function pointers for all bus
+  operations. The `bus_space_tag_t` is a pointer to this structure, and macros
+  like `bus_space_read_1()` call through the function pointers.
+
+- **DragonFly** uses a simpler model with direct inline functions:
+  - `sys/cpu/*/include/bus_dma.h`: Contains typedefs (`bus_addr_t`,
+    `bus_space_tag_t`, etc.) and inline bus space accessor functions.
+  - `sys/sys/bus.h`: Contains higher-level `bus_read_*`/`bus_write_*` macros
+    that wrap the `bus_space_*` functions.
+  - `sys/sys/bus_resource.h`: Contains `SYS_RES_*` constants.
+
+**Current state:**
+- `sys/cpu/aarch64/include/bus_dma.h` exists but is a placeholder with only
+  typedefs and constants; no inline accessor functions.
+- `sys/platform/arm64/include/bus.h` does not exist.
+- `sys/platform/arm64/include/resource.h` does not exist.
+
+### Solution
+
+Create ARM64-specific headers that follow DragonFly conventions:
+
+1. **Expand `sys/cpu/aarch64/include/bus_dma.h`** to include inline bus space
+   accessor functions similar to x86_64's version, but simplified for ARM64
+   (memory-only, no I/O port space).
+
+2. **Create `sys/platform/arm64/include/bus.h`** that includes the cpu-level
+   `bus_dma.h` and provides any platform-specific definitions.
+
+3. **Create `sys/platform/arm64/include/resource.h`** that includes
+   `sys/sys/bus_resource.h` for `SYS_RES_*` constants.
+
+### ARM64 Bus Space Notes
+
+ARM64 has only memory-mapped I/O (no separate I/O port address space like
+x86). The implementation is simpler:
+- `bus_space_tag_t` is unused (can be 0 or ignored)
+- `bus_space_handle_t` is a virtual address
+- All accessors perform direct volatile pointer dereferences
+- Memory barriers use ARM64 `dsb` instruction instead of x86 `lock; addl`
