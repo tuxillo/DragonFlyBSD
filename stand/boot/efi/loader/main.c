@@ -470,6 +470,17 @@ main(int argc, CHAR16 *argv[])
 		setenv("acpi_load", "YES", 1);
 	}
 
+#ifdef __aarch64__
+	/*
+	 * QEMU -M virt provides VirtIO MMIO devices at fixed addresses.
+	 * Set kenv variable for the virtio_mmio_kenv driver to discover.
+	 *
+	 * Memory map: base 0x0a000000, size 0x200, IRQ 48 for device 0
+	 * Format: <size>@<baseaddr>:<irq>
+	 */
+	setenv("hw.virtio.mmio.device", "0x200@0x0a000000:48", 1);
+#endif
+
 	setenv("LINES", "24", 1);	/* optional */
 
 	for (k = 0; k < ST->NumberOfTableEntries; k++) {

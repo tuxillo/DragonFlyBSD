@@ -234,7 +234,10 @@ monitor or logs.
 5. Done: implement single-IRQ interrupt handling and binding lists.
 6. Done: update `sys/conf/files` and ARM64 kernel config.
 7. Done: update `doc/arm64-efi-loader-mvp-part1.md` to reference this plan.
-8. Pending: add arm64 `machine/bus.h` support, then build via arm64-port-testing agent and validate with QEMU.
+8. Done: add arm64 `machine/bus.h` support.
+9. Done: fix compilation issues (kprintf, strict-aliasing).
+10. Pending: loader integration to set kenv variables.
+11. Pending: test harness integration with VirtIO block device.
 
 ---
 
@@ -289,3 +292,111 @@ x86). The implementation is simpler:
 - `bus_space_handle_t` is a virtual address
 - All accessors perform direct volatile pointer dereferences
 - Memory barriers use ARM64 `dsb` instruction instead of x86 `lock; addl`
+
+---
+
+## Loader Integration
+
+### Goal
+
+The EFI loader must set kernel environment variables for VirtIO MMIO device
+discovery. Since we're not implementing FDT parsing, the loader hardcodes
+the QEMU `-M virt` VirtIO MMIO device addresses.
+
+### QEMU `-M virt` VirtIO MMIO Memory Map
+
+QEMU's ARM64 virt machine uses fixed addresses for VirtIO MMIO devices:
+
+| Device # | Base Address | Size | IRQ (GIC SPI) |
+|----------|--------------|------|---------------|
+| 0 | `0x0a000000` | 0x200 | 48 (SPI 16) |
+| 1 | `0x0a000200` | 0x200 | 49 (SPI 17) |
+| 2 | `0x0a000400` | 0x200 | 50 (SPI 18) |
+| ... | +0x200 each | 0x200 | +1 each |
+| 31 | `0x0a003e00` | 0x200 | 79 (SPI 47) |
+
+### Loader Changes
+
+**File:** `stand/boot/efi/loader/main.c`
+
+Add after EFI table detection (around line 470):
+
+```c
+#ifdef __aarch64__
+    /*
+     * QEMU -M virt provides VirtIO MMIO devices at fixed addresses.
+     * Set kenv variables for the virtio_mmio_kenv driver to discover them.
+     * The driver will probe each slot and skip those without devices.
+     *
+     * Memory map: base 0x0a000000, size 0x200, IRQ 48 for device 0
+     */
+    setenv("hw.virtio.mmio.device", "0x200@0x0a000000:48", 1);
+#endif
+```
+
+This sets up a single VirtIO MMIO device slot. The kernel driver will probe
+and detect what type of VirtIO device (if any) is present at that address.
+
+### Why Not Parse Device Tree?
+
+1. FDT parsing adds significant complexity to the loader
+2. DragonFly's boot infrastructure doesn't have FDT support
+3. QEMU `-M virt` uses fixed addresses, so hardcoding works reliably
+4. Can be extended later if FDT support is added
+
+---
+
+## Test Harness Integration
+
+### Goal
+
+Update the QEMU test harness to include a VirtIO block device so the kernel
+driver can be tested end-to-end.
+
+### QEMU Changes
+
+**File:** `tools/arm64-test/Makefile`
+
+Add VirtIO block device to QEMU arguments:
+
+```makefile
+# VirtIO test disk
+VIRTIO_DISK    ?= $(VM_DIR)/virtio-test.qcow2
+
+# VirtIO block device arguments
+QEMU_VIRTIO    = -device virtio-blk-device,drive=vd0 \
+                 -drive id=vd0,file=$(VIRTIO_DISK),format=qcow2,if=none
+
+# Add to QEMU_ARGS_BASE
+QEMU_ARGS_BASE = ... $(QEMU_VIRTIO)
+```
+
+Add target to create test disk:
+
+```makefile
+$(VIRTIO_DISK):
+	@echo "Creating VirtIO test disk..."
+	qemu-img create -f qcow2 $(VIRTIO_DISK) 64M
+```
+
+### Expected Kernel Output
+
+After successful implementation, kernel boot should show:
+
+```
+virtio_mmio0: <VirtIO MMIO Adapter> mem 0xa000000-0xa0001ff irq 48 on nexus0
+virtio_blk0: <VirtIO Block Adapter> on virtio_mmio0
+vtblk0: 64MB block device
+```
+
+### Risks
+
+1. **IRQ handling** - The ARM64 GIC driver must correctly route IRQ 48 to the
+   VirtIO handler. If interrupts don't work, the device will probe but I/O
+   will hang.
+
+2. **Memory barriers** - VirtIO requires proper memory ordering. ARM64 is
+   weakly ordered, so the driver must use appropriate barriers.
+
+3. **Legacy mode** - QEMU's virtio-blk-device defaults to modern (v2) mode.
+   We may need to verify legacy mode is being used or update the driver.

@@ -30,6 +30,9 @@ KERNEL_ELF      := $(VM_DIR)/kernel
 BOOTAA64_EFI    := $(EFI_BOOT_DIR)/BOOTAA64.EFI
 STARTUP_NSH     := $(EFI_DIR)/startup.nsh
 
+# VirtIO test disk for testing virtio-blk driver
+VIRTIO_DISK     := $(VM_DIR)/virtio-test.qcow2
+
 # QEMU settings
 QEMU            ?= qemu-system-aarch64
 QEMU_MACHINE    ?= virt
@@ -59,6 +62,12 @@ VM_USER         ?= root
 VM_LOADER_PATH  ?= /usr/src/stand/boot/efi/loader/loader.efi
 VM_KERNEL_PATH  ?= /usr/src/sys/compile/ARM64_GENERIC/kernel.stripped
 
+# VirtIO MMIO block device arguments
+# QEMU -M virt places virtio-mmio at 0x0a000000 with IRQ 48
+# The loader sets hw.virtio.mmio.device kenv variable for the kernel driver
+QEMU_VIRTIO     = -device virtio-blk-device,drive=vd0 \
+                  -drive id=vd0,file=$(VIRTIO_DISK),format=qcow2,if=none
+
 # QEMU arguments
 QEMU_ARGS_BASE = \
 	-M $(QEMU_MACHINE) \
@@ -69,16 +78,24 @@ QEMU_ARGS_BASE = \
 	-monitor none \
 	-serial stdio
 
-QEMU_ARGS     = $(QEMU_ARGS_BASE) -device ramfb -display none
-QEMU_ARGS_GUI = $(QEMU_ARGS_BASE) -device ramfb -device qemu-xhci -device usb-kbd
-QEMU_ARGS_DBG = $(QEMU_ARGS_BASE) -device ramfb -display none \
+QEMU_ARGS     = $(QEMU_ARGS_BASE) $(QEMU_VIRTIO) -device ramfb -display none
+QEMU_ARGS_GUI = $(QEMU_ARGS_BASE) $(QEMU_VIRTIO) -device ramfb -device qemu-xhci -device usb-kbd
+QEMU_ARGS_DBG = $(QEMU_ARGS_BASE) $(QEMU_VIRTIO) -device ramfb -display none \
 	-qmp unix:$(QMP_SOCKET),server,nowait
 QEMU_DRIVE    = -drive file=fat:rw:$(EFI_DIR),format=raw,media=disk
 
 .PHONY: all run run-gui test debug copy-loader copy-kernel copy-all clean help check-deps
-.PHONY: qmp-regs qmp-stop qmp-cont qmp-quit qmp-cmd
+.PHONY: qmp-regs qmp-stop qmp-cont qmp-quit qmp-cmd create-virtio-disk
 
 all: help
+
+# Create VirtIO test disk image (64MB qcow2)
+$(VIRTIO_DISK):
+	@echo "Creating VirtIO test disk at $(VIRTIO_DISK)..."
+	@mkdir -p $(VM_DIR)
+	qemu-img create -f qcow2 $(VIRTIO_DISK) 64M
+
+create-virtio-disk: $(VIRTIO_DISK)
 
 help:
 	@echo "DragonFly BSD arm64 EFI Test Environment"
@@ -87,6 +104,7 @@ help:
 	@echo "  $(EFI_DIR)/           - EFI test filesystem"
 	@echo "  $(LOADER_EFI)         - Cached loader"
 	@echo "  $(KERNEL_ELF)         - Cached kernel"
+	@echo "  $(VIRTIO_DISK)        - VirtIO test disk"
 	@echo ""
 	@echo "Targets:"
 	@echo "  make run          - Run interactively (Ctrl-A X to exit)"
@@ -101,6 +119,10 @@ help:
 	@echo "  make copy-kernel  - Copy kernel from remote VM"
 	@echo "  make copy-all     - Copy both loader and kernel"
 	@echo "  make clean        - Remove EFI test directory"
+	@echo ""
+	@echo "VirtIO Support:"
+	@echo "  A VirtIO block device is attached at 0x0a000000 (IRQ 48)."
+	@echo "  The loader sets hw.virtio.mmio.device kenv for kernel discovery."
 	@echo ""
 	@echo "Variables:"
 	@echo "  VM_DIR=$(VM_DIR)"
@@ -141,7 +163,7 @@ copy-all: copy-loader copy-kernel
 	@echo "Both loader and kernel copied to $(EFI_DIR)"
 
 # Run QEMU interactively
-run: check-deps
+run: check-deps $(VIRTIO_DISK)
 	@test -f $(BOOTAA64_EFI) || { echo "Error: Run 'make copy-all' first"; exit 1; }
 	@test -f $(KERNEL_DIR)/kernel || { echo "Error: Run 'make copy-all' first"; exit 1; }
 	@printf "BOOTAA64.EFI\r\n" > $(STARTUP_NSH)
@@ -149,7 +171,7 @@ run: check-deps
 	$(QEMU) $(QEMU_ARGS) $(QEMU_DRIVE)
 
 # Run QEMU with graphical display
-run-gui: check-deps
+run-gui: check-deps $(VIRTIO_DISK)
 	@test -f $(BOOTAA64_EFI) || { echo "Error: Run 'make copy-all' first"; exit 1; }
 	@test -f $(KERNEL_DIR)/kernel || { echo "Error: Run 'make copy-all' first"; exit 1; }
 	@printf "BOOTAA64.EFI\r\n" > $(STARTUP_NSH)
@@ -157,7 +179,7 @@ run-gui: check-deps
 	$(QEMU) $(QEMU_ARGS_GUI) $(QEMU_DRIVE)
 
 # Run QEMU with timeout for automated testing
-test: check-deps
+test: check-deps $(VIRTIO_DISK)
 	@test -f $(BOOTAA64_EFI) || { echo "Error: Run 'make copy-all' first"; exit 1; }
 	@test -f $(KERNEL_DIR)/kernel || { echo "Error: Run 'make copy-all' first"; exit 1; }
 	@printf "BOOTAA64.EFI\r\n" > $(STARTUP_NSH)
@@ -176,7 +198,7 @@ clean:
 
 # Run QEMU with QMP enabled for debugging
 # Use in one terminal, then qmp-* targets in another
-debug: check-deps
+debug: check-deps $(VIRTIO_DISK)
 	@test -f $(BOOTAA64_EFI) || { echo "Error: Run 'make copy-all' first"; exit 1; }
 	@test -f $(KERNEL_DIR)/kernel || { echo "Error: Run 'make copy-all' first"; exit 1; }
 	@rm -f $(QMP_SOCKET)
