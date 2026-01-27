@@ -3229,9 +3229,22 @@ vm_map_delete(vm_map_t map, vm_offset_t start, vm_offset_t end, int *countp)
 	vm_map_entry_t first_entry;
 	vm_offset_t hole_start;
 
+#ifdef __aarch64__
+	kprintf("vm_map_delete: entry, map=%p start=0x%lx end=0x%lx\n",
+		map, (unsigned long)start, (unsigned long)end);
+#endif
 	ASSERT_VM_MAP_LOCKED(map);
+#ifdef __aarch64__
+	kprintf("vm_map_delete: calling lwkt_gettoken\n");
+#endif
 	lwkt_gettoken(&map->token);
+#ifdef __aarch64__
+	kprintf("vm_map_delete: token acquired\n");
+#endif
 again:
+#ifdef __aarch64__
+	kprintf("vm_map_delete: at again label\n");
+#endif
 	/*
 	 * Find the start of the region, and clip it.  Set entry to point
 	 * at the first record containing the requested address or, if no
@@ -3243,6 +3256,9 @@ again:
 	 *
 	 * GGG see other GGG comment.
 	 */
+#ifdef __aarch64__
+	kprintf("vm_map_delete: calling vm_map_lookup_entry\n");
+#endif
 	if (vm_map_lookup_entry(map, start, &first_entry)) {
 		entry = first_entry;
 		vm_map_clip_start(map, entry, start, countp);
@@ -3423,7 +3439,13 @@ vm_map_remove(vm_map_t map, vm_offset_t start, vm_offset_t end)
 	kprintf("vm_map_remove: lock acquired\n");
 #endif
 	VM_MAP_RANGE_CHECK(map, start, end);
+#ifdef __aarch64__
+	kprintf("vm_map_remove: range check done, calling vm_map_delete\n");
+#endif
 	result = vm_map_delete(map, start, end, &count);
+#ifdef __aarch64__
+	kprintf("vm_map_remove: vm_map_delete returned %d\n", result);
+#endif
 	vm_map_unlock(map);
 	vm_map_entry_release(count);
 
