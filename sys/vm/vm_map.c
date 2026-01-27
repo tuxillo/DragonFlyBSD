@@ -3409,8 +3409,19 @@ vm_map_remove(vm_map_t map, vm_offset_t start, vm_offset_t end)
 	int result;
 	int count;
 
+#ifdef __aarch64__
+	kprintf("vm_map_remove: map=%p start=0x%lx end=0x%lx\n",
+		map, (unsigned long)start, (unsigned long)end);
+#endif
 	count = vm_map_entry_reserve(MAP_RESERVE_COUNT);
+#ifdef __aarch64__
+	kprintf("vm_map_remove: entry_reserve returned count=%d\n", count);
+	kprintf("vm_map_remove: calling vm_map_lock\n");
+#endif
 	vm_map_lock(map);
+#ifdef __aarch64__
+	kprintf("vm_map_remove: lock acquired\n");
+#endif
 	VM_MAP_RANGE_CHECK(map, start, end);
 	result = vm_map_delete(map, start, end, &count);
 	vm_map_unlock(map);
