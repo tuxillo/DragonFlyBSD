@@ -146,6 +146,8 @@ efi_translate(vm_offset_t ptr)
 ssize_t
 efi_copyin(const void *src, vm_offset_t dest, const size_t len)
 {
+	vm_offset_t phys_dest;
+
 	if (!stage_offset_set) {
 		/*
 		 * Calculate the offset between staging (physical) and dest (VA).
@@ -155,19 +157,26 @@ efi_copyin(const void *src, vm_offset_t dest, const size_t len)
 		 */
 		stage_offset = (vm_offset_t)staging - dest;
 		stage_offset_set = 1;
+		printf("efi_copyin: stage_offset set: staging=0x%llx dest=0x%lx offset=0x%lx\n",
+		    (unsigned long long)staging, (unsigned long)dest, (long)stage_offset);
 	}
 
+	phys_dest = dest + stage_offset;
+
 	/* XXX: Callers do not check for failure. */
-	if (dest + stage_offset + len > staging_end) {
-		printf("efi_copyin: dest=0x%lx len=0x%lx staging=0x%llx end=0x%llx offset=0x%lx\n",
-		    (unsigned long)dest, (unsigned long)len,
-		    (unsigned long long)staging,
-		    (unsigned long long)staging_end,
-		    (long)stage_offset);
+	if (phys_dest + len > staging_end) {
+		printf("efi_copyin: BOUNDS FAIL dest=0x%lx phys=0x%lx len=0x%lx end=0x%llx\n",
+		    (unsigned long)dest, (unsigned long)phys_dest,
+		    (unsigned long)len, (unsigned long long)staging_end);
 		errno = ENOMEM;
 		return (-1);
 	}
-	bcopy(src, (void *)(dest + stage_offset), len);
+
+	/* Debug: print every copyin to trace where the fault occurs */
+	printf("efi_copyin: dest=0x%lx -> phys=0x%lx len=0x%lx\n",
+	    (unsigned long)dest, (unsigned long)phys_dest, (unsigned long)len);
+
+	bcopy(src, (void *)phys_dest, len);
 	return (len);
 }
 
@@ -188,24 +197,28 @@ efi_copyout(const vm_offset_t src, void *dest, const size_t len)
 ssize_t
 efi_readin(const int fd, vm_offset_t dest, const size_t len)
 {
+	vm_offset_t phys_dest;
+
 	if (!stage_offset_set) {
 		/*
 		 * Calculate the offset between staging (physical) and dest (VA).
 		 */
 		stage_offset = (vm_offset_t)staging - dest;
 		stage_offset_set = 1;
+		printf("efi_readin: stage_offset set: staging=0x%llx dest=0x%lx offset=0x%lx\n",
+		    (unsigned long long)staging, (unsigned long)dest, (long)stage_offset);
 	}
 
-	if (dest + stage_offset + len > staging_end) {
-		printf("efi_readin: dest=0x%lx len=0x%lx staging=0x%llx end=0x%llx offset=0x%lx\n",
-		    (unsigned long)dest, (unsigned long)len,
-		    (unsigned long long)staging,
-		    (unsigned long long)staging_end,
-		    (long)stage_offset);
+	phys_dest = dest + stage_offset;
+
+	if (phys_dest + len > staging_end) {
+		printf("efi_readin: BOUNDS FAIL dest=0x%lx phys=0x%lx len=0x%lx end=0x%llx\n",
+		    (unsigned long)dest, (unsigned long)phys_dest,
+		    (unsigned long)len, (unsigned long long)staging_end);
 		errno = ENOMEM;
 		return (-1);
 	}
-	return (read(fd, (void *)(dest + stage_offset), len));
+	return (read(fd, (void *)phys_dest, len));
 }
 
 /*
