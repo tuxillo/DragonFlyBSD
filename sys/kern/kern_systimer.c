@@ -380,18 +380,10 @@ systimer_changed_pcpu(void *arg __unused)
     globaldata_t gd;
     systimer_t info;
 
-    kprintf("systimer_changed_pcpu: enter\n");
     gd = mycpu;
-    kprintf("systimer_changed_pcpu: gd=%p\n", gd);
-    kprintf("systimer_changed_pcpu: gd->gd_curthread=%p\n", gd->gd_curthread);
-
-    kprintf("systimer_changed_pcpu: calling crit_enter\n");
     crit_enter();
-    kprintf("systimer_changed_pcpu: crit_enter done\n");
 again:
-    kprintf("systimer_changed_pcpu: checking gd_systimerq\n");
     TAILQ_FOREACH(info, &gd->gd_systimerq, node) {
-	kprintf("systimer_changed_pcpu: info=%p\n", info);
 	if (info->which == sys_cputimer)
 		continue;
 	TAILQ_REMOVE(&gd->gd_systimerq, info, node);
@@ -406,11 +398,8 @@ again:
 	}
 	goto again;
     }
-    kprintf("systimer_changed_pcpu: calling cputimer_intr_reload\n");
     cputimer_intr_reload(1);
-    kprintf("systimer_changed_pcpu: calling crit_exit\n");
     crit_exit();
-    kprintf("systimer_changed_pcpu: done\n");
 }
 
 void
@@ -419,18 +408,12 @@ systimer_changed(void)
     globaldata_t gd;
     int i;
 
-    kprintf("systimer_changed: enter\n");
     gd = mycpu;
-    kprintf("systimer_changed: gd=%p ncpus=%d\n", gd, ncpus);
-
-    kprintf("systimer_changed: calling systimer_changed_pcpu\n");
     systimer_changed_pcpu(NULL);
-    kprintf("systimer_changed: systimer_changed_pcpu done\n");
     for (i = 0; i < ncpus; ++i) {
 	if (i != gd->gd_cpuid) {
 		lwkt_send_ipiq(globaldata_find(i),
 			       systimer_changed_pcpu, NULL);
 	}
     }
-    kprintf("systimer_changed: done\n");
 }

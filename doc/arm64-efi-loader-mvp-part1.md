@@ -1246,6 +1246,8 @@ SYSINIT(cpu, SI_BOOT2_START_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
 | File | Changes |
 |------|---------|
 | `sys/platform/arm64/aarch64/machdep.c` | Add `cpu_startup()` function with SYSINIT |
+| `sys/kern/kern_cputimer.c` | Remove debug kprintf() from `cputimer_select()` |
+| `sys/kern/kern_systimer.c` | Remove debug kprintf() from `systimer_changed()` |
 
 #### Required Includes (already present in machdep.c)
 
@@ -1258,26 +1260,51 @@ SYSINIT(cpu, SI_BOOT2_START_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
 
 #### Implementation Steps
 
-1. Add static variables for submap boundaries:
-   ```c
-   static vm_offset_t buffer_sva, buffer_eva;
-   static vm_offset_t pager_sva, pager_eva;
-   ```
+**Step 1: Add constant and static variables (near top of machdep.c):**
 
-2. Implement `cpu_startup()`:
-   - Calculate `nbuf` based on `physmem` (follow x86_64 formula)
-   - Calculate `nswbuf_mem`, `nswbuf_kva`
-   - Use `valloc()` pattern to allocate buf arrays from `firstaddr`
-   - Call `kmem_suballoc()` to create:
-     - `clean_map` from `kernel_map`
-     - `buffer_map` from `clean_map`
-     - `pager_map` from `clean_map`
-   - Set `pager_map->system_map = 1`
+```c
+#define MAXBUFSTRUCTSIZE    ((size_t)512 * 1024 * 1024)
 
-3. Register with SYSINIT:
-   ```c
-   SYSINIT(cpu, SI_BOOT2_START_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
-   ```
+static vm_offset_t buffer_sva, buffer_eva;
+vm_offset_t clean_sva, clean_eva;
+static vm_offset_t pager_sva, pager_eva;
+```
+
+**Step 2: Implement `cpu_startup()` function:**
+
+Core operations (following x86_64 pattern):
+1. Print kernel version string
+2. Print real memory size
+3. Optionally print physical memory chunks (when bootverbose)
+4. Calculate `nbuf` based on `physmem`:
+   - Base: 50 buffers
+   - Add more based on memory above 128MB
+   - Cap at `MAXBUFSTRUCTSIZE / sizeof(struct buf)`
+   - Cap at 50% of physical memory
+5. Calculate `nswbuf_mem = max(min(nbuf/32, 512), 8)`
+6. Calculate `nswbuf_kva = max(min(nbuf/4, 512), 16)`
+7. Two-pass valloc allocation:
+   - Pass 1: Calculate total size needed
+   - Allocate via `kmem_alloc(kernel_map, size, VM_SUBSYS_BUF)`
+   - Pass 2: Assign addresses to `swbuf_mem`, `swbuf_kva`, `buf`
+8. Create VM submaps via `kmem_suballoc()`:
+   - `clean_map` from `kernel_map`
+   - `buffer_map` from `clean_map`
+   - `pager_map` from `clean_map`
+9. Set `buffer_map->system_map = 1` and `pager_map->system_map = 1`
+10. Print available memory
+
+**Step 3: Register with SYSINIT:**
+
+```c
+SYSINIT(cpu, SI_BOOT2_START_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
+```
+
+**Step 4: Remove timer debug output:**
+
+Remove debug kprintf() statements added during timer bring-up from:
+- `sys/kern/kern_cputimer.c` - `cputimer_select()`
+- `sys/kern/kern_systimer.c` - `systimer_changed()` and `systimer_changed_pcpu()`
 
 ### Key Variables (from x86_64)
 
@@ -1293,11 +1320,41 @@ SYSINIT(cpu, SI_BOOT2_START_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
 | `buffer_map` | VM submap for buffers |
 | `pager_map` | VM submap for pager (must be initialized!) |
 
+### Simplified nbuf Calculation for ARM64
+
+```c
+/* Calculate nbuf: ~1/20 of physical memory for buffer cache, min 50 */
+if (nbuf == 0) {
+    long factor = NBUFCALCSIZE / 1024;       /* KB per buf */
+    long kbytes = physmem * (PAGE_SIZE / 1024);
+    
+    nbuf = 50;
+    if (kbytes > 128 * 1024)
+        nbuf += (kbytes - 128 * 1024) / (factor * 20);
+    
+    /* Cap at reasonable limit */
+    if ((size_t)nbuf * sizeof(struct buf) > MAXBUFSTRUCTSIZE) {
+        kprintf("Warning: nbuf capped at %ld due to reasonability limit\n", nbuf);
+        nbuf = MAXBUFSTRUCTSIZE / sizeof(struct buf);
+    }
+    
+    /* Cap based on available physical memory (50%) */
+    if (nbuf > physmem * PAGE_SIZE / (NBUFCALCSIZE * 2)) {
+        nbuf = physmem * PAGE_SIZE / (NBUFCALCSIZE * 2);
+        kprintf("Warning: nbufs capped at %ld due to physmem\n", nbuf);
+    }
+}
+
+nswbuf_mem = lmax(lmin(nbuf / 32, 512), 8);
+nswbuf_kva = lmax(lmin(nbuf / 4, 512), 16);
+```
+
 ### Success Criteria
 
 - [ ] Kernel passes `vm_pager_bufferinit()` without panicking
 - [ ] Kernel continues past `SI_BOOT2_MACHDEP` (0x1d80000)
 - [ ] `pager_map` is properly initialized before use
+- [ ] Timer debug output removed from kern_cputimer.c and kern_systimer.c
 
 ### Testing
 
@@ -1305,7 +1362,8 @@ After implementation:
 1. Build kernel via arm64-port-testing subagent
 2. Run QEMU test
 3. Expected: Kernel should get past the "Not enough pager_map VM space" panic
+4. Boot output should be cleaner (no timer debug messages)
 
 ---
 
-*Last updated: 2026-01-27 (MVP Part 7 added: cpu_startup() requirement)*
+*Last updated: 2026-01-27 (MVP Part 7 consolidated with full implementation plan)*

@@ -43,6 +43,8 @@
 #include <sys/signal2.h>
 #include <sys/reg.h>
 #include <sys/cons.h>
+#include <sys/buf.h>
+#include <sys/kernel.h>
 #include <machine/cpumask.h>
 #include <machine/smp.h>
 #include <machine/md_var.h>
@@ -53,6 +55,8 @@
 #include <cpu/tls.h>
 #include <vm/vm.h>
 #include <vm/vm_extern.h>
+#include <vm/vm_kern.h>
+#include <vm/vm_pager.h>
 #include <vm/pmap.h>
 #include <machine/gic.h>
 #include <net/if.h>
@@ -169,6 +173,16 @@ struct user *proc0paddr;
  */
 #define	ARM64_EARLY_MSGBUF_SIZE	(64 * 1024)
 static char arm64_msgbuf[ARM64_EARLY_MSGBUF_SIZE] __attribute__((aligned(PAGE_SIZE)));
+
+/*
+ * cpu_startup() support - buffer cache and VM submap initialization.
+ * Maximum size of the buf array (512MB).
+ */
+#define	MAXBUFSTRUCTSIZE	((size_t)512 * 1024 * 1024)
+
+static vm_offset_t buffer_sva, buffer_eva;
+vm_offset_t clean_sva, clean_eva;
+static vm_offset_t pager_sva, pager_eva;
 
 /*
  * arm64_init_globaldata - Initialize CPU 0 globaldata early in boot.
@@ -1668,6 +1682,170 @@ cpu_prepare_lwp(struct lwp *lp __unused, struct lwp_params *params __unused)
 {
 	return (0);
 }
+
+/*
+ * cpu_startup - Initialize VM submaps and buffer cache.
+ *
+ * This function is called via SYSINIT at SI_BOOT2_START_CPU to set up:
+ * - Buffer header array (buf)
+ * - Swap buffer arrays (swbuf_mem, swbuf_kva)
+ * - VM submaps: clean_map, buffer_map, pager_map
+ *
+ * Based on sys/platform/pc64/x86_64/machdep.c cpu_startup().
+ */
+static void
+cpu_startup(void *dummy __unused)
+{
+	caddr_t v;
+	vm_size_t size = 0;
+	vm_offset_t firstaddr;
+
+	/*
+	 * Print kernel version.
+	 */
+	kprintf("%s", version);
+
+	/*
+	 * Print memory information.
+	 */
+	kprintf("real memory  = %ju (%ju MB)\n",
+		(intmax_t)ptoa(physmem),
+		(intmax_t)ptoa(physmem) / 1024 / 1024);
+
+	/*
+	 * Display physical memory chunks when bootverbose.
+	 */
+	if (bootverbose) {
+		int indx;
+
+		kprintf("Physical memory chunk(s):\n");
+		for (indx = 0; phys_avail[indx].phys_end != 0; ++indx) {
+			vm_paddr_t size1;
+
+			size1 = phys_avail[indx].phys_end -
+				phys_avail[indx].phys_beg;
+
+			kprintf("0x%08jx - 0x%08jx, %ju bytes (%ju pages)\n",
+				(intmax_t)phys_avail[indx].phys_beg,
+				(intmax_t)phys_avail[indx].phys_end - 1,
+				(intmax_t)size1,
+				(intmax_t)(size1 / PAGE_SIZE));
+		}
+	}
+
+	/*
+	 * Allocate space for system data structures.
+	 *
+	 * Make two passes.  The first pass calculates how much memory is
+	 * needed and allocates it.  The second pass assigns virtual
+	 * addresses to the various data structures.
+	 */
+	firstaddr = 0;
+again:
+	v = (caddr_t)firstaddr;
+
+#define	valloc(name, type, num) \
+	    (name) = (type *)v; v = (caddr_t)((name)+(num))
+#define	valloclim(name, type, num, lim) \
+	    (name) = (type *)v; v = (caddr_t)((lim) = ((name)+(num)))
+
+	/*
+	 * Calculate nbuf such that maxbufspace uses approximately 1/20
+	 * of physical memory by default, with a minimum of 50 buffers.
+	 *
+	 * The calculation is made after discounting 128MB.
+	 *
+	 * NOTE: maxbufspace is (nbuf * NBUFCALCSIZE) (NBUFCALCSIZE ~= 16KB).
+	 *       nbuf = (kbytes / factor) would cover all of memory.
+	 */
+	if (nbuf == 0) {
+		long factor = NBUFCALCSIZE / 1024;		/* KB/nbuf */
+		long kbytes = physmem * (PAGE_SIZE / 1024);	/* physmem */
+
+		nbuf = 50;
+		if (kbytes > 128 * 1024)
+			nbuf += (kbytes - 128 * 1024) / (factor * 20);
+		if (maxbcache && nbuf > maxbcache / NBUFCALCSIZE)
+			nbuf = maxbcache / NBUFCALCSIZE;
+		if ((size_t)nbuf * sizeof(struct buf) > MAXBUFSTRUCTSIZE) {
+			kprintf("Warning: nbuf capped at %ld due to the "
+				"reasonability limit\n", nbuf);
+			nbuf = MAXBUFSTRUCTSIZE / sizeof(struct buf);
+		}
+	}
+
+	/*
+	 * Do not allow the buffer_map to use more than 50% of available
+	 * physical-equivalent memory.  Since the VM pages which back
+	 * individual buffers are typically wired, having too many bufs
+	 * can prevent the system from paging properly.
+	 */
+	if (nbuf > physmem * PAGE_SIZE / (NBUFCALCSIZE * 2)) {
+		nbuf = physmem * PAGE_SIZE / (NBUFCALCSIZE * 2);
+		kprintf("Warning: nbufs capped at %ld due to physmem\n", nbuf);
+	}
+
+	nswbuf_mem = lmax(lmin(nbuf / 32, 512), 8);
+#ifdef NSWBUF_MIN
+	if (nswbuf_mem < NSWBUF_MIN)
+		nswbuf_mem = NSWBUF_MIN;
+#endif
+	nswbuf_kva = lmax(lmin(nbuf / 4, 512), 16);
+#ifdef NSWBUF_MIN
+	if (nswbuf_kva < NSWBUF_MIN)
+		nswbuf_kva = NSWBUF_MIN;
+#endif
+
+	valloc(swbuf_mem, struct buf, nswbuf_mem);
+	valloc(swbuf_kva, struct buf, nswbuf_kva);
+	valloc(buf, struct buf, nbuf);
+
+	/*
+	 * End of first pass, size has been calculated so allocate memory
+	 */
+	if (firstaddr == 0) {
+		size = (vm_size_t)(v - firstaddr);
+		firstaddr = kmem_alloc(kernel_map, round_page(size),
+				       VM_SUBSYS_BUF);
+		if (firstaddr == 0)
+			panic("startup: no room for tables");
+		goto again;
+	}
+
+	/*
+	 * End of second pass, addresses have been assigned
+	 */
+	if ((vm_size_t)(v - firstaddr) != size)
+		panic("startup: table size inconsistency");
+
+#undef valloc
+#undef valloclim
+
+	/*
+	 * Create VM submaps for the buffer cache and pager.
+	 *
+	 * On 64-bit systems we always reserve maximal allocations for
+	 * buffer cache buffers and there are no fragmentation issues,
+	 * so the KVA segment does not have to be excessively oversized.
+	 */
+	kmem_suballoc(kernel_map, clean_map, &clean_sva, &clean_eva,
+		      ((vm_offset_t)(nbuf + 16) * MAXBSIZE) +
+		      ((nswbuf_mem + nswbuf_kva) * MAXPHYS) + pager_map_size);
+	kmem_suballoc(clean_map, buffer_map, &buffer_sva, &buffer_eva,
+		      ((vm_offset_t)(nbuf + 16) * MAXBSIZE));
+	buffer_map->system_map = 1;
+	kmem_suballoc(clean_map, pager_map, &pager_sva, &pager_eva,
+		      ((vm_offset_t)(nswbuf_mem + nswbuf_kva) * MAXPHYS) +
+		      pager_map_size);
+	pager_map->system_map = 1;
+
+	kprintf("avail memory = %ju (%ju MB)\n",
+		(uintmax_t)ptoa(vmstats.v_free_count + vmstats.v_dma_pages),
+		(uintmax_t)ptoa(vmstats.v_free_count + vmstats.v_dma_pages) /
+		1024 / 1024);
+}
+
+SYSINIT(cpu, SI_BOOT2_START_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
 
 /*
  * 128-bit division support for compiler
