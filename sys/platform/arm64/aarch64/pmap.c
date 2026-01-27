@@ -199,36 +199,55 @@ pmap_pte(pmap_t pmap, vm_offset_t va)
 /*
  * Allocate a new L3 page table from the pre-allocated pool.
  * This is used during early boot before kmalloc is available.
+ *
+ * IMPORTANT: Returns a DMAP address for the L3 table to ensure all
+ * accesses to the L3 page go through the same virtual alias.
+ * This prevents cache coherency issues between BSS and DMAP mappings.
  */
 static pt_entry_t *
 pmap_alloc_l3(pmap_t pmap __unused, pd_entry_t *l2, vm_offset_t va)
 {
-	pt_entry_t *l3;
+	pt_entry_t *l3_bss;
+	pt_entry_t *l3_dmap;
 	vm_paddr_t l3_pa;
 
 	if (kern_l3_next >= NKERN_L3_PAGES)
 		panic("pmap_alloc_l3: out of pre-allocated L3 pages");
 
-	l3 = kern_l3_pages[kern_l3_next++];
-	bzero(l3, PAGE_SIZE);
+	/* Get BSS address for zeroing */
+	l3_bss = kern_l3_pages[kern_l3_next++];
+	bzero(l3_bss, PAGE_SIZE);
 
 	/*
 	 * Get physical address of the L3 table. The kern_l3_pages array
 	 * is in kernel BSS, so use pmap_kextract() which handles both
 	 * DMAP and kernel address translation.
 	 */
-	l3_pa = pmap_kextract((vm_offset_t)l3);
+	l3_pa = pmap_kextract((vm_offset_t)l3_bss);
+
+	/*
+	 * Convert to DMAP address for returning. This ensures all subsequent
+	 * accesses to this L3 table (via pmap_l2_to_l3) use the same virtual
+	 * alias, preventing cache coherency issues.
+	 */
+	l3_dmap = (pt_entry_t *)PHYS_TO_DMAP(l3_pa);
+
+	/*
+	 * Ensure the zero operation is visible through DMAP before we
+	 * install the L2 entry and return the DMAP pointer.
+	 */
+	__asm __volatile("dsb ish" ::: "memory");
 
 #ifdef __aarch64__
-	kprintf("pmap_alloc_l3: allocating L3 #%d for va=0x%lx, l3=%p l3_pa=0x%lx l2=%p\n",
-		kern_l3_next - 1, va, l3, l3_pa, l2);
+	kprintf("pmap_alloc_l3: allocating L3 #%d for va=0x%lx, l3_bss=%p l3_dmap=%p l3_pa=0x%lx l2=%p\n",
+		kern_l3_next - 1, va, l3_bss, l3_dmap, l3_pa, l2);
 #endif
 
 	/* Install L2 entry pointing to new L3 table */
 	*l2 = l3_pa | L2_TABLE;
 	__asm __volatile("dsb ishst" ::: "memory");
 
-	return (&l3[pmap_l3_index(va)]);
+	return (&l3_dmap[pmap_l3_index(va)]);
 }
 
 /*
