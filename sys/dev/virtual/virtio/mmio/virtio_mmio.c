@@ -176,6 +176,8 @@ vtmmio_probe(device_t dev)
 	int rid;
 	uint32_t magic, version;
 
+	kprintf("vtmmio_probe: called for %s\n", device_get_nameunit(dev));
+
 	sc = device_get_softc(dev);
 
 	rid = 0;
@@ -186,7 +188,10 @@ vtmmio_probe(device_t dev)
 		return (ENXIO);
 	}
 
+	kprintf("vtmmio_probe: memory resource allocated\n");
+
 	magic = vtmmio_read_config_4(sc, VIRTIO_MMIO_MAGIC_VALUE);
+	kprintf("vtmmio_probe: magic=0x%x (expected 0x%x)\n", magic, VIRTIO_MMIO_MAGIC_VIRT);
 	if (magic != VIRTIO_MMIO_MAGIC_VIRT) {
 		device_printf(dev, "bad magic value %#x\n", magic);
 		bus_release_resource(dev, SYS_RES_MEMORY, rid, sc->res[0]);
@@ -195,6 +200,7 @@ vtmmio_probe(device_t dev)
 	}
 
 	version = vtmmio_read_config_4(sc, VIRTIO_MMIO_VERSION);
+	kprintf("vtmmio_probe: version=%u (expected 1)\n", version);
 	if (version != 1) {
 		device_printf(dev, "unsupported version: %#x\n", version);
 		bus_release_resource(dev, SYS_RES_MEMORY, rid, sc->res[0]);
@@ -203,11 +209,13 @@ vtmmio_probe(device_t dev)
 	}
 
 	if (vtmmio_read_config_4(sc, VIRTIO_MMIO_DEVICE_ID) == 0) {
+		kprintf("vtmmio_probe: device_id is 0, no device present\n");
 		bus_release_resource(dev, SYS_RES_MEMORY, rid, sc->res[0]);
 		sc->res[0] = NULL;
 		return (ENXIO);
 	}
 
+	kprintf("vtmmio_probe: device detected, releasing memory for attach\n");
 	bus_release_resource(dev, SYS_RES_MEMORY, rid, sc->res[0]);
 	sc->res[0] = NULL;
 
