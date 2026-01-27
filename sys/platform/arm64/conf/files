@@ -5,6 +5,7 @@
 #
 platform/arm64/aarch64/machdep.c	standard
 platform/arm64/aarch64/pmap.c	standard
+platform/arm64/aarch64/swtch.s	standard
 platform/arm64/aarch64/support.c	standard
 platform/arm64/aarch64/busdma_machdep.c	standard
 platform/arm64/aarch64/gic.c		standard

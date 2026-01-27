@@ -1027,6 +1027,16 @@ globaldata_find(int cpu)
 }
 
 /*
+ * Assembly routines for context switching (defined in swtch.S).
+ * These implement the LWKT context switching for arm64.
+ *
+ * Note: cpu_lwkt_switch() and cpu_heavy_switch() are declared in sys/proc.h
+ */
+extern void cpu_idle_restore(void);
+extern void cpu_kthread_restore(void);
+extern void cpu_heavy_restore(void);
+
+/*
  * cpu_gdinit - Initialize machine-dependent portions of globaldata.
  *
  * This is called after mi_gdinit() to set up the idle thread for each CPU.
@@ -1050,7 +1060,14 @@ cpu_gdinit(struct mdglobaldata *gd, int cpu)
 			0, &gd->mi);
 	lwkt_set_comm(&gd->mi.gd_idlethread, "idle_%d", cpu);
 	gd->mi.gd_idlethread.td_switch = cpu_lwkt_switch;
-	/* TODO: set up idle_restore once assembly is implemented */
+
+	/*
+	 * Set up the idle thread's stack so that when we switch to it,
+	 * the 'ret' instruction pops cpu_idle_restore and jumps to it.
+	 * This is a one-time bootstrap into the idle loop.
+	 */
+	gd->mi.gd_idlethread.td_sp -= sizeof(void *);
+	*(void **)gd->mi.gd_idlethread.td_sp = cpu_idle_restore;
 }
 
 /*
@@ -1426,10 +1443,9 @@ md_dumpsys(struct dumperinfo *di __unused)
 {
 }
 
-void
-savectx(struct pcb *pcb __unused)
-{
-}
+/*
+ * savectx is now implemented in swtch.S
+ */
 
 /*
  * I/O privilege level stubs (x86-specific concept)
@@ -1524,42 +1540,8 @@ set_fpregs(struct lwp *lp __unused, struct fpreg *fpregs __unused)
 }
 
 /*
- * Context switch functions - stubs for now
- * These need assembly implementations for proper context switching.
- *
- * During early boot before mi_startup() is called, we're single-threaded
- * and context switching should not occur. Return curthread as a no-op.
- * Once multi-threading starts, this will panic until proper assembly
- * implementations are added.
+ * cpu_lwkt_switch and cpu_heavy_switch are now implemented in swtch.S
  */
-struct thread *
-cpu_lwkt_switch(struct thread *ntd)
-{
-	struct thread *otd = curthread;
-
-	/*
-	 * During boot, if we're "switching" to ourselves, just return.
-	 * This handles the case where lwkt code wants to switch but
-	 * there's only one runnable thread.
-	 */
-	if (ntd == otd)
-		return (otd);
-
-	/*
-	 * Real switch needed - not implemented yet.
-	 * This will happen when mi_startup() runs SYSINITs that create
-	 * new threads and try to yield.
-	 */
-	panic("cpu_lwkt_switch: real context switch not implemented");
-	return (NULL);	/* not reached */
-}
-
-struct thread *
-cpu_heavy_switch(struct thread *ntd __unused)
-{
-	panic("cpu_heavy_switch: not implemented");
-	return (NULL);	/* not reached */
-}
 
 void
 cpu_set_fork_handler(struct lwp *lp __unused,

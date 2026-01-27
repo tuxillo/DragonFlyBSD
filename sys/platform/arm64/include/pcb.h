@@ -40,12 +40,43 @@
 #endif
 
 struct pcb {
-	register_t	pcb_regs[31];
+	/*
+	 * Callee-saved registers (x19-x28).
+	 * These must be preserved across function calls per AAPCS64.
+	 */
+	register_t	pcb_x19;
+	register_t	pcb_x20;
+	register_t	pcb_x21;
+	register_t	pcb_x22;
+	register_t	pcb_x23;
+	register_t	pcb_x24;
+	register_t	pcb_x25;
+	register_t	pcb_x26;
+	register_t	pcb_x27;
+	register_t	pcb_x28;
+
+	/*
+	 * Frame pointer and link register.
+	 */
+	register_t	pcb_x29;	/* Frame pointer (fp) */
+	register_t	pcb_lr;		/* Link register (x30) - return address */
+
+	/*
+	 * Stack pointer.
+	 */
 	register_t	pcb_sp;
-	register_t	pcb_lr;
-	register_t	pcb_pc;
-	register_t	pcb_spsr;
+
+	/*
+	 * Fault handler address for copyin/copyout.
+	 */
 	register_t	pcb_onfault;
+
+	/*
+	 * PCB flags.
+	 */
+	uint32_t	pcb_flags;
+#define	PCB_SINGLE_STEP_SHIFT	0
+#define	PCB_SINGLE_STEP		(1 << PCB_SINGLE_STEP_SHIFT)
 };
 
 #ifdef _KERNEL
