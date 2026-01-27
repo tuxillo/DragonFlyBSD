@@ -123,7 +123,20 @@ struct vring {
  * versa. They are at the end for backwards compatibility.
  */
 #define	vring_used_event(vr)	((vr)->avail->ring[(vr)->num])
-#define	vring_avail_event(vr)	(*(uint16_t *)&(vr)->used->ring[(vr)->num])
+
+/*
+ * The avail_event_idx is stored at &used->ring[num], which is past the
+ * flexible array member.  Use memcpy to avoid strict-aliasing violations
+ * when reading it as a uint16_t.
+ */
+static inline uint16_t
+vring_avail_event(struct vring *vr)
+{
+	uint16_t val;
+
+	memcpy(&val, &vr->used->ring[vr->num], sizeof(val));
+	return (val);
+}
 
 static inline int
 vring_size(unsigned int num, unsigned long align)
