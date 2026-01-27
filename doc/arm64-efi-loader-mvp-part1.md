@@ -1341,7 +1341,7 @@ The implementation follows DragonFly's LWKT model (different from FreeBSD):
 
 Implement `cpu_set_thread_handler()` for ARM64 to enable kernel thread creation, unblocking devfs initialization and other subsystems that spawn kernel threads.
 
-### Status: IN PROGRESS
+### Status: COMPLETE ✅
 
 ### Problem Analysis
 
@@ -1487,14 +1487,37 @@ After this change:
 2. Kernel will pass `SI_SUB_DEVFS_CORE` (0x2380000)
 3. Boot will continue to later subsystems (may hit other issues)
 
+### Implementation Notes
+
+**Critical ARM64 difference from x86_64:**
+
+ARM64's `ret` instruction does NOT pop from the stack like x86_64. Instead, it returns to the address in the link register (`x30`/`lr`).
+
+The fix required loading the restore function address from the stack into `lr` before calling `ret`:
+
+```asm
+/* After switching stacks */
+ldr    x30, [sp]          /* Load restore function address into lr */
+ret                       /* Jump to restore function via lr */
+```
+
+This applies to `cpu_lwkt_switch()` when jumping to restore functions.
+
 ### Success Criteria
 
-- [ ] `cpu_set_thread_handler()` properly initializes PCB fields
-- [ ] `cpu_kthread_restore()` loads rfunc into lr before jumping to thread function
-- [ ] Kernel passes `SI_SUB_DEVFS_CORE` (0x2380000)
-- [ ] devfs_msg_core kernel thread starts successfully
-- [ ] Boot continues past previous failure point
+- [x] `cpu_set_thread_handler()` properly initializes PCB fields
+- [x] `cpu_kthread_restore()` loads rfunc into lr before jumping to thread function
+- [x] Kernel passes `SI_SUB_DEVFS_CORE` (0x2380000)
+- [x] devfs_msg_core kernel thread starts successfully
+- [x] Boot continues past previous failure point (reaches SI_SUB_PSEUDO 0x7400000)
+
+### Related Commits
+
+| Commit | Description |
+|--------|-------------|
+| 716bd835b4 | arm64: Implement cpu_set_thread_handler() for kernel thread creation (MVP Part 9) |
+| ed2f6c561a | arm64: Fix cpu_lwkt_switch() to load restore address into lr before ret |
 
 ---
 
-*Last updated: 2026-01-27 (MVP Part 9 IN PROGRESS)*
+*Last updated: 2026-01-27 (MVP Part 9 COMPLETE)*
