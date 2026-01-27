@@ -530,6 +530,29 @@ arm64_ttbr1_switch(void)
 	if (arm64_ttbr1_candidate == 0)
 		return;
 
+	/* Debug: print TTBR0 state before switch */
+	u_int64_t ttbr0_val;
+	__asm __volatile("mrs %0, ttbr0_el1" : "=r" (ttbr0_val));
+	uart_puts("[arm64] ttbr0=0x");
+	uart_puthex(ttbr0_val);
+	uart_puts("\r\n");
+
+	/* Print L1 entries to verify mapping */
+	u_int64_t *ttbr0_l0_ptr = (u_int64_t *)(uintptr_t)(ttbr0_val & ~0xfffULL);
+	u_int64_t l0_entry0 = ttbr0_l0_ptr[0];
+	uart_puts("[arm64] ttbr0 L0[0]=0x");
+	uart_puthex(l0_entry0);
+	uart_puts("\r\n");
+
+	if ((l0_entry0 & 0x3) == 0x3) {
+		u_int64_t *ttbr0_l1_ptr = (u_int64_t *)(uintptr_t)(l0_entry0 & ~0xfffULL);
+		uart_puts("[arm64] ttbr0 L1[0]=0x");
+		uart_puthex(ttbr0_l1_ptr[0]);
+		uart_puts(" L1[1]=0x");
+		uart_puthex(ttbr0_l1_ptr[1]);
+		uart_puts("\r\n");
+	}
+
 	uart_puts("[arm64] ttbr1 switching...\r\n");
 
 	__asm __volatile(

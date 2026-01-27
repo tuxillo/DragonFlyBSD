@@ -871,7 +871,7 @@ create_pagetables:
 	lsr	x4, x28, #30		/* Get 1GB index */
 	and	x4, x4, #0x1ff
 	lsl	x5, x4, #30		/* PA of 1GB block start */
-	ldr	x6, =0x0000000000000701	/* Base block attrs (MAIR idx 2, SH=IS, AF) */
+	ldr	x6, =0x0000000000000709	/* Block attrs: MAIR idx 2 (normal), SH=IS, AF */
 	orr	x3, x5, x6
 	lsl	x4, x4, #3		/* Byte offset in L1 table */
 	str	x3, [x2, x4]
