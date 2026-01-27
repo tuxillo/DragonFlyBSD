@@ -94,6 +94,10 @@ clean_caches(void)
  * There is an ELF kernel and one or more ELF modules loaded.
  * We wish to start executing the kernel image, so make such
  * preparations as are required, and do so.
+ *
+ * The kernel is linked at a high virtual address (e.g., 0xffffff80xxxxxxxx)
+ * but loaded into physical memory at a lower address. We use efi_translate()
+ * to convert the kernel's virtual entry point to its physical address.
  */
 static int
 elf64_exec(struct preloaded_file *fp)
@@ -112,7 +116,15 @@ elf64_exec(struct preloaded_file *fp)
 	ehdr = (Elf_Ehdr *)&(md->md_data);
 
 	entry = ehdr->e_entry;
-	printf("Kernel entry at 0x%lx\n", (unsigned long)entry);
+	printf("Kernel entry at VA 0x%lx\n", (unsigned long)entry);
+
+	/*
+	 * Translate the kernel entry point from its link VA to the physical
+	 * address where it was actually loaded in the staging area.
+	 */
+	kernel_entry = (void (*)(vm_offset_t))efi_translate(entry);
+	printf("Kernel entry at PA 0x%lx (translated)\n",
+	    (unsigned long)kernel_entry);
 
 	/*
 	 * Call bi_load to:
@@ -125,16 +137,15 @@ elf64_exec(struct preloaded_file *fp)
 		printf("bi_load failed: %d\n", err);
 		return (err);
 	}
-	printf("modulep=0x%lx header=%08x %08x\n",
-	    (unsigned long)modulep,
-	    ((uint32_t *)modulep)[0], ((uint32_t *)modulep)[1]);
+	printf("modulep=0x%lx kernend=0x%lx\n",
+	    (unsigned long)modulep, (unsigned long)kernend);
 
 	/*
 	 * At this point:
 	 * - ExitBootServices has been called
 	 * - We cannot use any EFI Boot Services
 	 * - We cannot use printf or console output
-	 * - modulep points to the preload metadata
+	 * - modulep points to the preload metadata (physical address)
 	 */
 
 	/* Clean up devices */
@@ -147,8 +158,10 @@ elf64_exec(struct preloaded_file *fp)
 	 * Jump to the kernel entry point.
 	 * On arm64, the calling convention passes the first argument in x0.
 	 * The kernel expects modulep in x0.
+	 *
+	 * Note: kernel_entry is the PHYSICAL address, not VA. The kernel's
+	 * locore.S will set up page tables and jump to high VA.
 	 */
-	kernel_entry = (void (*)(vm_offset_t))entry;
 	(*kernel_entry)(modulep);
 
 	/* Should never reach here */

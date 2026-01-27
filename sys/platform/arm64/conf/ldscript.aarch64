@@ -1,22 +1,56 @@
+/*
+ * ARM64 kernel linker script for DragonFly BSD
+ *
+ * The kernel is linked at a virtual address (text_start) which is
+ * defined via --defsym on the linker command line. The loader will
+ * load the kernel into physical memory and use efi_translate() to
+ * convert between virtual and physical addresses.
+ */
+
+OUTPUT_ARCH(aarch64)
+ENTRY(_start)
+
 SECTIONS
 {
-	. = 0x40100000;
+	/* text_start is set using --defsym= on the command line */
+	. = text_start;
+
 	.text : {
 		*(.text*)
 	}
-	.rodata : {
-		*(.rodata*)
-	}
 
+	/* .gnu.warning sections are handled specially by elf32.em */
+	*(.gnu.warning)
+	*(.gnu.linkonce.t*)
+
+	/*
+	 * Align to 2MB page boundary. This is required because the kernel
+	 * builds page tables based on where it has been loaded in physical
+	 * address space, and it uses 2MB pages for the kernel mapping.
+	 */
 	. = ALIGN(2M);
 	_etext = .;
+	PROVIDE(etext = .);
+
+	.rodata : {
+		*(.rodata*)
+		*(.gnu.linkonce.r*)
+	}
+
 	.data : {
 		*(.data*)
+		*(.gnu.linkonce.d*)
 	}
+
+	. = ALIGN(8);
 	_edata = .;
+	PROVIDE(edata = .);
+
+	. = ALIGN(16);
+	__bss_start = .;
 
 	.bss : {
-		__bss_start = .;
+		*(.dynbss)
 		*(.bss*)
 		*(COMMON)
 		. = ALIGN(16);
@@ -24,4 +58,7 @@ SECTIONS
 	}
 
 	_end = .;
+	PROVIDE(end = .);
+
+	/DISCARD/ : { *(.note.GNU-stack) }
 }

@@ -49,6 +49,23 @@ EFI_PHYSICAL_ADDRESS	staging, staging_end;
 int			stage_offset_set = 0;
 ssize_t			stage_offset;
 
+/*
+ * On aarch64, the kernel may be linked at a high virtual address (e.g.,
+ * 0xffffff80xxxxxxxx). The loader needs to:
+ * 1. Allocate physical memory for the staging area
+ * 2. Use stage_offset to translate between kernel VA and staging PA
+ * 3. efi_translate() converts kernel VA to physical staging address
+ *
+ * For aarch64, we limit allocation to 48-bit physical addresses to support
+ * older kernels that don't handle larger physical address spaces.
+ */
+#if defined(__aarch64__)
+#define	EFI_STAGING_MAX		(1UL << 48)
+#define	EFI_ALLOC_METHOD	AllocateMaxAddress
+#else
+#define	EFI_ALLOC_METHOD	AllocateAnyPages
+#endif
+
 int
 efi_copy_init(void)
 {
@@ -57,10 +74,39 @@ efi_copy_init(void)
 	EFI_MEMORY_TYPE	alloc_type = EfiLoaderData;
 
 #if defined(__aarch64__)
-	staging = 0;
-	staging_end = 0;
-	stage_offset = 0;
-	stage_offset_set = 0;
+	/*
+	 * For aarch64, allocate staging area with a maximum address limit.
+	 * The staging area will be used to hold the kernel which is linked
+	 * at a high VA. The stage_offset will translate between VA and PA.
+	 */
+	staging = EFI_STAGING_MAX;
+	status = BS->AllocatePages(EFI_ALLOC_METHOD, EfiLoaderCode,
+	    pages, &staging);
+	if (EFI_ERROR(status)) {
+		printf("failed to allocate %uMB staging area: %lu\n",
+		    EFI_STAGING_SIZE, (unsigned long)status);
+		printf("retrying with smaller %uMB allocation\n",
+		    EFI_STAGING_SIZE/2);
+		pages /= 2;
+		staging = EFI_STAGING_MAX;
+		status = BS->AllocatePages(EFI_ALLOC_METHOD, EfiLoaderCode,
+		    pages, &staging);
+	}
+	if (EFI_ERROR(status)) {
+		printf("failed to allocate staging area: %lu\n",
+		    (unsigned long)status);
+		return (status);
+	}
+	staging_end = staging + pages * EFI_PAGE_SIZE;
+
+	/*
+	 * Round the kernel load address to a 2MiB value. This is needed
+	 * because the kernel builds a page table based on where it has
+	 * been loaded in physical address space. As the kernel will use
+	 * either a 1MiB or 2MiB page for this we need to make sure it
+	 * is correctly aligned for both cases.
+	 */
+	staging = roundup2(staging, 2 * 1024 * 1024);
 	return (0);
 #endif
 
@@ -82,20 +128,14 @@ efi_copy_init(void)
 	}
 	staging_end = staging + pages * EFI_PAGE_SIZE;
 
-#if defined(__aarch64__)
-	/*
-	 * Round the kernel load address to a 2MiB value. This is needed
-	 * because the kernel builds a page table based on where it has
-	 * been loaded in physical address space. As the kernel will use
-	 * either a 1MiB or 2MiB page for this we need to make sure it
-	 * is correctly aligned for both cases.
-	 */
-	staging = roundup2(staging, 2 * 1024 * 1024);
-#endif
-
 	return (0);
 }
 
+/*
+ * Translate a kernel virtual address to its physical staging location.
+ * This is used when the kernel is linked at a high VA but loaded at a
+ * lower physical address.
+ */
 void *
 efi_translate(vm_offset_t ptr)
 {
@@ -107,44 +147,23 @@ ssize_t
 efi_copyin(const void *src, vm_offset_t dest, const size_t len)
 {
 	if (!stage_offset_set) {
-#if defined(__aarch64__)
-		EFI_STATUS	status;
-		size_t		pages;
-		EFI_PHYSICAL_ADDRESS base;
-
 		/*
-		 * Allocate a 32MB staging area aligned to 2MB for arm64.
-		 * This needs to hold the kernel (~5MB), environment, and
-		 * module metadata. The 2MB alignment is required for the
-		 * kernel's page table setup.
+		 * Calculate the offset between staging (physical) and dest (VA).
+		 * For a kernel linked at VA 0xffffff8040100000 and staging at
+		 * PA 0x40000000, stage_offset will be negative, translating
+		 * high VA to low PA.
 		 */
-		pages = EFI_SIZE_TO_PAGES(32 * 1024 * 1024);
-		base = (EFI_PHYSICAL_ADDRESS)dest & ~((2 * 1024 * 1024) - 1);
-		status = BS->AllocatePages(AllocateAddress, EfiLoaderCode,
-		    pages, &base);
-		if (EFI_ERROR(status)) {
-			printf("failed to allocate kernel pages at 0x%llx: %llu\n",
-			    (unsigned long long)base, status);
-			errno = ENOMEM;
-			return (-1);
-		}
-		staging = base;
-		staging_end = staging + pages * EFI_PAGE_SIZE;
-		stage_offset = 0;
-		stage_offset_set = 1;
-#endif
-	}
-
-	if (!stage_offset_set) {
 		stage_offset = (vm_offset_t)staging - dest;
 		stage_offset_set = 1;
 	}
 
 	/* XXX: Callers do not check for failure. */
 	if (dest + stage_offset + len > staging_end) {
-		printf("efi_copyin: dest=0x%lx len=0x%lx end=0x%llx\n",
+		printf("efi_copyin: dest=0x%lx len=0x%lx staging=0x%llx end=0x%llx offset=0x%lx\n",
 		    (unsigned long)dest, (unsigned long)len,
-		    (unsigned long long)staging_end);
+		    (unsigned long long)staging,
+		    (unsigned long long)staging_end,
+		    (long)stage_offset);
 		errno = ENOMEM;
 		return (-1);
 	}
@@ -170,41 +189,33 @@ ssize_t
 efi_readin(const int fd, vm_offset_t dest, const size_t len)
 {
 	if (!stage_offset_set) {
-#if defined(__aarch64__)
-		EFI_STATUS	status;
-		size_t		pages;
-		EFI_PHYSICAL_ADDRESS base;
-
 		/*
-		 * Allocate a 32MB staging area aligned to 2MB for arm64.
+		 * Calculate the offset between staging (physical) and dest (VA).
 		 */
-		pages = EFI_SIZE_TO_PAGES(32 * 1024 * 1024);
-		base = (EFI_PHYSICAL_ADDRESS)dest & ~((2 * 1024 * 1024) - 1);
-		status = BS->AllocatePages(AllocateAddress, EfiLoaderCode,
-		    pages, &base);
-		if (EFI_ERROR(status)) {
-			printf("failed to allocate kernel pages at 0x%llx: %llu\n",
-			    (unsigned long long)base, status);
-			errno = ENOMEM;
-			return (-1);
-		}
-		staging = base;
-		staging_end = staging + pages * EFI_PAGE_SIZE;
-		stage_offset = 0;
+		stage_offset = (vm_offset_t)staging - dest;
 		stage_offset_set = 1;
-#endif
 	}
 
 	if (dest + stage_offset + len > staging_end) {
-		printf("efi_readin: dest=0x%lx len=0x%lx end=0x%llx\n",
+		printf("efi_readin: dest=0x%lx len=0x%lx staging=0x%llx end=0x%llx offset=0x%lx\n",
 		    (unsigned long)dest, (unsigned long)len,
-		    (unsigned long long)staging_end);
+		    (unsigned long long)staging,
+		    (unsigned long long)staging_end,
+		    (long)stage_offset);
 		errno = ENOMEM;
 		return (-1);
 	}
 	return (read(fd, (void *)(dest + stage_offset), len));
 }
 
+/*
+ * Copy kernel from staging area to its final physical location.
+ * For aarch64 with high VA kernels, this copies from staging to
+ * the physical address derived from the kernel's virtual address.
+ *
+ * Note: This is called after ExitBootServices, so we cannot use
+ * any EFI services here.
+ */
 void
 efi_copy_finish(void)
 {

@@ -83,6 +83,14 @@
 .equ	KERN_LOAD, 0x0000000040000000
 .equ	KERNBASE_OFFSET, KERNBASE - KERN_LOAD
 
+/*
+ * Export kernbase symbol for the linker.
+ * The linker script uses this via --defsym='text_start=kernbase + SIZEOF_HEADERS'
+ * to set the kernel's virtual link address.
+ */
+	.globl	kernbase
+	.set	kernbase, KERNBASE
+
 	.text
 	.globl	_start
 	.type	_start, @function
