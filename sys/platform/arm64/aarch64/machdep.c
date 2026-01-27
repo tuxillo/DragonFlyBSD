@@ -1540,8 +1540,55 @@ set_fpregs(struct lwp *lp __unused, struct fpreg *fpregs __unused)
 }
 
 /*
- * cpu_lwkt_switch and cpu_heavy_switch are now implemented in swtch.S
+ * cpu_lwkt_switch and cpu_heavy_switch are now implemented in swtch.s
  */
+
+/*
+ * cpu_idle - idle loop for the idle thread
+ *
+ * This is called from cpu_idle_restore in swtch.s after the idle thread
+ * is bootstrapped.  We loop forever, switching to other threads when
+ * work is available.
+ *
+ * For ARM64, we use WFE (Wait For Event) instruction to put the core
+ * into a low power state while waiting for interrupts or events.
+ */
+void
+cpu_idle(void)
+{
+	globaldata_t gd = mycpu;
+	struct thread *td __debugvar = gd->gd_curthread;
+
+	crit_exit();
+	KKASSERT(td->td_critcount == 0);
+
+	for (;;) {
+		/*
+		 * See if there are any LWKTs ready to go.
+		 */
+		lwkt_switch();
+
+		/*
+		 * If nothing to do, wait for an event/interrupt.
+		 * On ARM64 we use WFE instruction.
+		 * Interrupts must be enabled before WFE.
+		 */
+		cpu_enable_intr();
+		__asm __volatile("wfe" ::: "memory");
+	}
+}
+
+/*
+ * ap_init - Application Processor initialization
+ *
+ * This is called on non-BSP CPUs when they boot up in SMP mode.
+ * For now this is a stub since we don't support SMP yet.
+ */
+void
+ap_init(void)
+{
+	panic("ap_init: SMP not implemented for ARM64");
+}
 
 void
 cpu_set_fork_handler(struct lwp *lp __unused,
