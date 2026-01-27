@@ -1831,3 +1831,60 @@ ARM64 timer: registered cputimer and cputimer_intr
 ---
 
 *Last updated: 2026-01-27 (MVP Part 11 - Debug cleanup complete)*
+
+---
+
+## VirtIO MMIO v1 Compilation Fixes (COMPLETE)
+
+### Status: BUILD PASSES ✅
+
+Two compilation issues were identified and fixed in the VirtIO MMIO driver code during ARM64 kernel builds.
+
+### Fix #1: printf → kprintf in virtio_mmio_kenv.c
+
+**Commit:** `c1b69211b1`
+
+**Problem:** `printf()` doesn't exist in DragonFly kernel space - it should be `kprintf()`.
+
+**File:** `sys/dev/virtual/virtio/mmio/virtio_mmio_kenv.c:118`
+
+**Fix:**
+```c
+// Before
+printf("Error parsing hw.virtio.mmio.device parameter: %s\n", arg);
+
+// After
+kprintf("Error parsing hw.virtio.mmio.device parameter: %s\n", arg);
+```
+
+### Fix #2: Strict-Aliasing Violation in virtio_ring.h
+
+**Commit:** `0f561d3f96`
+
+**Problem:** The `vring_avail_event` macro violated C strict-aliasing rules by casting `struct vring_used_elem *` to `uint16_t *`, triggering `-Werror=strict-aliasing` on ARM64 builds.
+
+**File:** `sys/dev/virtual/virtio/virtio/virtio_ring.h:126`
+
+**Original (problematic):**
+```c
+#define vring_avail_event(vr) (*(uint16_t *)&(vr)->used->ring[(vr)->num])
+```
+
+**Fix:** Convert macro to inline function using `memcpy()`:
+```c
+static inline uint16_t
+vring_avail_event(struct vring *vr)
+{
+    uint16_t val;
+    memcpy(&val, &vr->used->ring[vr->num], sizeof(val));
+    return (val);
+}
+```
+
+**Rationale:** The `avail_event_idx` is stored past the flexible array member `used->ring[num]`. Using `memcpy()` is the standard C-compliant way to read type-punned data without violating strict-aliasing rules.
+
+### Test Results
+
+- ✅ Kernel builds successfully with VirtIO MMIO support
+- ✅ QEMU test passes (full boot to timeout)
+- ✅ No strict-aliasing warnings or errors
