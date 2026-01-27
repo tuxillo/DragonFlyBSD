@@ -2,9 +2,15 @@
 
 This document describes the plan for implementing device autoconfiguration on ARM64, including the minimal stubs needed for the MVP and the future FDT/ACPI work.
 
+## Status: PHASE 1 COMPLETE ✅
+
+**The ARM64 kernel now successfully boots to the `mountroot>` prompt.**
+
+Phase 1 (minimal stubs with kenv-based VirtIO enumeration) is complete. The kernel reaches mountroot with VirtIO block device detection. FDT support (Phase 2) is **not required** for the current MVP - the kenv approach works for QEMU `-M virt`.
+
 ## Overview
 
-DragonFly BSD's kernel boot process follows a sequence of SYSINIT stages. The boot currently stalls after `SI_SUB_PRE_DRIVERS` (watchdog init) because ARM64 is missing the infrastructure that runs at `SI_SUB_CONFIGURE`.
+DragonFly BSD's kernel boot process follows a sequence of SYSINIT stages. Phase 1 provides the minimal infrastructure to pass `SI_SUB_CONFIGURE` and enumerate devices via kernel environment variables.
 
 ### Boot Flow (Relevant Stages)
 
@@ -347,13 +353,19 @@ After implementing Phase 1:
 
 ---
 
-## Phase 2: FDT Support Implementation
+## Phase 2: FDT Support (FUTURE - Not Required for MVP)
 
-**Current Status:** Phase 1 is complete - autoconf.c and nexus.c are implemented, kernel boots through `SI_SUB_CONFIGURE` but stalls at USB delay loop because nexus has no children (no device enumeration).
+**NOTE:** Phase 2 (FDT) is NOT required for the current MVP. The kernel successfully boots to mountroot using the kenv-based VirtIO MMIO enumeration approach described in `arm64-virtio-mmio-v1-plan.md`.
 
-**Blocking Issue:** Kernel can't reach `mountroot>` because no storage devices are attached. QEMU virt machine provides devices via FDT, but we haven't implemented FDT parsing.
+**Current Status:** Phase 1 is complete. The kernel boots through all SYSINITs, detects VirtIO block device (`vbd0`), and reaches `mountroot>` prompt.
 
-**Goal:** Implement FDT support to enumerate devices and reach `mountroot>` prompt.
+FDT support would be beneficial for:
+- Real hardware (not QEMU)
+- PCIe enumeration
+- Dynamic device detection
+- Full QEMU virt machine support
+
+For now, the kenv approach is sufficient for development and testing.
 
 ### **Phase 2A: Port OFW/FDT Infrastructure**
 
@@ -502,28 +514,35 @@ nexus_acpi_attach(device_t dev)
 
 ## Implementation Status
 
-| Aspect | Phase 1 (Stubs) - **COMPLETE** | Phase 2 (FDT) - **IN PROGRESS** | Phase 3 (ACPI) - **FUTURE** |
+| Aspect | Phase 1 (Stubs) - **COMPLETE** | Phase 2 (FDT) - **FUTURE** | Phase 3 (ACPI) - **FUTURE** |
 |--------|-----------------|------------------|------------------|
-| **Device enumeration** | None | FDT parsing from QEMU virt | ACPI table parsing |
-| **Child devices** | None attached | Enumerated from FDT | Enumerated from ACPI |
-| **Interrupt mapping** | Basic rman | GIC integration via FDT | APIC integration via ACPI |
-| **Resource discovery** | Manual | From device tree | From ACPI tables |
-| **Boot result** | Stalls at USB loop | Reaches `mountroot>` prompt | Full server support |
-| **Current status** | ✅ Working | 🔄 Implementation needed | 📋 Planned |
+| **Device enumeration** | kenv-based (VirtIO MMIO) | FDT parsing from QEMU virt | ACPI table parsing |
+| **Child devices** | VirtIO via kenv | Enumerated from FDT | Enumerated from ACPI |
+| **Interrupt mapping** | GIC with kenv IRQs | GIC integration via FDT | APIC integration via ACPI |
+| **Resource discovery** | kenv variables | From device tree | From ACPI tables |
+| **Boot result** | ✅ Reaches `mountroot>` | Full FDT support | Full server support |
+| **Current status** | ✅ Working | 📋 Optional | 📋 Planned |
 
-### **Phase 1 Verification (Completed)**
+### **Phase 1 Verification (COMPLETE)**
 - ✅ `configure_first()`, `configure()`, `configure_final()` execute in order
 - ✅ `nexus_probe()` and `nexus_attach()` successful
 - ✅ Kernel passes `SI_SUB_CONFIGURE` (0x3800000)
-- ✅ Reaches `SI_SUB_INT_CONFIG_HOOKS` (0xa800000)
-- ❌ No storage drivers (nexus has no children)
+- ✅ VirtIO MMIO devices enumerated via kenv
+- ✅ VirtIO block driver attaches (`vbd0` detected)
+- ✅ Kernel reaches `mountroot>` prompt
 
-### **Phase 2 Requirements**
-- 🔄 Port OFW/FDT infrastructure from FreeBSD
-- 🔄 Create `ofwbus` driver for FDT walking
-- 🔄 Create `simplebus` driver for "simple-bus" nodes
-- 🔄 Integrate FDT into nexus driver
-- 🔄 Add VirtIO drivers for storage (optional)
+### **How Devices Are Enumerated (kenv approach)**
+
+Instead of FDT, the ARM64 port uses kernel environment variables set by the loader:
+```
+hw.virtio.mmio.device=0x200@0x0a000000:48
+hw.virtio.mmio.device_1=0x200@0x0a000200:49
+...
+hw.virtio.mmio.device_31=0x200@0x0a003e00:79
+```
+
+The `virtio_mmio_kenv` driver parses these variables and creates child devices under nexus.
+See `arm64-virtio-mmio-v1-plan.md` for full details.
 
 ---
 
@@ -532,10 +551,11 @@ nexus_acpi_attach(device_t dev)
 ### Phase 1 Status (COMPLETE)
 
 **Current State:** Phase 1 is implemented and working:
-- ✅ Kernel boots through `SI_SUB_CONFIGURE` (0x3800000)
+- ✅ Kernel boots through all SYSINITs
 - ✅ Nexus driver attaches successfully
-- ✅ Boot reaches `SI_SUB_INT_CONFIG_HOOKS` (0xa800000)
-- ❌ Stalls at USB delay loop (no storage drivers attached)
+- ✅ VirtIO MMIO devices enumerated via kenv
+- ✅ VirtIO block device attached (`vbd0`)
+- ✅ Kernel reaches `mountroot>` prompt
 
 **Test Command:**
 ```bash
@@ -543,42 +563,17 @@ nexus_acpi_attach(device_t dev)
 make copy-all    # Get artifacts from VM
 make test        # Run with timeout
 
-# Expected output:
-# ... boot messages ...
-# nexus0: <Motherboard> on motherboard
-# (stalls at USB delay loop - no devices enumerated)
-```
-
-### Phase 2 Test (Implementation Required)
-
-**Goal:** Test FDT device enumeration and reach `mountroot>` prompt.
-
-**Test Setup:**
-```bash
-# Add virtio disk to QEMU for testing storage
-qemu-system-aarch64 -M virt -cpu cortex-a72 -m 512M \
-    -drive if=pflash,file=QEMU_EFI.fd,format=raw,readonly=on \
-    -drive if=pflash,file=QEMU_VARS.fd,format=raw \
-    -drive file=fat:rw:esp,format=raw \
-    -drive file=disk.img,if=none,id=hd0 \
-    -device virtio-blk-device,drive=hd0 \
-    -nographic -serial stdio
-
-# Expected after Phase 2:
-# nexus0: <Motherboard> on motherboard
-# ofwbus0: <Open Firmware Device Tree> on nexus0
-# simplebus0: <Flattened device tree simple bus> on ofwbus0
-# gic0: <ARM Generic Interrupt Controller> on simplebus0
-# uart0: <ARM PL011 UART> on simplebus0
-# virtio_blk0: <VirtIO Block Device> on virtio_mmio0
+# Output (abbreviated):
+# DragonFly/arm64 kernel started!
+# Console initialized via PL011 driver.
+# ...
+# virtio_mmio31: <VirtIO MMIO adapter> at mem 0xa003e00-0xa003fff irq 79 on motherboard
+# virtio_blk0: <VirtIO Block Adapter> on virtio_mmio31
+# vtblk0: 67108864 byte (64MB) block device
+# vbd0 at vtblk0
+# ...
 # mountroot>
 ```
-
-**Testing Strategy:**
-1. **After Phase 2A/B:** Test FDT parsing - verify `ofwbus0` attaches
-2. **After Phase 2C:** Test simplebus - verify child devices appear
-3. **After Phase 2D:** Test full integration - verify device tree walk
-4. **After Phase 2E:** Test storage - try to reach `mountroot>`
 
 ---
 
@@ -594,13 +589,16 @@ qemu-system-aarch64 -M virt -cpu cortex-a72 -m 512M \
 
 ## **Current Status Summary**
 
-**Phase 1: COMPLETE** - Minimal autoconfiguration stubs are implemented and working. Kernel boots through `SI_SUB_CONFIGURE` but stalls at USB delay loop because no devices are enumerated.
+**Phase 1: COMPLETE** ✅ - Minimal autoconfiguration with kenv-based VirtIO MMIO enumeration is implemented and working. The kernel boots to `mountroot>` prompt with VirtIO block device detection.
 
-**Phase 2: READY FOR IMPLEMENTATION** - Detailed plan created for FDT support. Next step is to port OFW infrastructure from FreeBSD and implement device enumeration from QEMU's Flattened Device Tree.
+**Phase 2 (FDT): NOT REQUIRED FOR MVP** - The kenv approach successfully provides device enumeration for QEMU `-M virt`. FDT support may be added in the future for:
+- Real ARM64 hardware support
+- PCIe device enumeration
+- Dynamic device detection
 
-**Blocking Issue:** Kernel cannot reach `mountroot>` because nexus has no child devices. FDT support is required to enumerate VirtIO devices from QEMU virt machine.
+**Phase 3 (ACPI): FUTURE** - For ARM64 server platforms.
 
-**Next Action:** Begin Phase 2A - Port OFW/FDT infrastructure from `.freebsd.orig/sys/dev/ofw/`.
+**MVP Status:** The ARM64 kernel successfully boots to `mountroot>` prompt using the kenv-based device enumeration approach. No FDT support was needed.
 
 ---
-*Last updated: 2026-01-27 (Phase 2 plan consolidated)*
+*Last updated: 2026-01-28 (Phase 1 complete, kernel boots to mountroot)*

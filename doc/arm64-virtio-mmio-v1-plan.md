@@ -16,16 +16,29 @@ virtio bus APIs and conventions.
 - Use `.freebsd.orig` for reference without changing DragonFly directory layout.
 - Do not implement or stub vkernel functionality.
 
-## Implementation Status
+## Implementation Status: COMPLETE ✅
+
+All VirtIO MMIO v1 functionality has been implemented and tested. The kernel
+successfully boots to the `mountroot>` prompt with VirtIO block device detection.
 
 Implemented:
 - MMIO transport driver (legacy v1) and kenv identify shim.
 - DragonFly virtio bus interface methods for MMIO (features, queues, notify, interrupts).
 - Build integration for MMIO sources.
 - Plan reference in `doc/arm64-efi-loader-mvp-part1.md`.
+- ARM64 bus headers (`machine/bus.h`, `machine/resource.h`).
+- Loader integration (all 32 VirtIO MMIO slots registered).
+- Test harness with VirtIO block device.
+- VirtIO block driver (`vtblk`) attaches and detects `vbd0` disk.
 
-Pending:
-- Kernel build/test on ARM64: blocked by missing `machine/bus.h` in arm64 headers.
+**Final test output:**
+```
+virtio_mmio31: <VirtIO MMIO adapter> at mem 0xa003e00-0xa003fff irq 79 on motherboard
+virtio_blk0: <VirtIO Block Adapter> on virtio_mmio31
+vtblk0: 67108864 byte (64MB) block device
+vbd0 at vtblk0
+mountroot>
+```
 
 ## Naming (DragonFly-Specific)
 
@@ -225,20 +238,20 @@ monitor or logs.
 - Child drivers must continue to use DragonFly virtio bus API.
 - Keep MMIO config access conservative (byte or aligned access only).
 
-## Implementation Checklist (Ordered)
+## Implementation Checklist (All Complete)
 
-1. Done: add `sys/dev/virtual/virtio/mmio/` directory and `virtio_mmio.[ch]`.
-2. Done: add `virtio_mmio_kenv.c` identify shim with DragonFly kenv parsing.
-3. Done: wire up `virtio_bus_if` methods to the new transport driver.
-4. Done: implement legacy virtqueue setup via PFN + ALIGN + PAGE_SIZE.
-5. Done: implement single-IRQ interrupt handling and binding lists.
-6. Done: update `sys/conf/files` and ARM64 kernel config.
-7. Done: update `doc/arm64-efi-loader-mvp-part1.md` to reference this plan.
-8. Done: add arm64 `machine/bus.h` support.
-9. Done: fix compilation issues (kprintf, strict-aliasing).
-10. Done: loader integration to set kenv variables for all 32 VirtIO MMIO slots.
-11. Done: test harness integration with VirtIO block device.
-12. **In Progress:** virtio_blk attachment - adapter attaches but child driver investigation needed.
+1. ✅ Done: add `sys/dev/virtual/virtio/mmio/` directory and `virtio_mmio.[ch]`.
+2. ✅ Done: add `virtio_mmio_kenv.c` identify shim with DragonFly kenv parsing.
+3. ✅ Done: wire up `virtio_bus_if` methods to the new transport driver.
+4. ✅ Done: implement legacy virtqueue setup via PFN + ALIGN + PAGE_SIZE.
+5. ✅ Done: implement single-IRQ interrupt handling and binding lists.
+6. ✅ Done: update `sys/conf/files` and ARM64 kernel config.
+7. ✅ Done: update `doc/arm64-efi-loader-mvp-part1.md` to reference this plan.
+8. ✅ Done: add arm64 `machine/bus.h` support.
+9. ✅ Done: fix compilation issues (kprintf, strict-aliasing).
+10. ✅ Done: loader integration to set kenv variables for all 32 VirtIO MMIO slots.
+11. ✅ Done: test harness integration with VirtIO block device.
+12. ✅ Done: virtio_blk child driver attaches and detects vbd0.
 
 ---
 
@@ -405,36 +418,27 @@ $(VIRTIO_DISK):
 	qemu-img create -f qcow2 $(VIRTIO_DISK) 64M
 ```
 
-### Current Kernel Output
+### Current Kernel Output (COMPLETE)
 
-The VirtIO MMIO adapter successfully attaches at slot 31:
+The VirtIO MMIO stack is fully functional:
 
 ```
-vtmmio_kenv_identify: called, checking kenv
-vtmmio_kenv_identify: found hw.virtio.mmio.device=0x200@0x0a000000:48
-vtmmio_parsearg: adding child virtio_mmio at 0xa000000 size 0x200 irq 48
-vtmmio_parsearg: child added successfully
-[... slots 0-30 probe with device_id=0, skipped ...]
 vtmmio_probe: called for virtio_mmio31
-vtmmio_probe: memory resource allocated
-vtmmio_probe: magic=0x74726976 (expected 0x74726976)
-vtmmio_probe: version=1 (expected 1)
 vtmmio_probe: device detected, releasing memory for attach
 virtio_mmio31: <VirtIO MMIO adapter> at mem 0xa003e00-0xa003fff irq 79 on motherboard
-```
-
-### Next Steps
-
-The VirtIO MMIO adapter (`virtio_mmio31`) successfully attaches, but we need
-to investigate whether the `virtio_blk` child driver is probing and attaching.
-The attach log should show:
-
-```
 virtio_blk0: <VirtIO Block Adapter> on virtio_mmio31
-vtblk0: 64MB block device
+vtblk0: 67108864 byte (64MB) block device
+vbd0 at vtblk0
+...
+Mounting root from ufs:YOURDISK
+mountroot> ?
+  vbd0
+mountroot>
 ```
 
-If these messages don't appear, investigate:
-1. Is `vtmmio_attach()` calling `device_add_child()` and `device_probe_and_attach()`?
-2. Is the virtio_blk driver being loaded in the kernel config?
-3. Are there errors during child device negotiation?
+At the `mountroot>` prompt, type `ufs:vbd0s1a` to specify the root filesystem.
+The disk device is `vbd0` (the disk layer), not `vtblk0` (the virtio block driver).
+
+---
+
+*Last updated: 2026-01-28 (VirtIO MMIO v1 implementation complete)*

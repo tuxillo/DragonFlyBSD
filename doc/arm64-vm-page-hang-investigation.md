@@ -1,5 +1,9 @@
 # ARM64 VM Page Startup Hang Investigation
 
+## Status: ALL ISSUES RESOLVED ✅
+
+The arm64 kernel now successfully boots to the `mountroot>` prompt. All issues tracked in this document have been resolved.
+
 ## Issue Summary
 
 The arm64 kernel hung during `vm_page_startup()` when adding physical pages to free queues. This document tracks the investigation and resolution of multiple issues encountered during ARM64 kernel bringup.
@@ -84,18 +88,28 @@ The overflow was corrupting `vm_page_queues[135]` with the value `0xffffffff0000
 - Proper PTE attribute handling for ARM64
 - TLB invalidation sequences
 
-### Issue 5: Missing cpu_startup() (Current)
+### Issue 5: Missing cpu_startup() (Commit 1b68068698)
 
-**Status:** PENDING - See MVP Part 7 in `doc/arm64-efi-loader-mvp-part1.md`
+**Status:** RESOLVED ✅
 
-**Root Cause:** ARM64 is missing the `cpu_startup()` function that initializes `pager_map`, `buffer_map`, and `clean_map` VM submaps.
+**Root Cause:** ARM64 was missing the `cpu_startup()` function that initializes `pager_map`, `buffer_map`, and `clean_map` VM submaps.
 
 **Symptoms:**
 - Kernel panics at SI_BOOT2_MACHDEP (0x1d80000)
 - Error: "Not enough pager_map VM space for physical buffers"
 - `vm_pager_bufferinit()` fails because `pager_map` is NULL
 
-**Fix:** Implement `cpu_startup()` for ARM64 following x86_64 pattern in `sys/platform/pc64/x86_64/machdep.c:327-510`. Register with SYSINIT at SI_BOOT2_START_CPU.
+**Fix:** Implemented `cpu_startup()` for ARM64 following x86_64 pattern. Registered with SYSINIT at SI_BOOT2_START_CPU. See MVP Part 7 in `doc/arm64-efi-loader-mvp-part1.md`.
+
+### Issue 6: Missing tsc_frequency/tsc_present
+
+**Status:** RESOLVED ✅
+
+**Root Cause:** `kern_clock.c` and `kern_nrandom.c` reference x86-specific TSC variables.
+
+**Fix:** Added ARM64 equivalents in `generic_timer.c`:
+- `tsc_frequency` = ARM64 generic timer counter frequency (CNTFRQ_EL0)
+- `tsc_present` = 1 (ARM64 generic timer is always present)
 
 ## Investigation Timeline
 
@@ -147,7 +161,12 @@ The overflow was corrupting `vm_page_queues[135]` with the value `0xffffffff0000
 | 2026-01-26 | d3d859db2f | PARTIAL | -ffixed-x18 flag - passes kmem_init, crashes in SI_BOOT1_ALLOCATOR |
 | 2026-01-26 | ad57b7bd56 | PARTIAL | pmap_enter() implementation - passes SI_BOOT1_ALLOCATOR |
 | 2026-01-27 | eeb2db1d22 | PARTIAL | Timer init order fix - reaches SI_BOOT2_START_CPU |
-| 2026-01-27 | TBD | PENDING | cpu_startup() implementation (MVP Part 7) |
+| 2026-01-27 | 1b68068698 | PARTIAL | cpu_startup() implementation - reaches context switch |
+| 2026-01-27 | 042add5899 | PARTIAL | cpu_lwkt_switch() implementation - passes context switch |
+| 2026-01-27 | 716bd835b4 | PARTIAL | cpu_set_thread_handler() - devfs thread creation works |
+| 2026-01-27 | 1f5a1b62ac | PARTIAL | Cache aliasing fix - slab allocator working |
+| 2026-01-27 | a6064ef072 | PARTIAL | pmap_kvtom() implementation - kfree() works |
+| 2026-01-27 | a0eca92bfd | **SUCCESS** | High VA jump after MMU enable - **boots to mountroot** |
 
 ## Files Modified
 
@@ -194,8 +213,8 @@ make qmp-quit    # Terminate QEMU
 - FreeBSD `sys/conf/kern.mk` lines 142-155 - ARM64 kernel CFLAGS including `-ffixed-x18`
 - FreeBSD `sys/arm64/include/atomic.h` - Proper ARM64 barrier usage
 - ARM Architecture Reference Manual - Memory barrier instructions
-- `doc/arm64-efi-loader-mvp-part1.md` - Main ARM64 port documentation, includes MVP Part 6 (pmap_enter - COMPLETE) and MVP Part 7 (cpu_startup - PENDING)
+- `doc/arm64-efi-loader-mvp-part1.md` - Main ARM64 port documentation (all MVP parts complete through Part 13)
 
 ---
 
-*Last updated: 2026-01-27 (pmap_enter() complete, cpu_startup() investigation added)*
+*Last updated: 2026-01-28 (All issues resolved - kernel boots to mountroot)*

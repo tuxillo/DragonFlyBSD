@@ -11,7 +11,8 @@ The timer and GIC implementation is complete and working. The kernel now:
 - Initializes GIC distributor and CPU interface
 - Registers the ARM64 Generic Timer as both cputimer and cputimer_intr
 - Timer frequency detected correctly (24 MHz on QEMU virt)
-- `systimer_changed()` executes without crashing
+- Timer interrupts fire correctly (scheduler runs)
+- **Kernel boots successfully to `mountroot>` prompt**
 
 ## Problem Statement (Resolved)
 
@@ -554,4 +555,5 @@ Once basic timer works:
 ---
 
 *Created: 2026-01-27*
-*Status: COMPLETE - Timer and GIC working, kernel progresses to VM initialization*
+*Last updated: 2026-01-28*
+*Status: COMPLETE - Timer and GIC working, kernel boots to mountroot*

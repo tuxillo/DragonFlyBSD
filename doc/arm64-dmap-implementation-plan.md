@@ -1,6 +1,17 @@
 # ARM64 DMAP Implementation Plan
 
-## Problem Statement
+## Status: COMPLETE ✅
+
+DMAP (Direct Map) is fully implemented and working. The kernel successfully boots to `mountroot>` prompt with proper physical-to-virtual address translation via DMAP.
+
+**Implementation Summary:**
+- DMAP region: `0xffffa00000000000` (DMAP_MIN_ADDRESS)
+- Physical memory correctly mapped with 2MB block entries
+- `PHYS_TO_DMAP()` and `DMAP_TO_PHYS()` macros working
+- All `vm_page_array` access via DMAP works correctly
+- Extended to include kernel load address range (commit `beac9e8493`)
+
+## Problem Statement (Resolved)
 
 The arm64 kernel hangs in `vm_page_startup()` when trying to access the
 `vm_page_array` via `PHYS_TO_DMAP()`. The current DMAP implementation is
@@ -296,3 +307,7 @@ vm_page_startup: entering free queue loop
 - FreeBSD `sys/arm64/arm64/pmap.c` - `pmap_bootstrap_dmap()`
 - FreeBSD `sys/arm64/include/vmparam.h` - DMAP definitions
 - ARM Architecture Reference Manual - Translation table format
+
+---
+
+*Last updated: 2026-01-28 (DMAP implementation complete, kernel boots to mountroot)*
