@@ -61,12 +61,14 @@ cdev_t	dumpdev = NULL;
 static void
 configure_first(void *dummy)
 {
-	/* Placeholder for early ARM64 configuration */
+	kprintf("ARM64: configure_first\n");
 }
 
 static void
 configure(void *dummy)
 {
+	kprintf("ARM64: configure - calling root_bus_configure()\n");
+
 	/*
 	 * This will configure all devices, generally starting with the
 	 * nexus (platform/arm64/aarch64/nexus.c). The nexus driver will
@@ -76,6 +78,8 @@ configure(void *dummy)
 	 * and ACPI device enumeration.
 	 */
 	root_bus_configure();
+
+	kprintf("ARM64: configure - root_bus_configure() completed\n");
 
 	/*
 	 * Allow lowering of the ipl to the lowest kernel level if we
@@ -93,6 +97,7 @@ configure(void *dummy)
 static void
 configure_final(void *dummy)
 {
+	kprintf("ARM64: configure_final\n");
 	cninit();
 	cninit_finish();
 }
