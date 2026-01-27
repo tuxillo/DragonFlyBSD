@@ -69,14 +69,30 @@ run_interrupt_driven_config_hooks(void *dummy)
 	int save_count;
 	int waiting;
 
+#ifdef __aarch64__
+	kprintf("ARM64: run_interrupt_driven_config_hooks: start\n");
+#endif
+
 	lockmgr(&intr_config_lk, LK_EXCLUSIVE);
 	save_count = ran_config_hooks++;
 	while (!TAILQ_EMPTY(&intr_config_hook_list)) {
+#ifdef __aarch64__
+		kprintf("ARM64: intr_config_hook_list not empty\n");
+#endif
 		TAILQ_FOREACH(hook_entry, &intr_config_hook_list, ich_links) {
 			if (hook_entry->ich_ran == 0) {
 				hook_entry->ich_ran = 1;
+#ifdef __aarch64__
+				kprintf("ARM64: running hook %s func=%p\n",
+					hook_entry->ich_desc ? hook_entry->ich_desc : "?",
+					hook_entry->ich_func);
+#endif
 				lockmgr(&intr_config_lk, LK_RELEASE);
 				(*hook_entry->ich_func)(hook_entry->ich_arg);
+#ifdef __aarch64__
+				kprintf("ARM64: hook %s returned\n",
+					hook_entry->ich_desc ? hook_entry->ich_desc : "?");
+#endif
 				lockmgr(&intr_config_lk, LK_EXCLUSIVE);
 				break;
 			}
@@ -105,8 +121,14 @@ run_interrupt_driven_config_hooks(void *dummy)
 				break;
 			}
 		}
+#ifdef __aarch64__
+		kprintf("ARM64: waiting for hooks, calling lksleep (waiting=%d)\n", waiting);
+#endif
 		lksleep(&intr_config_hook_list, &intr_config_lk,
 			0, "conifhk", hz);
+#ifdef __aarch64__
+		kprintf("ARM64: lksleep returned\n");
+#endif
 		++waiting;
 	}
 	lockmgr(&intr_config_lk, LK_RELEASE);
@@ -119,9 +141,19 @@ run_interrupt_driven_config_hooks(void *dummy)
 	 */
 #ifndef _KERNEL_VIRTUAL
 	if (save_count == 0) {
+#ifdef __aarch64__
+		kprintf("ARM64: entering 5-second USB delay loop\n");
+#endif
 		while (ticks - save_ticks < 5*hz)
 			tsleep(&intr_config_hook_list, 0, "delay", hz / 10);
+#ifdef __aarch64__
+		kprintf("ARM64: 5-second USB delay complete\n");
+#endif
 	}
+#endif
+
+#ifdef __aarch64__
+	kprintf("ARM64: run_interrupt_driven_config_hooks: done\n");
 #endif
 
 }
