@@ -873,27 +873,22 @@ create_pagetables:
 	 *   [1:0]   = Descriptor type (0b01 = block)
 	 *
 	 * We map 16MB (8 x 2MB blocks) to cover the kernel and early data.
-	 * First block is RO/executable (text), remaining blocks are RW/XN (data).
+	 * All blocks are RW/executable for now - proper text/data separation
+	 * can be added later when we know the kernel layout.
 	 */
 	
 	/* Align load address to 2MB boundary */
 	mov	x5, x28
 	bic	x5, x5, #0x1fffff
 
-	/* L2 entry 0: kernel text at x28 (RO, executable) */
-	mov	x3, x5
-	ldr	x4, =0x0000000000000789	/* Block attrs: MAIR idx 2, SH=IS, AF, AP=RO */
-	orr	x3, x3, x4
-	str	x3, [x2], #8
-
-	/* L2 entries 1-7: kernel data (RW, XN) */
-	ldr	x4, =0x0060000000000709	/* Block attrs: MAIR idx 2, SH=IS, AF, PXN+UXN */
-	mov	x6, #7			/* 7 more blocks */
+	/* L2 entries 0-7: kernel (RW, executable) */
+	ldr	x4, =0x0000000000000709	/* Block attrs: MAIR idx 2, SH=IS, AF, RW, executable */
+	mov	x6, #8			/* 8 blocks */
 2:
-	add	x5, x5, #0x200000	/* Next 2MB block */
 	mov	x3, x5
 	orr	x3, x3, x4
 	str	x3, [x2], #8
+	add	x5, x5, #0x200000	/* Next 2MB block */
 	subs	x6, x6, #1
 	b.ne	2b
 
