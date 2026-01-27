@@ -143,7 +143,10 @@ run_interrupt_driven_config_hooks(void *dummy)
 #ifndef _KERNEL_VIRTUAL
 	if (save_count == 0) {
 #ifdef __aarch64__
-		kprintf("ARM64: entering 5-second USB delay loop\n");
+		{
+			register uint64_t sp_val __asm__("sp");
+			kprintf("ARM64: entering 5-second USB delay loop, SP=%p\n", (void *)sp_val);
+		}
 #endif
 		while (ticks - save_ticks < 5*hz)
 			tsleep(&intr_config_hook_list, 0, "delay", hz / 10);

@@ -268,8 +268,13 @@ arm64_gdinit_full(void)
 	 * and marks thread0 as running.
 	 */
 	proc0paddr = (struct user *)proc0paddr_buff;
+	kprintf("arm64_gdinit_full: proc0paddr_buff=%p proc0paddr=%p\n",
+		proc0paddr_buff, proc0paddr);
 	mi_proc0init(&gd->mi, proc0paddr);
 
+	kprintf("arm64_gdinit_full: thread0.td_kstack=%p td_kstack_size=0x%x\n",
+		thread0.td_kstack, thread0.td_kstack_size);
+	kprintf("arm64_gdinit_full: thread0.td_pcb=%p\n", thread0.td_pcb);
 	kprintf("arm64_gdinit_full() done\n");
 }
 
