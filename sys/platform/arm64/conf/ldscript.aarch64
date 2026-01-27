@@ -17,11 +17,10 @@ SECTIONS
 
 	.text : {
 		*(.text*)
+		/* .gnu.warning sections are handled specially by elf32.em */
+		*(.gnu.warning)
+		*(.gnu.linkonce.t*)
 	}
-
-	/* .gnu.warning sections are handled specially by elf32.em */
-	*(.gnu.warning)
-	*(.gnu.linkonce.t*)
 
 	/*
 	 * Align to 2MB page boundary. This is required because the kernel
