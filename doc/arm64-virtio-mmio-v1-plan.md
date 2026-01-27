@@ -16,6 +16,17 @@ virtio bus APIs and conventions.
 - Use `.freebsd.orig` for reference without changing DragonFly directory layout.
 - Do not implement or stub vkernel functionality.
 
+## Implementation Status
+
+Implemented:
+- MMIO transport driver (legacy v1) and kenv identify shim.
+- DragonFly virtio bus interface methods for MMIO (features, queues, notify, interrupts).
+- Build integration for MMIO sources.
+- Plan reference in `doc/arm64-efi-loader-mvp-part1.md`.
+
+Pending:
+- Kernel build/test on ARM64: blocked by missing `machine/bus.h` in arm64 headers.
+
 ## Naming (DragonFly-Specific)
 
 - Kernel environment variables for enumeration:
@@ -189,7 +200,7 @@ and `kfreeenv()`.
    - `device virtio`
    - `device virtio_mmio`
    - `device virtio_mmio_kenv`
-   - Desired child drivers: `virtio_blk`, `vtnet`, `virtio_scsi`, etc.
+   - `device virtio_blk`
 
 ## QEMU Usage (Legacy Only)
 
@@ -216,11 +227,11 @@ monitor or logs.
 
 ## Implementation Checklist (Ordered)
 
-1. Add `sys/dev/virtual/virtio/mmio/` directory and `virtio_mmio.[ch]`.
-2. Add `virtio_mmio_kenv.c` identify shim with DragonFly kenv parsing.
-3. Wire up `virtio_bus_if` methods to the new transport driver.
-4. Implement legacy virtqueue setup via PFN + ALIGN + PAGE_SIZE.
-5. Implement single-IRQ interrupt handling and binding lists.
-6. Update `sys/conf/files` and ARM64 kernel config.
-7. Update `doc/arm64-efi-loader-mvp-part1.md` to reference this plan.
-8. Build via arm64-port-testing agent and validate with QEMU.
+1. Done: add `sys/dev/virtual/virtio/mmio/` directory and `virtio_mmio.[ch]`.
+2. Done: add `virtio_mmio_kenv.c` identify shim with DragonFly kenv parsing.
+3. Done: wire up `virtio_bus_if` methods to the new transport driver.
+4. Done: implement legacy virtqueue setup via PFN + ALIGN + PAGE_SIZE.
+5. Done: implement single-IRQ interrupt handling and binding lists.
+6. Done: update `sys/conf/files` and ARM64 kernel config.
+7. Done: update `doc/arm64-efi-loader-mvp-part1.md` to reference this plan.
+8. Pending: add arm64 `machine/bus.h` support, then build via arm64-port-testing agent and validate with QEMU.
