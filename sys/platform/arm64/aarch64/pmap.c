@@ -520,6 +520,11 @@ pmap_remove(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 	if (pmap == NULL)
 		return;
 
+	/* Flag if removing the problematic zone range */
+	if (sva <= 0xffffff8008e00000UL && eva > 0xffffff8008e00000UL) {
+		kprintf("pmap_remove: *** REMOVING PROBLEMATIC ZONE 0xffffff8008e00000! ***\n");
+	}
+
 	kprintf("pmap_remove: pmap=%p sva=0x%lx eva=0x%lx\n",
 		pmap, (unsigned long)sva, (unsigned long)eva);
 

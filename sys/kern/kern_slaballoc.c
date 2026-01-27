@@ -989,8 +989,14 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
 		slgd, zi, zlist, zlist->tqh_first, zlist->tqh_last);
 	/* TAILQ_LAST will access tqh_last+8, print that address */
 	if (zlist->tqh_last) {
-		kprintf("_kmalloc: TAILQ_LAST will access %p\n",
-			(void *)((char *)zlist->tqh_last + 8));
+		vm_offset_t access_va = (vm_offset_t)((char *)zlist->tqh_last + 8);
+		vm_paddr_t access_pa = pmap_kextract(access_va);
+		kprintf("_kmalloc: TAILQ_LAST will access %p (pa=0x%lx)\n",
+			(void *)access_va, (unsigned long)access_pa);
+		if (access_pa == 0) {
+			kprintf("_kmalloc: WARNING: VA 0x%lx has NO MAPPING!\n",
+				(unsigned long)access_va);
+		}
 	}
     }
 #endif
