@@ -1893,7 +1893,17 @@ kmem_slab_alloc(vm_size_t size, vm_offset_t align, int flags)
 void
 kmem_slab_free(void *ptr, vm_size_t size)
 {
+#ifdef __aarch64__
+    kprintf("kmem_slab_free: ptr=%p size=%lu\n", ptr, (unsigned long)size);
+#endif
     crit_enter();
+#ifdef __aarch64__
+    kprintf("kmem_slab_free: calling vm_map_remove(%p, 0x%lx, 0x%lx)\n",
+	    kernel_map, (unsigned long)ptr, (unsigned long)ptr + size);
+#endif
     vm_map_remove(kernel_map, (vm_offset_t)ptr, (vm_offset_t)ptr + size);
+#ifdef __aarch64__
+    kprintf("kmem_slab_free: vm_map_remove returned\n");
+#endif
     crit_exit();
 }
