@@ -1160,11 +1160,6 @@ arp_gratuitous(struct ifnet *ifp __unused, struct ifaddr *ifa __unused)
 }
 
 /*
- * Root device - will be set during boot
- */
-cdev_t rootdev;
-
-/*
  * inittodr - initialize time of day register
  */
 void
@@ -1436,8 +1431,6 @@ cpu_halt(void)
 /*
  * Crash dump support stubs
  */
-cdev_t dumpdev;
-
 void
 md_dumpsys(struct dumperinfo *di __unused)
 {
