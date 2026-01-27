@@ -431,6 +431,35 @@ pmap_enter(pmap_t pmap, vm_offset_t va, struct vm_page *m, vm_prot_t prot,
 }
 
 /*
+ * Handle a removed PTE for a managed page.
+ * Clear PG_MAPPED/PG_WRITEABLE flags and unwire if necessary.
+ */
+static __inline void
+pmap_removed_pte(pmap_t pmap, vm_page_t m, pt_entry_t pte)
+{
+	int flags;
+	int nflags;
+
+	/*
+	 * Clear PG_MAPPED and PG_WRITEABLE unless the page is mapped
+	 * in multiple locations (PG_MAPPEDMULTI).
+	 */
+	flags = m->flags;
+	cpu_ccfence();
+	while ((flags & PG_MAPPEDMULTI) == 0) {
+		nflags = flags & ~(PG_MAPPED | PG_WRITEABLE);
+		if (atomic_fcmpset_int(&m->flags, &flags, nflags))
+			break;
+	}
+
+	/*
+	 * If the page was wired, unwire it now.
+	 */
+	if (pte & pmap->pmap_bits[PG_W_IDX])
+		vm_page_unwire(m, -1);
+}
+
+/*
  * Remove a range of mappings from the pmap.
  *
  * Iterates through the virtual address range, clearing PTEs and
@@ -442,6 +471,8 @@ pmap_remove(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 	pt_entry_t *ptep;
 	pt_entry_t oldpte;
 	vm_offset_t va;
+	vm_page_t m;
+	vm_paddr_t pa;
 
 	if (pmap == NULL)
 		return;
@@ -462,6 +493,14 @@ pmap_remove(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 		pmap->pm_stats.resident_count--;
 		if (oldpte & pmap->pmap_bits[PG_W_IDX])
 			pmap->pm_stats.wired_count--;
+
+		/* Handle managed page removal */
+		if (oldpte & pmap->pmap_bits[PG_MANAGED_IDX]) {
+			pa = oldpte & ATTR_ADDR;
+			m = PHYS_TO_VM_PAGE(pa);
+			if (m != NULL)
+				pmap_removed_pte(pmap, m, oldpte);
+		}
 	}
 
 	/* TLB invalidate the range */
