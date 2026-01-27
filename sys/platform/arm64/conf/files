@@ -3,7 +3,9 @@
 # NOTE: genassym.c and locore.s are handled specially by kern.post.mk
 # and should NOT be listed here to avoid duplicate object file linkage.
 #
+platform/arm64/aarch64/autoconf.c	standard
 platform/arm64/aarch64/machdep.c	standard
+platform/arm64/aarch64/nexus.c		standard
 platform/arm64/aarch64/pmap.c	standard
 platform/arm64/aarch64/swtch.s	standard
 platform/arm64/aarch64/support.c	standard
