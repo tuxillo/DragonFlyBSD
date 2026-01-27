@@ -157,8 +157,6 @@ efi_copyin(const void *src, vm_offset_t dest, const size_t len)
 		 */
 		stage_offset = (vm_offset_t)staging - dest;
 		stage_offset_set = 1;
-		printf("efi_copyin: stage_offset set: staging=0x%llx dest=0x%lx offset=0x%lx\n",
-		    (unsigned long long)staging, (unsigned long)dest, (long)stage_offset);
 	}
 
 	phys_dest = dest + stage_offset;
@@ -171,10 +169,6 @@ efi_copyin(const void *src, vm_offset_t dest, const size_t len)
 		errno = ENOMEM;
 		return (-1);
 	}
-
-	/* Debug: print every copyin to trace where the fault occurs */
-	printf("efi_copyin: dest=0x%lx -> phys=0x%lx len=0x%lx\n",
-	    (unsigned long)dest, (unsigned long)phys_dest, (unsigned long)len);
 
 	bcopy(src, (void *)phys_dest, len);
 	return (len);
@@ -205,8 +199,6 @@ efi_readin(const int fd, vm_offset_t dest, const size_t len)
 		 */
 		stage_offset = (vm_offset_t)staging - dest;
 		stage_offset_set = 1;
-		printf("efi_readin: stage_offset set: staging=0x%llx dest=0x%lx offset=0x%lx\n",
-		    (unsigned long long)staging, (unsigned long)dest, (long)stage_offset);
 	}
 
 	phys_dest = dest + stage_offset;

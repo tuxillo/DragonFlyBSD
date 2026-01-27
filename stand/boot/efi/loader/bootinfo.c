@@ -405,33 +405,16 @@ bi_load(char *args, vm_offset_t *modulep, vm_offset_t *kernendp)
 
 	/* Figure out the size and location of the metadata. */
 	*modulep = addr;
-	printf("bi_load: modulep VA=0x%lx (before bi_copymodules)\n",
-	    (unsigned long)addr);
 	size = bi_copymodules(0);
 	kernend = roundup(addr + size, PAGE_SIZE);
 	*kernendp = kernend;
-	printf("bi_load: metadata size=0x%lx kernend=0x%lx\n",
-	    (unsigned long)size, (unsigned long)kernend);
 
 	/* patch MODINFOMD_KERNEND */
 	md = file_findmetadata(kfp, MODINFOMD_KERNEND);
 	bcopy(&kernend, md->md_data, sizeof kernend);
 
 	/* Copy module list and metadata. */
-	printf("bi_load: calling bi_copymodules(0x%lx) to actually copy\n",
-	    (unsigned long)addr);
 	(void)bi_copymodules(addr);
-
-	/*
-	 * Debug: read back the header to verify the copy worked.
-	 * Must use efi_translate() to convert VA to physical staging address.
-	 */
-	{
-		uint32_t *hdr = (uint32_t *)efi_translate(addr);
-		printf("bi_load: bi_copymodules done, modulep VA=0x%lx PA=0x%lx header=%08x %08x\n",
-		    (unsigned long)addr, (unsigned long)hdr,
-		    hdr[0], hdr[1]);
-	}
 
 	return (0);
 }
