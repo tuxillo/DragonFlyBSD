@@ -1252,3 +1252,56 @@ pmap_bootstrap(void)
 	/* Initialize protection codes */
 	pmap_init_protection_codes();
 }
+
+/*
+ * Map device memory into the kernel address space.
+ *
+ * For ARM64 with DMAP covering all physical memory, we simply return
+ * the DMAP address for the physical address. This provides a valid
+ * kernel virtual address that can access the device memory.
+ *
+ * Note: This simple implementation assumes DMAP covers the device's
+ * physical address range. For devices outside DMAP (unlikely on
+ * typical systems), a more complex implementation would need to
+ * allocate KVA and create explicit mappings with device memory
+ * attributes.
+ */
+void *
+pmap_mapdev(vm_paddr_t pa, vm_size_t size __unused)
+{
+	return ((void *)PHYS_TO_DMAP(pa));
+}
+
+/*
+ * Map device memory with specific memory attributes.
+ *
+ * For now, same as pmap_mapdev() - we rely on DMAP.
+ * A full implementation would set up page tables with the
+ * requested memory attributes.
+ */
+void *
+pmap_mapdev_attr(vm_paddr_t pa, vm_size_t size, int mode __unused)
+{
+	return (pmap_mapdev(pa, size));
+}
+
+/*
+ * Map device memory as uncacheable.
+ */
+void *
+pmap_mapdev_uncacheable(vm_paddr_t pa, vm_size_t size)
+{
+	return (pmap_mapdev(pa, size));
+}
+
+/*
+ * Unmap device memory.
+ *
+ * Since pmap_mapdev() returns DMAP addresses, there's nothing
+ * to actually unmap - the DMAP is permanent.
+ */
+void
+pmap_unmapdev(vm_offset_t va __unused, vm_size_t size __unused)
+{
+	/* Nothing to do for DMAP-based mappings */
+}

@@ -107,6 +107,12 @@ void	pmap_release(struct pmap *pmap);
 void	pmap_page_set_memattr(struct vm_page *m, vm_memattr_t ma);
 void	pmap_bootstrap(void);
 
+/* Device memory mapping */
+void	*pmap_mapdev(vm_paddr_t, vm_size_t);
+void	*pmap_mapdev_attr(vm_paddr_t, vm_size_t, int);
+void	*pmap_mapdev_uncacheable(vm_paddr_t, vm_size_t);
+void	pmap_unmapdev(vm_offset_t, vm_size_t);
+
 /*
  * ARM64 does not emulate AD bits in software; the hardware handles them.
  */
