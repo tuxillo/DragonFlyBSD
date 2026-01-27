@@ -282,15 +282,6 @@ static void uart_puts(const char *str);
 static void uart_puthex(u_int64_t value);
 
 static void
-arm64_high_trampoline(void)
-{
-	volatile u_int64_t scratch = 0;
-
-	scratch++;
-	uart_puts("[arm64] high-va ok\r\n");
-}
-
-static void
 arm64_zero_page(u_int64_t addr)
 {
 	volatile u_int64_t *p = (volatile u_int64_t *)(uintptr_t)addr;
@@ -536,31 +527,19 @@ arm64_ttbr1_switch(void)
 	if (arm64_ttbr1_candidate == 0)
 		return;
 
-	/* Debug: print TTBR0 state before switch */
-	u_int64_t ttbr0_val;
-	__asm __volatile("mrs %0, ttbr0_el1" : "=r" (ttbr0_val));
-	uart_puts("[arm64] ttbr0=0x");
-	uart_puthex(ttbr0_val);
-	uart_puts("\r\n");
-
-	/* Print L1 entries to verify mapping */
-	u_int64_t *ttbr0_l0_ptr = (u_int64_t *)(uintptr_t)(ttbr0_val & ~0xfffULL);
-	u_int64_t l0_entry0 = ttbr0_l0_ptr[0];
-	uart_puts("[arm64] ttbr0 L0[0]=0x");
-	uart_puthex(l0_entry0);
-	uart_puts("\r\n");
-
-	if ((l0_entry0 & 0x3) == 0x3) {
-		u_int64_t *ttbr0_l1_ptr = (u_int64_t *)(uintptr_t)(l0_entry0 & ~0xfffULL);
-		uart_puts("[arm64] ttbr0 L1[0]=0x");
-		uart_puthex(ttbr0_l1_ptr[0]);
-		uart_puts(" L1[1]=0x");
-		uart_puthex(ttbr0_l1_ptr[1]);
-		uart_puts("\r\n");
-	}
-
 	uart_puts("[arm64] ttbr1 switching...\r\n");
 
+	/*
+	 * Switch to the new TTBR1 page tables created by arm64_pmap_bootstrap().
+	 * These include proper DMAP mappings and a more complete kernel mapping.
+	 *
+	 * Since locore.s now jumps to high VA after enabling the MMU, we're
+	 * already running at kernel virtual addresses. The new page tables
+	 * must map the same kernel VAs, so execution continues seamlessly.
+	 *
+	 * No trampoline is needed - we're already at high VA and the new
+	 * page tables also map the kernel at KERNBASE.
+	 */
 	__asm __volatile(
 	    "dsb sy\n"
 	    "msr ttbr1_el1, %0\n"
@@ -570,29 +549,7 @@ arm64_ttbr1_switch(void)
 	    "isb\n"
 	    :: "r" (arm64_ttbr1_candidate) : "memory");
 
-	uart_puts("[arm64] ttbr1 switch done, calling trampoline\r\n");
-
-	/*
-	 * Calculate the high VA for the trampoline function.
-	 * The function is linked at a low VA (identity-mapped via TTBR0).
-	 * After switching TTBR1, we want to call it via its high VA
-	 * (KERNBASE-based) to verify the new mapping works.
-	 *
-	 * High VA = (function_PA - arm64_kern_physbase) + KERNBASE
-	 *
-	 * Since arm64_high_trampoline is in the kernel image which is
-	 * identity-mapped, its current address IS its PA.
-	 */
-	uintptr_t tramp_pa = (uintptr_t)&arm64_high_trampoline;
-	uintptr_t tramp_va = (tramp_pa - arm64_kern_physbase) + ARM64_KERNBASE;
-	void (*tramp)(void) = (void (*)(void))tramp_va;
-
-	uart_puts("[arm64] trampoline addr=0x");
-	uart_puthex((u_int64_t)(uintptr_t)tramp);
-	uart_puts("\r\n");
-
-	tramp();
-	uart_puts("[arm64] ttbr1 switch active\r\n");
+	uart_puts("[arm64] ttbr1 switch done\r\n");
 }
 
 static volatile u_int32_t *const uart_base = (u_int32_t *)0x09000000;

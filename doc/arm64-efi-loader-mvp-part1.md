@@ -1996,4 +1996,115 @@ Removed verbose debug printf() statements from the loader that were added during
 
 ---
 
+## ⚠️ KNOWN HACKS AND ISSUES - MUST ADDRESS BEFORE RELEASE
+
+This section documents temporary hacks that must be addressed before the arm64 port
+can be considered production-ready. These are expedient solutions that enabled
+forward progress but have security, correctness, or maintenance implications.
+
+### HACK #1: All Kernel Page Table Entries Are Executable (SECURITY ISSUE)
+
+**Location:** `sys/platform/arm64/aarch64/locore.s`, `create_pagetables()` function
+
+**Current State:**
+```asm
+/* L2 entries 0-7: kernel (RW, executable) */
+ldr	x4, =0x0000000000000709	/* Block attrs: MAIR idx 2, SH=IS, AF, RW, executable */
+```
+
+**Problem:**
+All 8 L2 entries (16MB of kernel mapping) are marked as RW+executable. This means:
+- Kernel data sections (.data, .bss) are executable
+- Potential for code injection attacks if kernel memory is corrupted
+- Violates W^X (Write XOR Execute) security principle
+
+**Why This Hack Exists:**
+The kernel text section can extend beyond the first 2MB block. When L2[1-7] were
+marked XN (Execute Never), the kernel faulted with IABT when trying to execute
+code in those regions. Without knowing the exact kernel layout at page table
+creation time, we can't determine which 2MB blocks need to be executable.
+
+**Proper Fix Required:**
+1. **Option A (Simple):** After kernel loads, have `initarm()` or `pmap_bootstrap()`
+   remap the kernel with proper permissions based on actual section addresses
+   (`_etext`, `_edata`, etc.) from the linker script.
+
+2. **Option B (Better):** Modify the loader to pass kernel section boundaries in
+   the module metadata, then set up proper permissions in `create_pagetables()`.
+
+3. **Option C (Best):** Implement full text/data/rodata splitting like FreeBSD,
+   with separate L3 page tables for fine-grained 4KB page permissions.
+
+**Security Impact:** HIGH - Any kernel memory corruption could lead to code execution.
+
+**Tracking Issue:** TODO - file a GitHub issue
+
+---
+
+### HACK #2: TTBR1 Trampoline Removed (Correctness Concern)
+
+**Location:** `sys/platform/arm64/aarch64/machdep.c`, `arm64_ttbr1_switch()`
+
+**Current State:**
+The trampoline that verified high-VA execution after TTBR1 switch has been removed.
+The function now just switches TTBR1 without validation.
+
+**Why This Hack Exists:**
+After locore.s was fixed to jump to high VA immediately after MMU enable, the
+kernel is already running at high VA when `arm64_ttbr1_switch()` is called.
+The old trampoline code calculated incorrect addresses because it assumed the
+code was running at low (physical) VA when it was actually at high VA.
+
+**What Was Removed:**
+```c
+/* OLD CODE - BROKEN when already at high VA */
+uintptr_t tramp_pa = (uintptr_t)&arm64_high_trampoline;  // This is now a VA!
+uintptr_t tramp_va = (tramp_pa - arm64_kern_physbase) + ARM64_KERNBASE;  // Wrong!
+```
+
+**Proper Fix Required:**
+The trampoline concept isn't inherently bad - it verified that the new page tables
+work before committing to them. We should add proper validation:
+1. After switching TTBR1, verify we can still execute and access kernel data
+2. Add a simple memory access test (read/write a known location)
+3. Add panic with diagnostics if new page tables don't work
+
+**Risk:** MEDIUM - If new TTBR1 page tables are broken, we crash without good diagnostics.
+
+---
+
+### HACK #3: Malloc Guard Disabled (Memory Safety Issue)
+
+**Location:** `stand/lib/zalloc_defs.h`
+
+**Current State:**
+```c
+// #define USEENDGUARD  // TEMPORARILY DISABLED FOR ARM64
+```
+
+**Why This Hack Exists:**
+Early loader development hit a `free()` crash that was traced to guard byte
+checking. The root cause was not fully diagnosed; disabling guards was a workaround.
+
+**Proper Fix Required:**
+1. Re-enable guards and debug the actual memory corruption
+2. The crash likely indicates a buffer overflow somewhere in the loader
+3. Fix the underlying bug rather than masking it
+
+**Risk:** LOW for boot (loader only), but masks potential memory bugs.
+
+---
+
+### Summary of Technical Debt
+
+| Hack | Risk Level | Complexity to Fix | Priority |
+|------|------------|-------------------|----------|
+| #1 Executable data | HIGH (security) | Medium | **Critical** |
+| #2 No trampoline validation | Medium | Low | Normal |
+| #3 Malloc guards disabled | Low | Unknown | Low |
+
+**Before any production use, at minimum HACK #1 must be addressed.**
+
+---
+
 *Last updated: 2026-01-27 (MVP Part 12 - Dynamic physical load address detection complete)*
