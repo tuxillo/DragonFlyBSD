@@ -12,6 +12,5 @@ device		virtio
 device		virtio_mmio
 device		virtio_mmio_kenv
 device		virtio_blk
-device		vtnet
 
 makeoptions	DEBUG=-g
