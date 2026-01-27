@@ -257,12 +257,19 @@ restart:
 
 #ifdef __aarch64__
 		/* Debug: trace SYSINIT execution on ARM64 */
-		if (sip->subsystem >= 0x2300000)
-			kprintf("SYSINIT(%08x-%p)\n", sip->subsystem, sip->func);
+		if (sip->subsystem >= 0x2300000) {
+			kprintf("SYSINIT(%08x-%p) udata=%p\n", sip->subsystem, sip->func, sip->udata);
+			kprintf("  calling now...\n");
+		}
 #endif
 
 		/* Call function */
 		(*(sip->func))(sip->udata);
+
+#ifdef __aarch64__
+		if (sip->subsystem >= 0x2300000)
+			kprintf("  returned from %p\n", sip->func);
+#endif
 
 		/* Check off the one we're just done */
 		sip->subsystem = SI_SPECIAL_DONE;
