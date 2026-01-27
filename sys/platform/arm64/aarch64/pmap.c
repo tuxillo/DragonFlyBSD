@@ -158,6 +158,12 @@ pmap_l2_to_l3(pd_entry_t *l2, vm_offset_t va)
 {
 	pd_entry_t l2e = *l2;
 	pt_entry_t *l3 = (pt_entry_t *)PHYS_TO_DMAP(l2e & ATTR_ADDR);
+#ifdef __aarch64__
+	if (va >= 0xffffff8000000000UL && va < 0xffffff9000000000UL) {
+		kprintf("pmap_l2_to_l3: l2=%p l2e=0x%lx l3_pa=0x%lx l3_dmap=%p\n",
+			l2, l2e, l2e & ATTR_ADDR, l3);
+	}
+#endif
 	return (&l3[pmap_l3_index(va)]);
 }
 
@@ -413,8 +419,12 @@ pmap_enter(pmap_t pmap, vm_offset_t va, struct vm_page *m, vm_prot_t prot,
 #ifdef __aarch64__
 	/* Debug: trace kernel slab mappings */
 	if (va >= 0xffffff8000000000UL && va < 0xffffff9000000000UL) {
-		kprintf("pmap_enter: va=0x%lx pa=0x%lx ptep=%p pte=0x%lx\n",
-			va, pa, ptep, newpte);
+		pt_entry_t readback = *ptep;
+		kprintf("pmap_enter: va=0x%lx pa=0x%lx ptep=%p pte=0x%lx readback=0x%lx\n",
+			va, pa, ptep, newpte, readback);
+		if (readback != newpte) {
+			kprintf("pmap_enter: WARNING: PTE readback mismatch!\n");
+		}
 	}
 #endif
 
