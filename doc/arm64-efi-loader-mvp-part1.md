@@ -669,7 +669,7 @@ vm_add_new_page[2]: pa=0x42001000
 
 Implement the minimum viable pmap functions to allow the kernel to map pages into kernel virtual address space, enabling the slab allocator (`kmeminit()`) to function.
 
-### Status: PENDING
+### Status: COMPLETE ✅
 
 The kernel currently crashes during `SI_BOOT1_ALLOCATOR` (0x1400000) - slab allocator initialization. The crash occurs because `pmap_enter()` is a stub that does nothing.
 
@@ -1134,10 +1134,12 @@ After implementation:
 
 ### Success Criteria
 
-- [ ] Kernel passes `kmeminit()` without translation faults
-- [ ] Kernel continues past `SI_BOOT1_ALLOCATOR` (0x1400000)
-- [ ] No panics from L3 pool exhaustion during early boot
-- [ ] Page mappings work correctly (no data aborts on mapped addresses)
+- [x] Kernel passes `kmeminit()` without translation faults
+- [x] Kernel continues past `SI_BOOT1_ALLOCATOR` (0x1400000)
+- [x] No panics from L3 pool exhaustion during early boot
+- [x] Page mappings work correctly (no data aborts on mapped addresses)
+
+**Note:** pmap_enter() implementation complete. Kernel now reaches SI_BOOT2_START_CPU where it panics due to missing cpu_startup(). See MVP Part 7.
 
 ### Related Commits
 
@@ -1146,6 +1148,10 @@ After implementation:
 | d3d859db2f | arm64: Reserve x18 register for per-CPU globaldata pointer |
 | 2dcd46ccf9 | Fix ALIST_RECORDS buffer overflow |
 | ea388dc650 | Remove debug output after alist fix |
+| ad57b7bd56 | arm64: implement pmap_enter() and related page table management |
+| 8ea0b095ec | arm64: Initialize ncpus=1 before init_param1() |
+| beac9e8493 | arm64: Extend DMAP to include kernel load address |
+| 827700a670 | kern/slaballoc: Remove arm64 malloc debug output |
 
 ### References
 
@@ -1178,4 +1184,128 @@ These debug markers were added during bring-up:
 
 ---
 
-*Last updated: 2026-01-26 (MVP Part 6 added: pmap_enter() implementation plan)*
+---
+
+## MVP Part 7: cpu_startup() - Buffer/Pager Map Initialization
+
+### Goal
+
+Implement `cpu_startup()` for ARM64 to initialize kernel submaps (`buffer_map`, `pager_map`, `clean_map`) and buffer arrays required by the VM subsystem.
+
+### Status: PENDING
+
+The kernel currently panics with:
+```
+panic: Not enough pager_map VM space for physical buffers
+cpuid = 0
+boot() called on cpu#0
+Uptime: 1s
+```
+
+### Problem Analysis
+
+ARM64 is missing the `cpu_startup()` function that x86_64 has in `sys/platform/pc64/x86_64/machdep.c:327-510`. This function:
+
+1. Calculates `nbuf`, `nswbuf_mem`, `nswbuf_kva` based on physmem
+2. Allocates `swbuf_mem`, `swbuf_kva`, `buf` arrays via `valloc()`
+3. Creates `clean_map`, `buffer_map`, `pager_map` submaps via `kmem_suballoc()`
+
+Without `cpu_startup()`, `pager_map` is never initialized, causing `vm_pager_bufferinit()` to fail at `SI_BOOT2_MACHDEP` (0x1d80000).
+
+### SYSINIT Order (Relevant)
+
+| Priority | Name | Description |
+|----------|------|-------------|
+| 0x1a40000 | SI_BOOT2_START_CPU | Where `cpu_startup()` must run |
+| 0x1d80000 | SI_BOOT2_MACHDEP | Where `vm_pager_bufferinit()` runs (needs pager_map) |
+
+### Reference: x86_64 cpu_startup()
+
+Located at `sys/platform/pc64/x86_64/machdep.c:327-510`. Key operations:
+
+```c
+static void
+cpu_startup(void *dummy)
+{
+    // Calculate nbuf based on physmem
+    // valloc() swbuf_mem, swbuf_kva, buf arrays
+    // kmem_suballoc() to create clean_map, buffer_map, pager_map
+    
+    kmem_suballoc(kernel_map, clean_map, &clean_sva, &clean_eva, ...);
+    kmem_suballoc(clean_map, buffer_map, &buffer_sva, &buffer_eva, ...);
+    kmem_suballoc(clean_map, pager_map, &pager_sva, &pager_eva, ...);
+    pager_map->system_map = 1;
+}
+SYSINIT(cpu, SI_BOOT2_START_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
+```
+
+### Implementation Plan
+
+#### Files to Modify
+
+| File | Changes |
+|------|---------|
+| `sys/platform/arm64/aarch64/machdep.c` | Add `cpu_startup()` function with SYSINIT |
+
+#### Required Includes (already present in machdep.c)
+
+```c
+#include <sys/buf.h>
+#include <sys/kernel.h>
+#include <vm/vm_kern.h>
+#include <vm/vm_pager.h>
+```
+
+#### Implementation Steps
+
+1. Add static variables for submap boundaries:
+   ```c
+   static vm_offset_t buffer_sva, buffer_eva;
+   static vm_offset_t pager_sva, pager_eva;
+   ```
+
+2. Implement `cpu_startup()`:
+   - Calculate `nbuf` based on `physmem` (follow x86_64 formula)
+   - Calculate `nswbuf_mem`, `nswbuf_kva`
+   - Use `valloc()` pattern to allocate buf arrays from `firstaddr`
+   - Call `kmem_suballoc()` to create:
+     - `clean_map` from `kernel_map`
+     - `buffer_map` from `clean_map`
+     - `pager_map` from `clean_map`
+   - Set `pager_map->system_map = 1`
+
+3. Register with SYSINIT:
+   ```c
+   SYSINIT(cpu, SI_BOOT2_START_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
+   ```
+
+### Key Variables (from x86_64)
+
+| Variable | Description |
+|----------|-------------|
+| `nbuf` | Number of buffer headers |
+| `nswbuf_mem` | Number of swap buffers (memory) |
+| `nswbuf_kva` | Number of swap buffers (KVA) |
+| `swbuf_mem` | Swap buffer array (memory) |
+| `swbuf_kva` | Swap buffer array (KVA) |
+| `buf` | Buffer header array |
+| `clean_map` | VM submap for clean I/O |
+| `buffer_map` | VM submap for buffers |
+| `pager_map` | VM submap for pager (must be initialized!) |
+
+### Success Criteria
+
+- [ ] Kernel passes `vm_pager_bufferinit()` without panicking
+- [ ] Kernel continues past `SI_BOOT2_MACHDEP` (0x1d80000)
+- [ ] `pager_map` is properly initialized before use
+
+### Testing
+
+After implementation:
+1. Build kernel via arm64-port-testing subagent
+2. Run QEMU test
+3. Expected: Kernel should get past the "Not enough pager_map VM space" panic
+
+---
+
+*Last updated: 2026-01-27 (MVP Part 7 added: cpu_startup() requirement)*

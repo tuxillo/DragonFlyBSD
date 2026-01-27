@@ -66,11 +66,11 @@ The overflow was corrupting `vm_page_queues[135]` with the value `0xffffffff0000
 
 **Fix:** Added `-ffixed-x18` and `-mgeneral-regs-only` to kernel CFLAGS in `sys/platform/arm64/conf/kern.mk`, following FreeBSD's pattern (`.freebsd.orig/sys/conf/kern.mk:146`).
 
-### Issue 4: pmap_enter() Stub (Current)
+### Issue 4: pmap_enter() Stub (RESOLVED - Commit ad57b7bd56)
 
-**Status:** Investigation complete, implementation pending (MVP Part 6).
+**Status:** RESOLVED
 
-**Root Cause:** The `pmap_enter()` function in `sys/platform/arm64/aarch64/pmap.c` is an empty stub. When `kmem_slab_alloc()` allocates memory and calls `pmap_enter()` to map it into the kernel virtual address space, nothing happens.
+**Root Cause:** The `pmap_enter()` function in `sys/platform/arm64/aarch64/pmap.c` was an empty stub. When `kmem_slab_alloc()` allocates memory and calls `pmap_enter()` to map it into the kernel virtual address space, nothing happened.
 
 **Symptoms:**
 - Kernel crashes during `SI_BOOT1_ALLOCATOR` (0x1400000) - slab allocator initialization
@@ -78,15 +78,24 @@ The overflow was corrupting `vm_page_queues[135]` with the value `0xffffffff0000
 - ESR=0x96000046, FAR=0xffffff8008dd3000 (unmapped kernel VA)
 - ELR=0x4040d370 (memset inner loop)
 
-**Call chain:**
-1. `kmeminit()` calls `kmem_slab_alloc(PAGE_SIZE, PAGE_SIZE, M_WAITOK|M_ZERO)`
-2. `kmem_slab_alloc()` allocates physical pages via `vm_page_alloc()`
-3. `kmem_slab_alloc()` calls `pmap_enter()` to map pages into kernel VA space
-4. `pmap_enter()` is empty (stub) - no page table entry created
-5. `pagezero()` / `memset()` tries to access the unmapped VA
-6. **Translation fault** - the VA isn't mapped
+**Fix:** Implemented `pmap_enter()`, `pmap_kenter()`, and supporting page table walking functions in commit ad57b7bd56. The implementation includes:
+- Page table walking helpers (pmap_l0_to_l1, pmap_l1_to_l2, pmap_l2_to_l3)
+- Pre-allocated L3 page pool for early boot
+- Proper PTE attribute handling for ARM64
+- TLB invalidation sequences
 
-**Fix:** Implement `pmap_enter()`, `pmap_kenter()`, and supporting page table walking functions. See `doc/arm64-efi-loader-mvp-part1.md` MVP Part 6 for full implementation plan.
+### Issue 5: Missing cpu_startup() (Current)
+
+**Status:** PENDING - See MVP Part 7 in `doc/arm64-efi-loader-mvp-part1.md`
+
+**Root Cause:** ARM64 is missing the `cpu_startup()` function that initializes `pager_map`, `buffer_map`, and `clean_map` VM submaps.
+
+**Symptoms:**
+- Kernel panics at SI_BOOT2_MACHDEP (0x1d80000)
+- Error: "Not enough pager_map VM space for physical buffers"
+- `vm_pager_bufferinit()` fails because `pager_map` is NULL
+
+**Fix:** Implement `cpu_startup()` for ARM64 following x86_64 pattern in `sys/platform/pc64/x86_64/machdep.c:327-510`. Register with SYSINIT at SI_BOOT2_START_CPU.
 
 ## Investigation Timeline
 
@@ -136,7 +145,9 @@ The overflow was corrupting `vm_page_queues[135]` with the value `0xffffffff0000
 | 2026-01-26 | 2dcd46ccf9 | PARTIAL | ALIST fix - passes vm_page_startup, crashes in kmem_init |
 | 2026-01-26 | ea388dc650 | PARTIAL | Debug cleanup - same state, cleaner output |
 | 2026-01-26 | d3d859db2f | PARTIAL | -ffixed-x18 flag - passes kmem_init, crashes in SI_BOOT1_ALLOCATOR |
-| 2026-01-26 | TBD | PENDING | pmap_enter() implementation (MVP Part 6) |
+| 2026-01-26 | ad57b7bd56 | PARTIAL | pmap_enter() implementation - passes SI_BOOT1_ALLOCATOR |
+| 2026-01-27 | eeb2db1d22 | PARTIAL | Timer init order fix - reaches SI_BOOT2_START_CPU |
+| 2026-01-27 | TBD | PENDING | cpu_startup() implementation (MVP Part 7) |
 
 ## Files Modified
 
@@ -183,8 +194,8 @@ make qmp-quit    # Terminate QEMU
 - FreeBSD `sys/conf/kern.mk` lines 142-155 - ARM64 kernel CFLAGS including `-ffixed-x18`
 - FreeBSD `sys/arm64/include/atomic.h` - Proper ARM64 barrier usage
 - ARM Architecture Reference Manual - Memory barrier instructions
-- `doc/arm64-efi-loader-mvp-part1.md` - Main ARM64 port documentation, includes MVP Part 6 (pmap_enter implementation)
+- `doc/arm64-efi-loader-mvp-part1.md` - Main ARM64 port documentation, includes MVP Part 6 (pmap_enter - COMPLETE) and MVP Part 7 (cpu_startup - PENDING)
 
 ---
 
-*Last updated: 2026-01-26 (x18 fix complete, pmap_enter investigation added)*
+*Last updated: 2026-01-27 (pmap_enter() complete, cpu_startup() investigation added)*
