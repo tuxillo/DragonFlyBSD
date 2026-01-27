@@ -162,6 +162,35 @@ pmap_l2_to_l3(pd_entry_t *l2, vm_offset_t va)
 }
 
 /*
+ * Get a pointer to the PTE for a given virtual address.
+ * Returns NULL if any level of page table is not present.
+ * This is used for operations that need to check if a mapping exists
+ * without allocating new page tables.
+ */
+static pt_entry_t *
+pmap_pte(pmap_t pmap, vm_offset_t va)
+{
+	pd_entry_t *l0, *l1, *l2;
+
+	if (pmap == NULL || pmap->pm_l0 == NULL)
+		return (NULL);
+
+	l0 = pmap_l0(pmap, va);
+	if ((*l0 & ATTR_DESCR_MASK) != L0_TABLE)
+		return (NULL);
+
+	l1 = pmap_l0_to_l1(l0, va);
+	if ((*l1 & ATTR_DESCR_MASK) != L1_TABLE)
+		return (NULL);
+
+	l2 = pmap_l1_to_l2(l1, va);
+	if ((*l2 & ATTR_DESCR_MASK) != L2_TABLE)
+		return (NULL);
+
+	return pmap_l2_to_l3(l2, va);
+}
+
+/*
  * Allocate a new L3 page table from the pre-allocated pool.
  * This is used during early boot before kmalloc is available.
  */
@@ -395,30 +424,168 @@ pmap_enter(pmap_t pmap, vm_offset_t va, struct vm_page *m, vm_prot_t prot,
 }
 
 /*
- * Remove a mapping.
+ * Remove a range of mappings from the pmap.
+ *
+ * Iterates through the virtual address range, clearing PTEs and
+ * invalidating TLB entries. Updates pmap statistics.
  */
 void
-pmap_remove(pmap_t pmap __unused, vm_offset_t sva __unused,
-    vm_offset_t eva __unused)
+pmap_remove(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 {
+	pt_entry_t *ptep;
+	pt_entry_t oldpte;
+	vm_offset_t va;
+
+	if (pmap == NULL)
+		return;
+
+	for (va = sva; va < eva; va += PAGE_SIZE) {
+		ptep = pmap_pte(pmap, va);
+		if (ptep == NULL)
+			continue;
+
+		oldpte = *ptep;
+		if ((oldpte & ATTR_DESCR_VALID) == 0)
+			continue;
+
+		/* Clear the PTE */
+		*ptep = 0;
+
+		/* Update statistics */
+		pmap->pm_stats.resident_count--;
+		if (oldpte & pmap->pmap_bits[PG_W_IDX])
+			pmap->pm_stats.wired_count--;
+	}
+
+	/* TLB invalidate the range */
+	if (sva < eva) {
+		__asm __volatile("dsb ishst" ::: "memory");
+		for (va = sva; va < eva; va += PAGE_SIZE) {
+			__asm __volatile("tlbi vaae1is, %0" : : "r"(va >> 12));
+		}
+		__asm __volatile("dsb ish; isb" ::: "memory");
+	}
 }
 
 /*
- * Protect mappings.
+ * Protect mappings in a range.
+ *
+ * Update the access permission bits for all valid PTEs in the range.
  */
 void
-pmap_protect(pmap_t pmap __unused, vm_offset_t sva __unused,
-    vm_offset_t eva __unused, vm_prot_t prot __unused)
+pmap_protect(pmap_t pmap, vm_offset_t sva, vm_offset_t eva, vm_prot_t prot)
 {
+	pt_entry_t *ptep;
+	pt_entry_t oldpte, newpte;
+	vm_offset_t va;
+
+	if (pmap == NULL)
+		return;
+
+	/* If removing all permissions, use pmap_remove instead */
+	if ((prot & VM_PROT_READ) == 0) {
+		pmap_remove(pmap, sva, eva);
+		return;
+	}
+
+	for (va = sva; va < eva; va += PAGE_SIZE) {
+		ptep = pmap_pte(pmap, va);
+		if (ptep == NULL)
+			continue;
+
+		oldpte = *ptep;
+		if ((oldpte & ATTR_DESCR_VALID) == 0)
+			continue;
+
+		/* Build new PTE with updated protection */
+		newpte = oldpte;
+
+		/* Clear and reset AP bits */
+		newpte &= ~(ATTR_S1_AP_MASK);
+		if (!(prot & VM_PROT_WRITE))
+			newpte |= ATTR_S1_AP(ATTR_S1_AP_RO);
+
+		/* Handle execute permission */
+		if (!(prot & VM_PROT_EXECUTE))
+			newpte |= ATTR_S1_XN;
+		else
+			newpte &= ~ATTR_S1_XN;
+
+		if (newpte != oldpte)
+			*ptep = newpte;
+	}
+
+	/* TLB invalidate the range */
+	if (sva < eva) {
+		__asm __volatile("dsb ishst" ::: "memory");
+		for (va = sva; va < eva; va += PAGE_SIZE) {
+			__asm __volatile("tlbi vaae1is, %0" : : "r"(va >> 12));
+		}
+		__asm __volatile("dsb ish; isb" ::: "memory");
+	}
 }
 
 /*
  * Unwire a page.
+ *
+ * Called in a loop by vm_fault_unwire() with va < end condition.
+ * MUST advance *vap to prevent infinite loops.
+ *
+ * For a full implementation, this would:
+ * - Look up the PTE for *vap
+ * - Clear the wired bit if present
+ * - Return the vm_page if found
+ * - Decrement pmap wired_count stats
+ *
+ * For now, we implement a minimal version that just advances
+ * the address and optionally clears wired bits if found.
  */
 vm_page_t
-pmap_unwire(pmap_t pmap __unused, vm_offset_t *vap __unused)
+pmap_unwire(pmap_t pmap, vm_offset_t *vap)
 {
-	return (NULL);
+	pt_entry_t *ptep;
+	pt_entry_t pte;
+	vm_page_t m = NULL;
+	vm_offset_t va = *vap;
+
+	/* Always advance the address to prevent infinite loops */
+	*vap = va + PAGE_SIZE;
+
+	if (pmap == NULL)
+		return (NULL);
+
+	/* Try to find the PTE */
+	ptep = pmap_pte(pmap, va);
+	if (ptep == NULL)
+		return (NULL);
+
+	pte = *ptep;
+	if ((pte & ATTR_DESCR_VALID) == 0)
+		return (NULL);
+
+	/* Check if page is wired */
+	if (pte & pmap->pmap_bits[PG_W_IDX]) {
+		/* Clear wired bit */
+		*ptep = pte & ~pmap->pmap_bits[PG_W_IDX];
+		pmap->pm_stats.wired_count--;
+
+		/* TLB invalidate this page */
+		__asm __volatile(
+			"dsb ishst\n"
+			"tlbi vaae1is, %0\n"
+			"dsb ish\n"
+			"isb"
+			: : "r"(va >> 12)
+		);
+
+		/* Return the vm_page if managed */
+		if (pte & pmap->pmap_bits[PG_MANAGED_IDX]) {
+			vm_paddr_t pa = pte & ATTR_ADDR;
+			m = PHYS_TO_VM_PAGE(pa);
+		}
+	}
+
+	return (m);
 }
 
 /*
@@ -563,52 +730,92 @@ pmap_kenter_quick(vm_offset_t va, vm_paddr_t pa)
 
 /*
  * Remove a kernel mapping.
+ *
+ * Clear the PTE and invalidate the TLB for this kernel VA.
  */
 void
-pmap_kremove(vm_offset_t va __unused)
+pmap_kremove(vm_offset_t va)
 {
+	pt_entry_t *ptep;
+
+	ptep = pmap_pte(kernel_pmap, va);
+	if (ptep != NULL && (*ptep & ATTR_DESCR_VALID)) {
+		*ptep = 0;
+
+		/* TLB invalidate */
+		__asm __volatile(
+			"dsb ishst\n"
+			"tlbi vaae1is, %0\n"
+			"dsb ish\n"
+			"isb"
+			: : "r"(va >> 12)
+		);
+	}
 }
 
 /*
  * Remove a kernel mapping quickly.
+ *
+ * Same as pmap_kremove() - for ARM64 we always do full TLB invalidation.
  */
 void
-pmap_kremove_quick(vm_offset_t va __unused)
+pmap_kremove_quick(vm_offset_t va)
 {
+	pmap_kremove(va);
 }
 
 /*
  * Enter multiple pages at once.
+ *
+ * Map an array of vm_pages into consecutive kernel virtual addresses.
  */
 void
-pmap_qenter(vm_offset_t va __unused, struct vm_page **m __unused,
-    int count __unused)
+pmap_qenter(vm_offset_t va, struct vm_page **m, int count)
 {
+	int i;
+
+	for (i = 0; i < count; i++) {
+		pmap_kenter(va, VM_PAGE_TO_PHYS(m[i]));
+		va += PAGE_SIZE;
+	}
 }
 
 /*
  * Enter multiple pages without invalidation.
+ *
+ * For ARM64 we still do TLB invalidation for safety.
  */
 void
-pmap_qenter_noinval(vm_offset_t va __unused, struct vm_page **m __unused,
-    int count __unused)
+pmap_qenter_noinval(vm_offset_t va, struct vm_page **m, int count)
 {
+	pmap_qenter(va, m, count);
 }
 
 /*
  * Remove multiple pages.
+ *
+ * Unmap consecutive kernel virtual addresses.
  */
 void
-pmap_qremove(vm_offset_t va __unused, int count __unused)
+pmap_qremove(vm_offset_t va, int count)
 {
+	int i;
+
+	for (i = 0; i < count; i++) {
+		pmap_kremove(va);
+		va += PAGE_SIZE;
+	}
 }
 
 /*
  * Remove multiple pages without invalidation.
+ *
+ * For ARM64 we still do TLB invalidation for safety.
  */
 void
-pmap_qremove_noinval(vm_offset_t va __unused, int count __unused)
+pmap_qremove_noinval(vm_offset_t va, int count)
 {
+	pmap_qremove(va, count);
 }
 
 /*

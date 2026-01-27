@@ -1520,4 +1520,157 @@ This applies to `cpu_lwkt_switch()` when jumping to restore functions.
 
 ---
 
-*Last updated: 2026-01-27 (MVP Part 9 COMPLETE)*
+## MVP Part 10: pmap Stub Completion - Critical Functions
+
+### Goal
+
+Fix pmap stub functions that cause hangs or infinite loops due to improper implementations. The ARM64 pmap has many empty stubs, but some cause runtime issues because the calling code expects them to modify state.
+
+### Status: IN PROGRESS
+
+### Problem Analysis
+
+During SI_SUB_EXEC (0x7400000) initialization, the kernel hangs in an infinite loop:
+
+**Call chain:**
+```
+mi_startup()
+ └─ module_register_init() for "shell" module
+     └─ shell_modevent()
+         └─ exec_register()
+             └─ kfree(old_execsw)  [45056 bytes]
+                 └─ kmem_slab_free()
+                     └─ vm_map_remove()
+                         └─ vm_map_delete()
+                             └─ vm_map_entry_unwire_all()  [wired_count=1]
+                                 └─ vm_fault_unwire()
+                                     └─ pmap_unwire()  [INFINITE LOOP]
+```
+
+**Root cause:** `pmap_unwire()` stub doesn't advance the virtual address pointer:
+
+```c
+// Current stub - causes infinite loop
+vm_page_t
+pmap_unwire(pmap_t pmap __unused, vm_offset_t *vap __unused)
+{
+    return (NULL);
+}
+```
+
+The caller loops with `while (va < end)` expecting `pmap_unwire()` to advance `*vap`.
+
+### Critical Stubs (Causing Hangs)
+
+#### 1. `pmap_unwire()` - IMMEDIATE FIX REQUIRED
+
+**Problem:** `vm_fault_unwire()` loops with `while (va < end)` expecting `pmap_unwire()` to advance `*vap`. Without this, infinite loop.
+
+**Required fix (minimal):**
+```c
+vm_page_t
+pmap_unwire(pmap_t pmap __unused, vm_offset_t *vap)
+{
+    *vap += PAGE_SIZE;  /* Advance to prevent infinite loop */
+    return (NULL);
+}
+```
+
+**Full implementation (later):** Should clear wired bit from PTEs, decrement wired_count stats, return vm_page if found.
+
+#### 2. `pmap_remove()` - HIGH PRIORITY
+
+**Problem:** Called from `vm_map_delete()` to remove page mappings. Without this, pages remain mapped after backing memory freed → use-after-free potential.
+
+**Required fix:** Clear PTEs in range, do TLB invalidation.
+
+#### 3. `pmap_kremove()` / `pmap_kremove_quick()` - HIGH PRIORITY
+
+**Problem:** Remove kernel mappings. Without these, kernel VA space leaks.
+
+**Required fix:** Clear kernel PTEs, TLB invalidation.
+
+### Medium Priority Stubs
+
+| Function | Impact | Fix |
+|----------|--------|-----|
+| `pmap_protect()` | Protection changes don't take effect | Update AP bits in PTEs |
+| `pmap_qenter()` / `pmap_qremove()` | Quick temp mappings fail | Map/unmap page arrays |
+| `pmap_extract()` | VA→PA translation fails | Walk page tables |
+
+### Lower Priority (OK as stubs for MVP)
+
+These can remain as no-ops for initial boot:
+- `pmap_copy()` - fork optimization only
+- `pmap_is_modified()` - returns FALSE (OK for read-only boot)
+- `pmap_clear_modify()` / `pmap_clear_reference()` - no-op safe
+- `pmap_ts_referenced()` - pageout daemon (not needed for boot)
+- `pmap_page_protect()` - no protection changes
+- `pmap_collect()` - no pmap GC
+- `pmap_remove_pages()` - process exit
+- `pmap_growkernel()` - only when running out of KVA
+- `pmap_mincore()` - mincore syscall only
+- `pmap_pgscan()` - pageout related
+- `pmap_replacevm()` / `pmap_setlwpvm()` - process-related
+
+### Implementation Plan
+
+#### Phase 1: Immediate Fix (Unblock Current Hang)
+1. **Fix `pmap_unwire()`** - Advance `*vap` by PAGE_SIZE
+
+#### Phase 2: Essential Functions
+2. **Add `pmap_pte()` helper** - Safe page table lookup (returns NULL if not mapped)
+3. **Implement `pmap_remove()`** - Clear PTEs in range
+4. **Implement `pmap_kremove()` / `pmap_kremove_quick()`** - Remove kernel mappings
+
+#### Phase 3: Robustness (if needed)
+5. **Implement `pmap_protect()`** - Update protection bits
+6. **Implement `pmap_qenter()` / `pmap_qremove()`** - Quick mappings
+7. **Implement `pmap_extract()`** - VA→PA translation
+
+### Helper Function: pmap_pte()
+
+Need a safe page table lookup that doesn't panic if entries are missing:
+
+```c
+static pt_entry_t *
+pmap_pte(pmap_t pmap, vm_offset_t va)
+{
+    pd_entry_t *l0, *l1, *l2;
+    
+    l0 = pmap_l0(pmap, va);
+    if ((*l0 & ATTR_DESCR_MASK) != L0_TABLE)
+        return (NULL);
+    
+    l1 = pmap_l0_to_l1(l0, va);
+    if ((*l1 & ATTR_DESCR_MASK) != L1_TABLE)
+        return (NULL);
+    
+    l2 = pmap_l1_to_l2(l1, va);
+    if ((*l2 & ATTR_DESCR_MASK) != L2_TABLE)
+        return (NULL);
+    
+    return pmap_l2_to_l3(l2, va);
+}
+```
+
+### Success Criteria
+
+- [ ] `pmap_unwire()` advances virtual address (fixes infinite loop)
+- [ ] `pmap_remove()` clears PTEs and does TLB invalidation
+- [ ] `pmap_kremove()` removes kernel mappings
+- [ ] Kernel boots past SI_SUB_EXEC (0x7400000)
+- [ ] No new infinite loops or hangs from pmap stubs
+
+### Debug Commits to Clean Up (after fix verified)
+
+These files have temporary `#ifdef __aarch64__` kprintf statements:
+- `sys/kern/init_main.c` - SYSINIT tracing
+- `sys/kern/kern_module.c` - module_register_init
+- `sys/kern/kern_exec.c` - exec_register
+- `sys/kern/kern_slaballoc.c` - _kfree/kmem_slab_free
+- `sys/vm/vm_map.c` - vm_map_remove/vm_map_delete/vm_map_lookup_entry
+
+---
+
+*Last updated: 2026-01-27 (MVP Part 10 IN PROGRESS)*
