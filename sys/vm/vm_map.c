@@ -3290,8 +3290,17 @@ again:
 	kprintf("vm_map_delete: calling vm_map_lookup_entry\n");
 #endif
 	if (vm_map_lookup_entry(map, start, &first_entry)) {
+#ifdef __aarch64__
+		kprintf("vm_map_delete: lookup found entry=%p\n", first_entry);
+#endif
 		entry = first_entry;
+#ifdef __aarch64__
+		kprintf("vm_map_delete: calling vm_map_clip_start\n");
+#endif
 		vm_map_clip_start(map, entry, start, countp);
+#ifdef __aarch64__
+		kprintf("vm_map_delete: vm_map_clip_start done\n");
+#endif
 		hole_start = start;
 	} else {
 		if (first_entry) {
