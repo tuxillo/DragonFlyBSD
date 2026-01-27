@@ -680,7 +680,7 @@ parse_modulep(uintptr_t modulep)
 	const char *name;
 	uintptr_t kernend;
 
-	dump_modulep_headers("modulep(phys)", modulep);
+	dump_modulep_headers("modulep", modulep);
 
 	hdr = (u_int32_t *)modulep;
 	kernend = 0;
@@ -723,15 +723,12 @@ initarm(uintptr_t modulep)
 	}
 
 	/*
-	 * Keep modulep as physical address for now.
-	 * Early page tables only map first 4MB at high VA, but modulep
-	 * may be at ~12MB offset. TTBR0 identity maps 0x40000000-0x7fffffff
-	 * so we can access physical addresses directly.
+	 * The MMU is on and TTBR1 maps 16MB starting at KERNBASE to the
+	 * physical load address. The modulep virtual address should be
+	 * within this mapped region (typically at ~12MB offset), so we
+	 * can use it directly without VA-to-PA conversion.
 	 */
-	if (modulep >= ARM64_KERNBASE)
-		modulep -= ARM64_PTOTV_OFF;
-
-	uart_puts("[arm64] initarm: modulep(phys)=0x");
+	uart_puts("[arm64] initarm: modulep(VA)=0x");
 	uart_puthex((u_int64_t)modulep);
 	uart_puts("\r\n");
 
