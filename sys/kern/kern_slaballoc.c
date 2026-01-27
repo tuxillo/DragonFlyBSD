@@ -1437,6 +1437,9 @@ _kfree(void *ptr, struct malloc_type *type)
     if (*kup > 0) {
 	size = *kup << PAGE_SHIFT;
 	*kup = 0;
+#ifdef __aarch64__
+	kprintf("_kfree: oversized path, size=%lu\n", size);
+#endif
 #ifdef INVARIANTS
 	if (use_weird_array) {
 		KKASSERT(sizeof(weirdary) <= size);
@@ -1453,9 +1456,16 @@ _kfree(void *ptr, struct malloc_type *type)
 	 * gd_intr_nesting_level so check TDF_INTTHREAD.  This is
 	 * primarily until we can fix softupdate's assumptions about free().
 	 */
+#ifdef __aarch64__
+	kprintf("_kfree: crit_enter\n");
+#endif
 	crit_enter();
 	--type->ks_use[gd->gd_cpuid].inuse;
 	type->ks_use[gd->gd_cpuid].memuse -= size;
+#ifdef __aarch64__
+	kprintf("_kfree: intr_nesting=%d td_flags=0x%x\n", 
+		mycpu->gd_intr_nesting_level, gd->gd_curthread->td_flags);
+#endif
 	if (mycpu->gd_intr_nesting_level ||
 	    (gd->gd_curthread->td_flags & TDF_INTTHREAD)) {
 	    logmemory(free_ovsz_delayed, ptr, type, size, 0);
@@ -1466,9 +1476,15 @@ _kfree(void *ptr, struct malloc_type *type)
 	    TAILQ_INSERT_HEAD(&slgd->FreeOvZones, z, z_Entry);
 	    crit_exit();
 	} else {
+#ifdef __aarch64__
+	    kprintf("_kfree: calling kmem_slab_free(%p, %lu)\n", ptr, size);
+#endif
 	    crit_exit();
 	    logmemory(free_ovsz, ptr, type, size, 0);
 	    kmem_slab_free(ptr, size);	/* may block */
+#ifdef __aarch64__
+	    kprintf("_kfree: kmem_slab_free returned\n");
+#endif
 	}
 	logmemory_quick(free_end);
 	return;
