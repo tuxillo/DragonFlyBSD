@@ -29,7 +29,12 @@
 
 #define	PL011_DR	0x000	/* Data Register */
 #define	PL011_FR	0x018	/* Flag Register */
+#define	PL011_IMSC	0x010	/* Interrupt Mask Set/Clear Register */
+#define	PL011_RIS	0x014	/* Raw Interrupt Status Register */
+#define	PL011_MIS	0x018	/* Masked Interrupt Status Register */
+#define	PL011_ICR	0x01C	/* Interrupt Clear Register */
 
 #define	PL011_FR_TXFF	0x20	/* Transmit FIFO full */
+#define	PL011_FR_RXFE	0x10	/* Receive FIFO empty */
 
 #endif /* _SYS_DEV_SERIAL_PL011_REG_H_ */

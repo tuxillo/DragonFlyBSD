@@ -26,12 +26,64 @@
 
 #include <sys/param.h>
 #include <sys/kernel.h>
-#include <sys/cons.h>
 #include <sys/systm.h>
+#include <sys/conf.h>
+#include <sys/fcntl.h>
+#include <sys/tty.h>
+#include <sys/ttydev.h>
+#include <sys/devfs.h>
+#include <sys/ucred.h>
+#include <sys/cons.h>
+#include <sys/device.h>
 
 #include "pl011_reg.h"
 
 #define	PL011_QEMU_BASE	0x09000000
+
+/*
+ * Minimal device operation stubs for Phase 1 console driver.
+ * These will be intercepted by the console framework.
+ */
+static int
+pl011_open(struct dev_open_args *ap)
+{
+	return 0;
+}
+
+static int
+pl011_close(struct dev_close_args *ap)
+{
+	return 0;
+}
+
+static int
+pl011_read(struct dev_read_args *ap)
+{
+	return 0;
+}
+
+static int
+pl011_write(struct dev_write_args *ap)
+{
+	return 0;
+}
+
+static int
+pl011_ioctl(struct dev_ioctl_args *ap)
+{
+	return 0;
+}
+
+static struct dev_ops pl011_ops = {
+	{ "pl011", 0, D_TTY },
+	.d_open = pl011_open,
+	.d_close = pl011_close,
+	.d_read = pl011_read,
+	.d_write = pl011_write,
+	.d_ioctl = pl011_ioctl,
+	.d_kqfilter = NULL,
+	.d_revoke = NULL
+};
 
 static void
 pl011_cnprobe(struct consdev *cp)
@@ -56,5 +108,37 @@ pl011_cnputc(void *arg, int c)
 	base[PL011_DR / 4] = (uint32_t)c;
 }
 
-CONS_DRIVER(pl011, pl011_cnprobe, pl011_cninit, NULL, NULL,
-    NULL, NULL, pl011_cnputc, NULL, NULL);
+static void
+pl011_cninit_fini(struct consdev *cp)
+{
+	/*
+	 * Create /dev/ttya for userland access.
+	 * In Phase 2, this will find the device created by the bus driver.
+	 */
+	cp->cn_dev = make_dev(&pl011_ops, 0, 
+			     UID_ROOT, GID_WHEEL, 0600, "ttya");
+}
+
+static int
+pl011_cngetc(void *arg)
+{
+	volatile uint32_t *base = (volatile uint32_t *)arg;
+	
+	/* Wait for data in RX FIFO */
+	while (base[PL011_FR / 4] & PL011_FR_RXFE)
+		;
+	
+	return base[PL011_DR / 4] & 0xFF;
+}
+
+static int
+pl011_cncheckc(void *arg)
+{
+	volatile uint32_t *base = (volatile uint32_t *)arg;
+	
+	/* Check if RX FIFO has data */
+	return !(base[PL011_FR / 4] & PL011_FR_RXFE);
+}
+
+CONS_DRIVER(pl011, pl011_cnprobe, pl011_cninit, pl011_cninit_fini, NULL,
+    pl011_cngetc, pl011_cncheckc, pl011_cnputc, NULL, NULL);
