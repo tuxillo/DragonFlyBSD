@@ -1664,12 +1664,14 @@ pmap_pte(pmap_t pmap, vm_offset_t va)
 
 ### Debug Commits to Clean Up (after fix verified)
 
-These files have temporary `#ifdef __aarch64__` kprintf statements:
-- `sys/kern/init_main.c` - SYSINIT tracing
-- `sys/kern/kern_module.c` - module_register_init
-- `sys/kern/kern_exec.c` - exec_register
-- `sys/kern/kern_slaballoc.c` - _kfree/kmem_slab_free
-- `sys/vm/vm_map.c` - vm_map_remove/vm_map_delete/vm_map_lookup_entry
+~~These files have temporary `#ifdef __aarch64__` kprintf statements:~~
+- ~~`sys/kern/init_main.c` - SYSINIT tracing~~
+- ~~`sys/kern/kern_module.c` - module_register_init~~
+- ~~`sys/kern/kern_exec.c` - exec_register~~
+- ~~`sys/kern/kern_slaballoc.c` - _kfree/kmem_slab_free~~
+- ~~`sys/vm/vm_map.c` - vm_map_remove/vm_map_delete/vm_map_lookup_entry~~
+
+**CLEANED** - All debug output removed in commits `1314560438` and `709d099084`. See MVP Part 11 for details.
 
 ---
 
@@ -1738,18 +1740,49 @@ vm_page_t pmap_kvtom(vm_offset_t va)
 
 Removed extensive `kprintf()` debug output added during bug investigation:
 
-**Files cleaned:**
+**Commit `1314560438`** - arm64: Clean up debug output after slab allocator fixes
 - `sys/platform/arm64/aarch64/pmap.c` - Removed debug from `pmap_l2_to_l3`, `pmap_alloc_l3`, `pmap_enter`, `pmap_remove`
 - `sys/kern/kern_slaballoc.c` - Removed debug from `check_zone_free`, `_kmalloc`, `_kfree`
 
+**Commit `709d099084`** - arm64: Remove remaining debug output from VM and kernel subsystems
+- `sys/kern/kern_slaballoc.c` - Removed remaining debug from `kmem_slab_alloc`, `kmem_slab_free`
+- `sys/vm/vm_map.c` - Removed 28 debug blocks from `vm_map_lookup_entry`, `vm_map_delete`, `vm_map_remove`
+- `sys/kern/kern_exec.c` - Removed debug from `exec_register`
+- `sys/kern/kern_module.c` - Removed debug from `module_register_init`
+- `sys/kern/init_main.c` - Removed SYSINIT tracing from `mi_startup`
+- `sys/vm/vm_init.c` - Removed debug from `vm_mem_init`
+
+**Total:** 221 lines of debug output removed across 6 files.
+
 ### Current Boot State
 
-After both fixes, the kernel now:
+After both fixes and debug cleanup, the kernel now:
 - **NO Data Aborts** - Previous crashes completely eliminated
 - **Slab allocator working** - Thousands of successful allocations
 - **Memory management functional** - Proper VA→PA translation via pmap_kvtom()
-- **Boot progresses to SYSINIT `0a800000`** - Very late in boot sequence
+- **Clean boot output** - Professional, production-ready console messages
 - **Test times out** waiting for device I/O (normal - QEMU needs more device emulation)
+
+Boot output is now clean and concise:
+```
+DragonFly/aarch64 EFI loader, Revision 1.1
+Kernel entry at 0x40100000
+DragonFly/arm64 kernel started!
+Console initialized via PL011 driver.
+init_param1() done, hz=100
+arm64_gdinit_full() done
+GIC: mapping dist=0xffffa00008000000 cpu=0xffffa00008010000
+GIC: initialized
+init_param2() done, physmem=112627 pages (439 MB)
+msgbufinit() done
+initarm: returning SP=0x40cc6f80 (td_pcb)
+Copyright (c) 2003-2026 The DragonFly Project.
+DragonFly 6.5-DEVELOPMENT #89: Tue Jan 27 11:07:07 UTC 2026
+real memory  = 461320192 (439 MB)
+avail memory = 461320192 (439 MB)
+ARM64 timer: frequency 24000000 Hz (24.0 MHz)
+ARM64 timer: registered cputimer and cputimer_intr
+```
 
 ### Commits
 
@@ -1760,7 +1793,8 @@ After both fixes, the kernel now:
 | `1f5a1b62ac` | arm64/pmap: Fix cache aliasing in pmap_alloc_l3 by returning DMAP address |
 | `8d355489ec` | arm64: Add debug to detect if problematic zone is being unmapped |
 | `a6064ef072` | arm64/pmap: Implement pmap_kvtom() to fix slab allocator crashes |
-| (pending) | arm64: Clean up debug output from pmap.c and kern_slaballoc.c |
+| `1314560438` | arm64: Clean up debug output after slab allocator fixes |
+| `709d099084` | arm64: Remove remaining debug output from VM and kernel subsystems |
 
 ### Key Technical Lessons
 
@@ -1776,8 +1810,9 @@ After both fixes, the kernel now:
 - ✅ Implement pmap_kvtom() for slab allocator
 - ✅ Kernel boots without Data Aborts
 - ✅ Slab allocator functions correctly
-- ✅ Clean up debug output
+- ✅ Clean up debug output (221 lines removed)
+- ✅ Clean, production-ready boot output
 
 ---
 
-*Last updated: 2026-01-27 (MVP Part 11 COMPLETE)*
+*Last updated: 2026-01-27 (MVP Part 11 - Debug cleanup complete)*
