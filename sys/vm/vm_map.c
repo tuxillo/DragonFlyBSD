@@ -3318,6 +3318,13 @@ again:
 		}
 	}
 
+#ifdef __aarch64__
+	kprintf("vm_map_delete: entering while loop, entry=%p\n", entry);
+	if (entry)
+		kprintf("vm_map_delete: entry->ba.start=0x%lx entry->ba.end=0x%lx end=0x%lx\n",
+			(unsigned long)entry->ba.start, (unsigned long)entry->ba.end,
+			(unsigned long)end);
+#endif
 	/*
 	 * Step through all entries in this region
 	 */
@@ -3326,6 +3333,10 @@ again:
 		vm_offset_t s, e;
 		vm_pindex_t offidxstart, offidxend, count;
 
+#ifdef __aarch64__
+		kprintf("vm_map_delete: in loop, entry=%p eflags=0x%x\n",
+			entry, entry->eflags);
+#endif
 		/*
 		 * If we hit an in-transition entry we have to sleep and
 		 * retry.  It's easier (and not really slower) to just retry
@@ -3335,6 +3346,9 @@ again:
 		 * another process just created in vacated space.
 		 */
 		if (entry->eflags & MAP_ENTRY_IN_TRANSITION) {
+#ifdef __aarch64__
+			kprintf("vm_map_delete: entry IN_TRANSITION, waiting\n");
+#endif
 			entry->eflags |= MAP_ENTRY_NEEDS_WAKEUP;
 			start = entry->ba.start;
 			++mycpu->gd_cnt.v_intrans_coll;
@@ -3342,7 +3356,13 @@ again:
 			vm_map_transition_wait(map, 1);
 			goto again;
 		}
+#ifdef __aarch64__
+		kprintf("vm_map_delete: calling vm_map_clip_end\n");
+#endif
 		vm_map_clip_end(map, entry, end, countp);
+#ifdef __aarch64__
+		kprintf("vm_map_delete: vm_map_clip_end done\n");
+#endif
 
 		s = entry->ba.start;
 		e = entry->ba.end;
