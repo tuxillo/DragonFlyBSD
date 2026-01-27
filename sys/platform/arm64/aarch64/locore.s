@@ -144,18 +144,34 @@ _start:
 	bl	create_pagetables
 	bl	start_mmu
 
-	/* Set up a temporary stack for early C code */
+	/*
+	 * MMU is now on with both TTBR0 (identity) and TTBR1 (kernel) active.
+	 * We're still running at low (physical) addresses via TTBR0.
+	 *
+	 * To make the kernel run at high virtual addresses, we need to
+	 * jump to the kernel's linked address (KERNBASE-based).
+	 *
+	 * Load the high VA of the continuation point from a literal pool
+	 * and branch to it. After this, PC will be at a high VA, and all
+	 * PC-relative addressing will give high VAs.
+	 */
+	ldr	x15, .Lvirtdone
+	br	x15
+
+	/*
+	 * Execution continues here at high VA (0xffffff80...).
+	 * Now PC-relative addressing (adrp/add) gives kernel VAs.
+	 */
+virtdone:
+	/* Set up a temporary stack for early C code (now at high VA) */
 	adrp	x1, initstack_end
 	add	x1, x1, :lo12:initstack_end
 	mov	sp, x1
 
 	/*
-	 * Store the physical load address (x28) to arm64_kern_physbase
-	 * before calling initarm(). This allows C code to know where
-	 * the kernel was loaded in physical memory.
-	 *
-	 * We use adrp/add to get the physical address of the variable
-	 * since we're running with identity mapping at this point.
+	 * Store the physical load address (x28) to arm64_kern_physbase.
+	 * Now that we're at high VA, adrp/add gives the kernel VA of the
+	 * variable, which is correct since the page tables map it.
 	 */
 	adrp	x1, arm64_kern_physbase
 	add	x1, x1, :lo12:arm64_kern_physbase
@@ -167,60 +183,10 @@ _start:
 
 	/*
 	 * initarm() returns the kernel stack pointer (thread0.td_pcb).
+	 * This should now be a high VA (0xffffff80...).
 	 * Set SP to this value before calling mi_startup().
 	 */
-	mov	x20, x0			/* Save returned SP in x20 */
-
-	/* Debug: print a marker character 'A' to UART directly */
-	ldr	x1, =0x09000000		/* PL011 UART base */
-	mov	w2, #'A'
-	strb	w2, [x1]
-	mov	w2, #'\r'
-	strb	w2, [x1]
-	mov	w2, #'\n'
-	strb	w2, [x1]
-
-	/*
-	 * Print the SP value (x20) directly using nibble extraction.
-	 * This avoids any memory loads from hex_digits table.
-	 */
-	mov	x3, #60			/* Start from top nibble */
-2:
-	lsr	x4, x20, x3		/* Shift value right */
-	and	x4, x4, #0xf		/* Extract nibble */
-	cmp	x4, #10
-	blt	3f
-	add	x4, x4, #('a' - 10)	/* a-f */
-	b	4f
-3:
-	add	x4, x4, #'0'		/* 0-9 */
-4:
-	strb	w4, [x1]		/* Print to UART */
-	subs	x3, x3, #4
-	bge	2b
-
-	mov	w2, #'\r'
-	strb	w2, [x1]
-	mov	w2, #'\n'
-	strb	w2, [x1]
-
-	/* Debug: print another marker 'B' */
-	mov	w2, #'B'
-	strb	w2, [x1]
-	mov	w2, #'\r'
-	strb	w2, [x1]
-	mov	w2, #'\n'
-	strb	w2, [x1]
-
-	mov	sp, x20			/* Switch to new stack */
-
-	/* Debug: print marker 'C' after stack switch */
-	mov	w2, #'C'
-	strb	w2, [x1]
-	mov	w2, #'\r'
-	strb	w2, [x1]
-	mov	w2, #'\n'
-	strb	w2, [x1]
+	mov	sp, x0
 
 	/*
 	 * Call mi_startup() to run SYSINIT entries.
@@ -256,8 +222,10 @@ newline_msg:
 hex_digits:
 	.asciz	"0123456789abcdef"
 
-	/* Literal pool for BSS start/end addresses */
+	/* Literal pool for addresses */
 	.align	3
+.Lvirtdone:
+	.quad	virtdone
 .Lbss_start:
 	.quad	__bss_start
 .Lbss_end:
