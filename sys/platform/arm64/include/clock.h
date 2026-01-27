@@ -175,6 +175,14 @@ typedef struct timecounter_init {
  */
 extern tsc_uclock_t tsc_frequency;
 
+/*
+ * tsc_present - indicates high-resolution counter is available.
+ *
+ * On ARM64 this is always true since the generic timer is mandatory.
+ * Referenced by kern_nrandom.c for entropy collection.
+ */
+extern int tsc_present;
+
 #endif /* _KERNEL */
 
 #endif /* !_MACHINE_CLOCK_H_ */

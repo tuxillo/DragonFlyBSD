@@ -67,6 +67,14 @@ void arm64_timer_intr(void *);
 tsc_uclock_t tsc_frequency;
 
 /*
+ * tsc_present - indicates high-resolution counter is available.
+ *
+ * On ARM64 this is always true since the generic timer is mandatory per ARMv8.
+ * Referenced by kern_nrandom.c for entropy collection via rdtsc().
+ */
+int tsc_present = 1;
+
+/*
  * cputimer - free-running monotonic counter
  *
  * This provides the sys_cputimer interface using the ARM64 virtual counter.
