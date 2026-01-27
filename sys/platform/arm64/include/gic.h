@@ -110,12 +110,31 @@
 
 #ifdef _KERNEL
 
+#include <sys/serialize.h>
+
+/*
+ * Interrupt handler function type (same as driver_intr_t)
+ */
+typedef void (*gic_intr_handler_t)(void *);
+
+/*
+ * GIC interrupt registration structure (opaque handle)
+ */
+struct gic_irq_entry;
+
 void	gic_init(void);
 void	gic_enable_irq(int irq);
 void	gic_disable_irq(int irq);
 int	gic_get_irq(void);
 void	gic_eoi(int irq);
 void	arm64_irq_handler(void);
+
+/*
+ * Interrupt registration interface (for nexus bus_setup_intr)
+ */
+struct gic_irq_entry *gic_register_irq(int irq, gic_intr_handler_t handler,
+		    void *arg, lwkt_serialize_t serializer);
+void	gic_unregister_irq(struct gic_irq_entry *entry);
 
 #endif /* _KERNEL */
 

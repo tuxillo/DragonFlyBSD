@@ -52,6 +52,7 @@
 #include <vm/vm.h>
 #include <vm/pmap.h>
 #include <machine/pmap.h>
+#include <machine/gic.h>
 
 static MALLOC_DEFINE(M_NEXUSDEV, "nexusdev", "Nexus device");
 
@@ -81,6 +82,11 @@ static int	nexus_set_resource(device_t, device_t, int, int, u_long,
 static int	nexus_get_resource(device_t, device_t, int, int, u_long *,
 		    u_long *);
 static void	nexus_delete_resource(device_t, device_t, int, int);
+static int	nexus_setup_intr(device_t, device_t, struct resource *, int,
+		    void (*)(void *), void *, void **, lwkt_serialize_t,
+		    const char *);
+static int	nexus_teardown_intr(device_t, device_t, struct resource *,
+		    void *);
 
 static device_method_t nexus_methods[] = {
 	/* Device interface */
@@ -102,6 +108,8 @@ static device_method_t nexus_methods[] = {
 	DEVMETHOD(bus_set_resource,	nexus_set_resource),
 	DEVMETHOD(bus_get_resource,	nexus_get_resource),
 	DEVMETHOD(bus_delete_resource,	nexus_delete_resource),
+	DEVMETHOD(bus_setup_intr,	nexus_setup_intr),
+	DEVMETHOD(bus_teardown_intr,	nexus_teardown_intr),
 
 	DEVMETHOD_END
 };
@@ -360,4 +368,63 @@ nexus_delete_resource(device_t dev, device_t child, int type, int rid)
 	struct resource_list *rl = &ndev->nx_resources;
 
 	resource_list_delete(rl, type, rid);
+}
+
+/*
+ * Setup an interrupt handler for a device.
+ * This interfaces with the GIC driver to register the handler.
+ */
+static int
+nexus_setup_intr(device_t bus, device_t child, struct resource *irq,
+    int flags, void (*ihand)(void *), void *arg, void **cookiep,
+    lwkt_serialize_t serializer, const char *desc)
+{
+	struct gic_irq_entry *entry;
+	int irqnum;
+
+	if (irq == NULL)
+		panic("%s: NULL irq resource!", __func__);
+
+	*cookiep = NULL;
+
+	/*
+	 * Get the IRQ number from the resource.
+	 */
+	irqnum = rman_get_start(irq);
+
+	kprintf("nexus_setup_intr: child=%s irq=%d\n",
+	    device_get_nameunit(child), irqnum);
+
+	/*
+	 * Activate the resource if needed.
+	 */
+	if ((rman_get_flags(irq) & RF_ACTIVE) == 0) {
+		int error = rman_activate_resource(irq);
+		if (error)
+			return error;
+	}
+
+	/*
+	 * Register with the GIC.
+	 */
+	entry = gic_register_irq(irqnum, ihand, arg, serializer);
+	if (entry == NULL)
+		return ENXIO;
+
+	*cookiep = entry;
+	return 0;
+}
+
+/*
+ * Teardown an interrupt handler.
+ */
+static int
+nexus_teardown_intr(device_t bus, device_t child, struct resource *irq,
+    void *cookie)
+{
+	if (cookie != NULL) {
+		gic_unregister_irq((struct gic_irq_entry *)cookie);
+		return 0;
+	}
+	return EINVAL;
 }

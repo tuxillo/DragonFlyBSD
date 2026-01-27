@@ -35,7 +35,7 @@
 /*
  * Minimal ARM GICv2 driver for QEMU virt machine.
  *
- * This is a bare-minimum driver that only handles timer interrupts.
+ * This is a bare-minimum driver that handles timer and device interrupts.
  * It uses hard-coded addresses for QEMU virt and does not do dynamic
  * discovery via FDT or ACPI.
  */
@@ -43,6 +43,8 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
+#include <sys/malloc.h>
+#include <sys/serialize.h>
 
 #include <machine/gic.h>
 #include <machine/vmparam.h>
@@ -56,6 +58,25 @@ static volatile uint32_t *gic_cpu;
 
 /* Track initialization state */
 static int gic_initialized;
+
+/*
+ * Interrupt handler registration.
+ * Simple array-based storage for registered handlers.
+ * Maximum 128 SPIs (IRQs 32-159) plus 32 SGI/PPI (0-31).
+ */
+#define GIC_MAX_IRQS	160
+
+struct gic_irq_entry {
+	gic_intr_handler_t	handler;
+	void			*arg;
+	lwkt_serialize_t	serializer;
+	int			irq;
+	int			in_use;
+};
+
+static struct gic_irq_entry gic_handlers[GIC_MAX_IRQS];
+
+static MALLOC_DEFINE(M_GIC, "gic", "GIC interrupt handlers");
 
 /*
  * Register access functions
@@ -189,6 +210,59 @@ gic_eoi(int irq)
 }
 
 /*
+ * Register an interrupt handler for the given IRQ.
+ * Returns a handle that must be passed to gic_unregister_irq().
+ */
+struct gic_irq_entry *
+gic_register_irq(int irq, gic_intr_handler_t handler, void *arg,
+    lwkt_serialize_t serializer)
+{
+	struct gic_irq_entry *entry;
+
+	if (irq < 0 || irq >= GIC_MAX_IRQS)
+		return NULL;
+
+	entry = &gic_handlers[irq];
+
+	if (entry->in_use) {
+		kprintf("GIC: IRQ %d already registered\n", irq);
+		return NULL;
+	}
+
+	entry->handler = handler;
+	entry->arg = arg;
+	entry->serializer = serializer;
+	entry->irq = irq;
+	entry->in_use = 1;
+
+	/* Enable the IRQ in the GIC */
+	gic_enable_irq(irq);
+
+	kprintf("GIC: registered handler for IRQ %d\n", irq);
+	return entry;
+}
+
+/*
+ * Unregister an interrupt handler.
+ */
+void
+gic_unregister_irq(struct gic_irq_entry *entry)
+{
+	if (entry == NULL || !entry->in_use)
+		return;
+
+	/* Disable the IRQ in the GIC */
+	gic_disable_irq(entry->irq);
+
+	kprintf("GIC: unregistered handler for IRQ %d\n", entry->irq);
+
+	entry->handler = NULL;
+	entry->arg = NULL;
+	entry->serializer = NULL;
+	entry->in_use = 0;
+}
+
+/*
  * IRQ dispatch handler - called from assembly exception_irq.
  *
  * This function:
@@ -199,6 +273,7 @@ gic_eoi(int irq)
 void
 arm64_irq_handler(void)
 {
+	struct gic_irq_entry *entry;
 	int irq;
 
 	/*
@@ -213,11 +288,18 @@ arm64_irq_handler(void)
 
 	/*
 	 * Dispatch based on IRQ number.
-	 * Currently we only handle the virtual timer.
+	 * First check for timer (special case), then registered handlers.
 	 */
 	if (irq == GIC_VIRT_TIMER_IRQ) {
 		/* Call the timer interrupt handler */
 		arm64_timer_intr(NULL);
+	} else if (irq < GIC_MAX_IRQS && gic_handlers[irq].in_use) {
+		entry = &gic_handlers[irq];
+		if (entry->serializer)
+			lwkt_serialize_enter(entry->serializer);
+		entry->handler(entry->arg);
+		if (entry->serializer)
+			lwkt_serialize_exit(entry->serializer);
 	} else {
 		/* Unknown IRQ - just print a message for debugging */
 		kprintf("GIC: unexpected IRQ %d\n", irq);
