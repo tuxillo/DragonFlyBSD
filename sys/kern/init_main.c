@@ -204,10 +204,6 @@ mi_startup(void)
 	struct sysinit **xipp;		/* interior loop of sort*/
 	struct sysinit *save;		/* bubble*/
 
-#ifdef __aarch64__
-	kprintf("mi_startup() entered\n");
-#endif
-
 	if (sysinit == NULL) {
 		sysinit = SET_BEGIN(sysinit_set);
 #if defined(__x86_64__) && defined(_KERNEL_VIRTUAL)
@@ -228,10 +224,6 @@ mi_startup(void)
 #endif
 
 restart:
-#ifdef __aarch64__
-	kprintf("mi_startup: sorting %ld SYSINITs\n",
-	    (long)(sysinit_end - sysinit));
-#endif
 	/*
 	 * Perform a bubble sort of the system initialization objects by
 	 * their subsystem (primary key) and order (secondary key).
@@ -248,9 +240,6 @@ restart:
 		}
 	}
 
-#ifdef __aarch64__
-	kprintf("mi_startup: starting SYSINIT execution\n");
-#endif
 	/*
 	 * Traverse the (now) ordered list of system initialization tasks.
 	 * Perform each task, and continue on to the next task.
@@ -271,30 +260,8 @@ restart:
 			kprintf("(%08x-%p)\n", sip->subsystem, sip->func);
 #endif
 
-#ifdef __aarch64__
-		/* Only print subsystem changes to reduce output */
-		{
-			static int last_subsystem = -1;
-			if (sip->subsystem != last_subsystem) {
-				kprintf("SYSINIT: subsystem %08x\n", sip->subsystem);
-				last_subsystem = sip->subsystem;
-			}
-		}
-		/* Debug: print function address for subsystems >= SI_SUB_EXEC */
-		if (sip->subsystem >= 0x7400000) {
-			kprintf("  -> calling %p\n", sip->func);
-		}
-#endif
-
 		/* Call function */
 		(*(sip->func))(sip->udata);
-
-#ifdef __aarch64__
-		/* Debug: confirm function returned */
-		if (sip->subsystem >= 0x7400000) {
-			kprintf("  <- returned from %p\n", sip->func);
-		}
-#endif
 
 		/* Check off the one we're just done */
 		sip->subsystem = SI_SPECIAL_DONE;

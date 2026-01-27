@@ -1205,16 +1205,9 @@ vm_map_lookup_entry(vm_map_t map, vm_offset_t address, vm_map_entry_t *entry)
 {
 	vm_map_entry_t tmp;
 	vm_map_entry_t last;
-#ifdef __aarch64__
-	int iter_count = 0;
-#endif
 
 	ASSERT_VM_MAP_LOCKED(map);
 
-#ifdef __aarch64__
-	kprintf("vm_map_lookup_entry: map=%p address=0x%lx\n",
-		map, (unsigned long)address);
-#endif
 	/*
 	 * Locate the record from the top of the tree.  'last' tracks the
 	 * closest prior record and is returned if no match is found, which
@@ -1223,29 +1216,10 @@ vm_map_lookup_entry(vm_map_t map, vm_offset_t address, vm_map_entry_t *entry)
 	 */
 	last = NULL;
 	tmp = RB_ROOT(&map->rb_root);
-#ifdef __aarch64__
-	kprintf("vm_map_lookup_entry: rb_root=%p\n", tmp);
-#endif
 
 	while (tmp) {
-#ifdef __aarch64__
-		iter_count++;
-		if (iter_count <= 10 || (iter_count % 1000) == 0) {
-			kprintf("vm_map_lookup_entry: iter=%d tmp=%p start=0x%lx end=0x%lx\n",
-				iter_count, tmp, (unsigned long)tmp->ba.start,
-				(unsigned long)tmp->ba.end);
-		}
-		if (iter_count > 100000) {
-			kprintf("vm_map_lookup_entry: INFINITE LOOP DETECTED!\n");
-			*entry = NULL;
-			return (FALSE);
-		}
-#endif
 		if (address >= tmp->ba.start) {
 			if (address < tmp->ba.end) {
-#ifdef __aarch64__
-				kprintf("vm_map_lookup_entry: found at iter=%d\n", iter_count);
-#endif
 				*entry = tmp;
 				return(TRUE);
 			}
@@ -1255,10 +1229,6 @@ vm_map_lookup_entry(vm_map_t map, vm_offset_t address, vm_map_entry_t *entry)
 			tmp = RB_LEFT(tmp, rb_entry);
 		}
 	}
-#ifdef __aarch64__
-	kprintf("vm_map_lookup_entry: not found after %d iterations, last=%p\n",
-		iter_count, last);
-#endif
 	*entry = last;
 	return (FALSE);
 }
@@ -3259,22 +3229,9 @@ vm_map_delete(vm_map_t map, vm_offset_t start, vm_offset_t end, int *countp)
 	vm_map_entry_t first_entry;
 	vm_offset_t hole_start;
 
-#ifdef __aarch64__
-	kprintf("vm_map_delete: entry, map=%p start=0x%lx end=0x%lx\n",
-		map, (unsigned long)start, (unsigned long)end);
-#endif
 	ASSERT_VM_MAP_LOCKED(map);
-#ifdef __aarch64__
-	kprintf("vm_map_delete: calling lwkt_gettoken\n");
-#endif
 	lwkt_gettoken(&map->token);
-#ifdef __aarch64__
-	kprintf("vm_map_delete: token acquired\n");
-#endif
 again:
-#ifdef __aarch64__
-	kprintf("vm_map_delete: at again label\n");
-#endif
 	/*
 	 * Find the start of the region, and clip it.  Set entry to point
 	 * at the first record containing the requested address or, if no
@@ -3286,21 +3243,9 @@ again:
 	 *
 	 * GGG see other GGG comment.
 	 */
-#ifdef __aarch64__
-	kprintf("vm_map_delete: calling vm_map_lookup_entry\n");
-#endif
 	if (vm_map_lookup_entry(map, start, &first_entry)) {
-#ifdef __aarch64__
-		kprintf("vm_map_delete: lookup found entry=%p\n", first_entry);
-#endif
 		entry = first_entry;
-#ifdef __aarch64__
-		kprintf("vm_map_delete: calling vm_map_clip_start\n");
-#endif
 		vm_map_clip_start(map, entry, start, countp);
-#ifdef __aarch64__
-		kprintf("vm_map_delete: vm_map_clip_start done\n");
-#endif
 		hole_start = start;
 	} else {
 		if (first_entry) {
@@ -3318,13 +3263,6 @@ again:
 		}
 	}
 
-#ifdef __aarch64__
-	kprintf("vm_map_delete: entering while loop, entry=%p\n", entry);
-	if (entry)
-		kprintf("vm_map_delete: entry->ba.start=0x%lx entry->ba.end=0x%lx end=0x%lx\n",
-			(unsigned long)entry->ba.start, (unsigned long)entry->ba.end,
-			(unsigned long)end);
-#endif
 	/*
 	 * Step through all entries in this region
 	 */
@@ -3333,10 +3271,6 @@ again:
 		vm_offset_t s, e;
 		vm_pindex_t offidxstart, offidxend, count;
 
-#ifdef __aarch64__
-		kprintf("vm_map_delete: in loop, entry=%p eflags=0x%x\n",
-			entry, entry->eflags);
-#endif
 		/*
 		 * If we hit an in-transition entry we have to sleep and
 		 * retry.  It's easier (and not really slower) to just retry
@@ -3346,9 +3280,6 @@ again:
 		 * another process just created in vacated space.
 		 */
 		if (entry->eflags & MAP_ENTRY_IN_TRANSITION) {
-#ifdef __aarch64__
-			kprintf("vm_map_delete: entry IN_TRANSITION, waiting\n");
-#endif
 			entry->eflags |= MAP_ENTRY_NEEDS_WAKEUP;
 			start = entry->ba.start;
 			++mycpu->gd_cnt.v_intrans_coll;
@@ -3356,31 +3287,14 @@ again:
 			vm_map_transition_wait(map, 1);
 			goto again;
 		}
-#ifdef __aarch64__
-		kprintf("vm_map_delete: calling vm_map_clip_end\n");
-#endif
 		vm_map_clip_end(map, entry, end, countp);
-#ifdef __aarch64__
-		kprintf("vm_map_delete: vm_map_clip_end done\n");
-#endif
 
 		s = entry->ba.start;
 		e = entry->ba.end;
-#ifdef __aarch64__
-		kprintf("vm_map_delete: s=0x%lx e=0x%lx\n",
-			(unsigned long)s, (unsigned long)e);
-#endif
 		next = vm_map_rb_tree_RB_NEXT(entry);
-#ifdef __aarch64__
-		kprintf("vm_map_delete: next=%p\n", next);
-#endif
 
 		offidxstart = OFF_TO_IDX(entry->ba.offset);
 		count = OFF_TO_IDX(e - s);
-#ifdef __aarch64__
-		kprintf("vm_map_delete: offidxstart=%ld count=%ld maptype=%d\n",
-			(long)offidxstart, (long)count, entry->maptype);
-#endif
 
 		switch(entry->maptype) {
 		case VM_MAPTYPE_NORMAL:
@@ -3392,9 +3306,6 @@ again:
 			object = NULL;
 			break;
 		}
-#ifdef __aarch64__
-		kprintf("vm_map_delete: object=%p\n", object);
-#endif
 
 		/*
 		 * Unwire before removing addresses from the pmap; otherwise,
@@ -3406,28 +3317,13 @@ again:
 		 * to not blindly iterate the range when pt and pd pages
 		 * are missing.
 		 */
-#ifdef __aarch64__
-		kprintf("vm_map_delete: checking wired_count=%d\n", entry->wired_count);
-#endif
 		if (entry->wired_count)
 			vm_map_entry_unwire_all(map, entry);
 
-#ifdef __aarch64__
-		kprintf("vm_map_delete: computing offidxend\n");
-#endif
 		offidxend = offidxstart + count;
 
-#ifdef __aarch64__
-		kprintf("vm_map_delete: kernel_object=%p\n", kernel_object);
-#endif
 		if (object == kernel_object) {
-#ifdef __aarch64__
-			kprintf("vm_map_delete: calling pmap_remove for kernel_object\n");
-#endif
 			pmap_remove(map->pmap, s, e);
-#ifdef __aarch64__
-			kprintf("vm_map_delete: pmap_remove done\n");
-#endif
 			vm_object_hold(object);
 			vm_object_page_remove(object, offidxstart,
 					      offidxend, FALSE);
@@ -3513,27 +3409,10 @@ vm_map_remove(vm_map_t map, vm_offset_t start, vm_offset_t end)
 	int result;
 	int count;
 
-#ifdef __aarch64__
-	kprintf("vm_map_remove: map=%p start=0x%lx end=0x%lx\n",
-		map, (unsigned long)start, (unsigned long)end);
-#endif
 	count = vm_map_entry_reserve(MAP_RESERVE_COUNT);
-#ifdef __aarch64__
-	kprintf("vm_map_remove: entry_reserve returned count=%d\n", count);
-	kprintf("vm_map_remove: calling vm_map_lock\n");
-#endif
 	vm_map_lock(map);
-#ifdef __aarch64__
-	kprintf("vm_map_remove: lock acquired\n");
-#endif
 	VM_MAP_RANGE_CHECK(map, start, end);
-#ifdef __aarch64__
-	kprintf("vm_map_remove: range check done, calling vm_map_delete\n");
-#endif
 	result = vm_map_delete(map, start, end, &count);
-#ifdef __aarch64__
-	kprintf("vm_map_remove: vm_map_delete returned %d\n", result);
-#endif
 	vm_map_unlock(map);
 	vm_map_entry_release(count);
 

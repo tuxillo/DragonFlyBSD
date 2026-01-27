@@ -1346,33 +1346,18 @@ exec_register(const struct execsw *execsw_arg)
 	const struct execsw **es, **xs, **newexecsw;
 	int count = 2;	/* New slot and trailing NULL */
 
-#ifdef __aarch64__
-	kprintf("exec_register: entry, execsw=%p\n", execsw);
-#endif
 	if (execsw)
 		for (es = execsw; *es; es++)
 			count++;
-#ifdef __aarch64__
-	kprintf("exec_register: count=%d, calling kmalloc\n", count);
-#endif
 	newexecsw = kmalloc(count * sizeof(*es), M_TEMP, M_WAITOK);
-#ifdef __aarch64__
-	kprintf("exec_register: kmalloc returned %p\n", newexecsw);
-#endif
 	xs = newexecsw;
 	if (execsw)
 		for (es = execsw; *es; es++)
 			*xs++ = *es;
 	*xs++ = execsw_arg;
 	*xs = NULL;
-#ifdef __aarch64__
-	kprintf("exec_register: calling kfree on old execsw=%p\n", execsw);
-#endif
 	if (execsw)
 		kfree(execsw, M_TEMP);
-#ifdef __aarch64__
-	kprintf("exec_register: done, new execsw=%p\n", newexecsw);
-#endif
 	execsw = newexecsw;
 	return 0;
 }

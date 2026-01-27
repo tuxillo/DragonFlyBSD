@@ -93,19 +93,12 @@ module_register_init(const void *arg)
     int error;
     module_t mod;
 
-#ifdef __aarch64__
-    kprintf("module_register_init: %s\n", data->name);
-#endif
-
     mod = module_lookupbyname(data->name);
     if (mod == NULL) {
 #if 0
 	panic("module_register_init: module named %s not found", data->name);
 #else
 	/* temporary kludge until kernel `file' attachment registers modules */
-#ifdef __aarch64__
-	kprintf("  calling module_register\n");
-#endif
 	error = module_register(data, linker_kernel_file);
 	if (error)
 	    panic("module_register_init: register of module failed! %d", error);
@@ -114,13 +107,7 @@ module_register_init(const void *arg)
 	    panic("module_register_init: module STILL not found!");
 #endif
     }
-#ifdef __aarch64__
-    kprintf("  calling MOD_EVENT MOD_LOAD\n");
-#endif
     error = MOD_EVENT(mod, MOD_LOAD);
-#ifdef __aarch64__
-    kprintf("  MOD_EVENT returned %d\n", error);
-#endif
     if (error) {
 	module_unload(mod);	/* ignore error */
 	module_release(mod);
