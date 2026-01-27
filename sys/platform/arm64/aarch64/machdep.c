@@ -1372,11 +1372,11 @@ flsl(long mask)
 }
 
 /*
- * TSC (timestamp counter) stubs
- * ARM64 doesn't have x86 TSC, uses different counters.
+ * tsc_oneus_approx - approximate number of TSC ticks per microsecond.
+ *
+ * Used for crude spin delays. The actual tsc_frequency is set by
+ * generic_timer.c during boot, so this is just a reasonable default.
  */
-int tsc_present;
-tsc_uclock_t tsc_frequency;
 tsc_uclock_t tsc_oneus_approx = 1;
 
 /*
