@@ -1,9 +1,9 @@
 /*-
  * Copyright (c) 2026 The DragonFly Project.  All rights reserved.
  *
- * This code is derived from software contributed to The DragonFly Project
- * by Matthew Dillon <dillon@backplane.com> (x86_64 version) and adapted
- * for arm64.
+ * This code is part of the DragonFly arm64 port and implements the
+ * LWKT (Light Weight Kernel Thread) context switching mechanism for
+ * the ARM64 architecture.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
