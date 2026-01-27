@@ -108,8 +108,10 @@ ENTRY(cpu_lwkt_switch)
 	 * Push the restore function address onto the stack.
 	 * ARM64 'ret' returns to lr (x30), not the stack, so we store
 	 * the restore address here and load it into lr before returning.
+	 * Use adrp/add for full address range support.
 	 */
-	adr	x2, cpu_lwkt_restore
+	adrp	x2, cpu_lwkt_restore
+	add	x2, x2, :lo12:cpu_lwkt_restore
 	sub	sp, sp, #16
 	str	x2, [sp]
 
@@ -278,7 +280,8 @@ END(cpu_idle_restore)
  *	processes yet.
  */
 ENTRY(cpu_heavy_switch)
-	adr	x0, heavy_switch_panic_msg
+	adrp	x0, heavy_switch_panic_msg
+	add	x0, x0, :lo12:heavy_switch_panic_msg
 	bl	panic
 	/* NOT REACHED */
 END(cpu_heavy_switch)
@@ -290,7 +293,8 @@ END(cpu_heavy_switch)
  *	Stub that panics for now.
  */
 ENTRY(cpu_heavy_restore)
-	adr	x0, heavy_restore_panic_msg
+	adrp	x0, heavy_restore_panic_msg
+	add	x0, x0, :lo12:heavy_restore_panic_msg
 	bl	panic
 	/* NOT REACHED */
 END(cpu_heavy_restore)
