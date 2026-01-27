@@ -32,7 +32,10 @@ What "testing" means in this project:
 - Sync VM: cd /usr/src && git fetch gitea && git reset --hard gitea/port-arm64
 - Verify sync: compare `git log -1 --format=%H` on host vs VM; if mismatch, report and stop
 - Rebuild kernel (MUST use sequential build - no -j flag due to header generation race):
+  - cd /usr/src/sys/config
+  - config -r -g ARM64_GENERIC
   - cd /usr/src/sys/compile/ARM64_GENERIC
+  - make clean
   - make kernel.debug
   - If build fails, report failure and stop
 - Rebuild loader ONLY if primary agent explicitly requests it:

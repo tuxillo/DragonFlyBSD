@@ -131,6 +131,10 @@ We're going to use a x86_64 VM for development, which is hosted remotely and can
 
 ### ARM64 Build and Test
 
+Before running the build/test agent, changes must be committed and pushed to
+the Gitea remote (`port-arm64` branch). The VM-side agent will pull those
+changes into `/usr/src` during its sync step.
+
 **Use the build/test agent** for all arm64 build and test workflows. The agent is defined in `.opencode/agents/arm64-port-testing.md` and handles:
 
 1. Verifying VM is in sync with local commits

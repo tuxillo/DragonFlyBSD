@@ -347,43 +347,100 @@ After implementing Phase 1:
 
 ---
 
-## Phase 2: FDT Support (Future)
+## Phase 2: FDT Support Implementation
 
-QEMU `-M virt` provides a Flattened Device Tree (FDT) describing hardware. FreeBSD ARM64 uses FDT for device enumeration.
+**Current Status:** Phase 1 is complete - autoconf.c and nexus.c are implemented, kernel boots through `SI_SUB_CONFIGURE` but stalls at USB delay loop because nexus has no children (no device enumeration).
 
-### Required Components
+**Blocking Issue:** Kernel can't reach `mountroot>` because no storage devices are attached. QEMU virt machine provides devices via FDT, but we haven't implemented FDT parsing.
 
-1. **OFW (Open Firmware) Bus Infrastructure**
-   - Port `sys/dev/ofw/` from FreeBSD
-   - Provides FDT parsing and device tree walking
+**Goal:** Implement FDT support to enumerate devices and reach `mountroot>` prompt.
 
-2. **ofwbus Driver**
-   - Child of nexus that walks FDT
-   - Creates child devices for each FDT node
-   - Location: `sys/dev/ofw/ofwbus.c`
+### **Phase 2A: Port OFW/FDT Infrastructure**
 
-3. **simplebus Driver**
-   - Handles `compatible = "simple-bus"` nodes
-   - Location: `sys/dev/fdt/simplebus.c`
+1. **Create `sys/dev/ofw/` directory** with FreeBSD OFW code
+2. **Port essential files** from `.freebsd.orig/sys/dev/ofw/`:
+   - `ofw_bus.c` - Core OFW bus implementation
+   - `ofw_bus_if.m` - OFW bus interface
+   - `ofw_bus_subr.c` - Helper functions
+   - `ofw_subr.c` - FDT parsing utilities
+   - `ofw_bus.h`, `ofw_subr.h` - Headers
 
-4. **Nexus FDT Integration**
-   - Modify `nexus_attach()` to add `ofwbus` as child
-   - Add FDT-specific methods (ofw_bus_map_intr, etc.)
+### **Phase 2B: Create ofwbus Driver**
 
-### FreeBSD Reference
+1. **Create `sys/dev/ofw/ofwbus.c`** - Root OFW bus driver
+2. **Implement `ofwbus_probe()`** - Detects FDT presence
+3. **Implement `ofwbus_attach()`** - Walks FDT, creates child devices
+4. **Add to build system** - Update `sys/conf/files`
 
-```c
-/* From .freebsd.orig/sys/arm64/arm64/nexus.c */
+### **Phase 2C: Create simplebus Driver**
 
-static int
-nexus_fdt_attach(device_t dev)
-{
-    nexus_add_child(dev, 10, "ofwbus", 0);
-    return (nexus_attach(dev));
-}
+1. **Create `sys/dev/fdt/simplebus.c`** - Handles "simple-bus" nodes
+2. **Implement `simplebus_probe()`** - Matches "simple-bus" compatible
+3. **Implement `simplebus_attach()`** - Enumerates child nodes
+4. **Add to build system**
+
+### **Phase 2D: Integrate FDT into Nexus**
+
+1. **Modify `sys/platform/arm64/aarch64/nexus.c`**:
+   - Add FDT detection in `nexus_attach()`
+   - Add `nexus_add_child(dev, 10, "ofwbus", 0)` when FDT present
+   - Add OFW bus interface methods
+2. **Add FDT headers** - Include `dev/ofw/ofw_bus.h`
+
+### **Phase 2E: Add Minimal VirtIO Support (Optional)**
+
+1. **Create `sys/dev/virtio/virtio_mmio.c`** - MMIO transport
+2. **Add `sys/dev/virtio/block/virtio_blk.c`** - Block device driver
+3. **Add to build system**
+
+### **Phase 2F: Testing and Validation**
+
+1. **Run arm64-port-testing agent** to build and test
+2. **Verify FDT parsing** - Check for device enumeration
+3. **Test with QEMU virtio-blk** - Try to reach `mountroot>`
+
+### **Detailed File Changes**
+
+#### **New Files to Create:**
+```
+sys/dev/ofw/ofw_bus.c           (from FreeBSD)
+sys/dev/ofw/ofw_bus_if.m        (from FreeBSD)  
+sys/dev/ofw/ofw_bus_subr.c      (from FreeBSD)
+sys/dev/ofw/ofw_subr.c          (from FreeBSD)
+sys/dev/ofw/ofw_bus.h           (from FreeBSD)
+sys/dev/ofw/ofw_subr.h          (from FreeBSD)
+sys/dev/ofw/ofwbus.c            (new - root OFW bus)
+sys/dev/fdt/simplebus.c         (from FreeBSD)
 ```
 
-### Device Enumeration Flow (FDT)
+#### **Files to Modify:**
+```
+sys/platform/arm64/aarch64/nexus.c  (add FDT integration)
+sys/conf/files                      (add new drivers)
+sys/platform/arm64/conf/files       (add new drivers)
+```
+
+#### **Build System Updates:**
+Add to `sys/conf/files`:
+```
+dev/ofw/ofw_bus.c          optional ofw
+dev/ofw/ofw_bus_if.m       optional ofw
+dev/ofw/ofw_bus_subr.c     optional ofw
+dev/ofw/ofw_subr.c         optional ofw
+dev/ofw/ofwbus.c           optional ofw
+dev/fdt/simplebus.c        optional fdt
+```
+
+### **Implementation Order**
+
+1. **First:** Port OFW infrastructure (Phase 2A) - Essential for FDT parsing
+2. **Second:** Create ofwbus driver (Phase 2B) - Walks device tree
+3. **Third:** Create simplebus driver (Phase 2C) - Handles bus nodes
+4. **Fourth:** Integrate into nexus (Phase 2D) - Connect to autoconfig
+5. **Fifth:** Test with arm64-port-testing agent
+6. **Optional:** Add VirtIO drivers if needed for storage
+
+### **Device Enumeration Flow (FDT)**
 
 ```
 root_bus
@@ -394,6 +451,19 @@ root_bus
               ├── pcie0 (PCIe host bridge)
               │     └── virtio-blk, virtio-net, etc.
               └── virtio_mmio0..31 (VirtIO MMIO devices)
+```
+
+### **FreeBSD Reference**
+
+```c
+/* From .freebsd.orig/sys/arm64/arm64/nexus.c */
+
+static int
+nexus_fdt_attach(device_t dev)
+{
+    nexus_add_child(dev, 10, "ofwbus", 0);
+    return (nexus_attach(dev));
+}
 ```
 
 ---
@@ -430,22 +500,44 @@ nexus_acpi_attach(device_t dev)
 
 ---
 
-## Differences: Stubs vs Full Implementation
+## Implementation Status
 
-| Aspect | Phase 1 (Stubs) | Phase 2/3 (Full) |
-|--------|-----------------|------------------|
-| Device enumeration | None | FDT/ACPI parsing |
-| Child devices | None attached | Enumerated from firmware |
-| Interrupt mapping | Basic rman | Full GIC integration |
-| Resource discovery | Manual | From device tree/ACPI |
-| Boot result | Reaches mountroot (fails) | Can mount root filesystem |
+| Aspect | Phase 1 (Stubs) - **COMPLETE** | Phase 2 (FDT) - **IN PROGRESS** | Phase 3 (ACPI) - **FUTURE** |
+|--------|-----------------|------------------|------------------|
+| **Device enumeration** | None | FDT parsing from QEMU virt | ACPI table parsing |
+| **Child devices** | None attached | Enumerated from FDT | Enumerated from ACPI |
+| **Interrupt mapping** | Basic rman | GIC integration via FDT | APIC integration via ACPI |
+| **Resource discovery** | Manual | From device tree | From ACPI tables |
+| **Boot result** | Stalls at USB loop | Reaches `mountroot>` prompt | Full server support |
+| **Current status** | ✅ Working | 🔄 Implementation needed | 📋 Planned |
+
+### **Phase 1 Verification (Completed)**
+- ✅ `configure_first()`, `configure()`, `configure_final()` execute in order
+- ✅ `nexus_probe()` and `nexus_attach()` successful
+- ✅ Kernel passes `SI_SUB_CONFIGURE` (0x3800000)
+- ✅ Reaches `SI_SUB_INT_CONFIG_HOOKS` (0xa800000)
+- ❌ No storage drivers (nexus has no children)
+
+### **Phase 2 Requirements**
+- 🔄 Port OFW/FDT infrastructure from FreeBSD
+- 🔄 Create `ofwbus` driver for FDT walking
+- 🔄 Create `simplebus` driver for "simple-bus" nodes
+- 🔄 Integrate FDT into nexus driver
+- 🔄 Add VirtIO drivers for storage (optional)
 
 ---
 
 ## Testing
 
-### Phase 1 Test
+### Phase 1 Status (COMPLETE)
 
+**Current State:** Phase 1 is implemented and working:
+- ✅ Kernel boots through `SI_SUB_CONFIGURE` (0x3800000)
+- ✅ Nexus driver attaches successfully
+- ✅ Boot reaches `SI_SUB_INT_CONFIG_HOOKS` (0xa800000)
+- ❌ Stalls at USB delay loop (no storage drivers attached)
+
+**Test Command:**
 ```bash
 # In tools/arm64-test/
 make copy-all    # Get artifacts from VM
@@ -453,14 +545,17 @@ make test        # Run with timeout
 
 # Expected output:
 # ... boot messages ...
-# mountroot>
-# (timeout - no disk driver)
+# nexus0: <Motherboard> on motherboard
+# (stalls at USB delay loop - no devices enumerated)
 ```
 
-### Phase 2 Test (Future)
+### Phase 2 Test (Implementation Required)
 
+**Goal:** Test FDT device enumeration and reach `mountroot>` prompt.
+
+**Test Setup:**
 ```bash
-# Add virtio disk to QEMU
+# Add virtio disk to QEMU for testing storage
 qemu-system-aarch64 -M virt -cpu cortex-a72 -m 512M \
     -drive if=pflash,file=QEMU_EFI.fd,format=raw,readonly=on \
     -drive if=pflash,file=QEMU_VARS.fd,format=raw \
@@ -469,8 +564,21 @@ qemu-system-aarch64 -M virt -cpu cortex-a72 -m 512M \
     -device virtio-blk-device,drive=hd0 \
     -nographic -serial stdio
 
-# Expected: VirtIO block device detected, can mount root
+# Expected after Phase 2:
+# nexus0: <Motherboard> on motherboard
+# ofwbus0: <Open Firmware Device Tree> on nexus0
+# simplebus0: <Flattened device tree simple bus> on ofwbus0
+# gic0: <ARM Generic Interrupt Controller> on simplebus0
+# uart0: <ARM PL011 UART> on simplebus0
+# virtio_blk0: <VirtIO Block Device> on virtio_mmio0
+# mountroot>
 ```
+
+**Testing Strategy:**
+1. **After Phase 2A/B:** Test FDT parsing - verify `ofwbus0` attaches
+2. **After Phase 2C:** Test simplebus - verify child devices appear
+3. **After Phase 2D:** Test full integration - verify device tree walk
+4. **After Phase 2E:** Test storage - try to reach `mountroot>`
 
 ---
 
@@ -484,4 +592,15 @@ qemu-system-aarch64 -M virt -cpu cortex-a72 -m 512M \
 
 ---
 
-*Last updated: 2026-01-27*
+## **Current Status Summary**
+
+**Phase 1: COMPLETE** - Minimal autoconfiguration stubs are implemented and working. Kernel boots through `SI_SUB_CONFIGURE` but stalls at USB delay loop because no devices are enumerated.
+
+**Phase 2: READY FOR IMPLEMENTATION** - Detailed plan created for FDT support. Next step is to port OFW infrastructure from FreeBSD and implement device enumeration from QEMU's Flattened Device Tree.
+
+**Blocking Issue:** Kernel cannot reach `mountroot>` because nexus has no child devices. FDT support is required to enumerate VirtIO devices from QEMU virt machine.
+
+**Next Action:** Begin Phase 2A - Port OFW/FDT infrastructure from `.freebsd.orig/sys/dev/ofw/`.
+
+---
+*Last updated: 2026-01-27 (Phase 2 plan consolidated)*
