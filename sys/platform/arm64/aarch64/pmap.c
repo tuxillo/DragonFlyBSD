@@ -1179,11 +1179,35 @@ pmap_page_set_memattr(struct vm_page *m __unused, vm_memattr_t ma __unused)
 
 /*
  * Kernel virtual to machine page.
+ *
+ * Given a kernel virtual address, return the vm_page_t for the
+ * physical page backing that address. This is used by the slab
+ * allocator to track page usage (ku_pagecnt).
+ *
+ * Returns NULL if the address is not mapped or not backed by a
+ * managed page.
  */
 vm_page_t
-pmap_kvtom(vm_offset_t va __unused)
+pmap_kvtom(vm_offset_t va)
 {
-	return (NULL);
+	pt_entry_t *ptep;
+	pt_entry_t pte;
+	vm_paddr_t pa;
+
+	/* Get PTE for this VA */
+	ptep = pmap_pte(kernel_pmap, va);
+	if (ptep == NULL)
+		return (NULL);
+
+	pte = *ptep;
+	if ((pte & ATTR_DESCR_VALID) == 0)
+		return (NULL);
+
+	/* Extract physical address from PTE */
+	pa = pte & ATTR_ADDR;
+
+	/* Convert to vm_page_t */
+	return (PHYS_TO_VM_PAGE(pa));
 }
 
 /*
