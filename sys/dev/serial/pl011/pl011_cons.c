@@ -136,9 +136,12 @@ static int
 pl011_cncheckc(void *arg)
 {
 	volatile uint32_t *base = (volatile uint32_t *)arg;
-	
+
 	/* Check if RX FIFO has data */
-	return !(base[PL011_FR / 4] & PL011_FR_RXFE);
+	if (base[PL011_FR / 4] & PL011_FR_RXFE)
+		return -1;	/* No character available */
+
+	return base[PL011_DR / 4] & 0xFF;
 }
 
 CONS_DRIVER(pl011, pl011_cnprobe, pl011_cninit, pl011_cninit_fini, NULL,
