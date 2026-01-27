@@ -280,6 +280,10 @@ restart:
 				last_subsystem = sip->subsystem;
 			}
 		}
+		/* Debug: print function address for subsystems >= SI_SUB_EXEC */
+		if (sip->subsystem >= 0x7400000) {
+			kprintf("  -> calling %p\n", sip->func);
+		}
 #endif
 
 		/* Call function */
