@@ -473,18 +473,31 @@ pmap_remove(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 	vm_offset_t va;
 	vm_page_t m;
 	vm_paddr_t pa;
+	int count = 0;
 
 	if (pmap == NULL)
 		return;
 
+	kprintf("pmap_remove: pmap=%p sva=0x%lx eva=0x%lx\n",
+		pmap, (unsigned long)sva, (unsigned long)eva);
+
 	for (va = sva; va < eva; va += PAGE_SIZE) {
 		ptep = pmap_pte(pmap, va);
-		if (ptep == NULL)
+		if (ptep == NULL) {
+			kprintf("pmap_remove: va=0x%lx ptep=NULL (skipping)\n",
+				(unsigned long)va);
 			continue;
+		}
 
 		oldpte = *ptep;
-		if ((oldpte & ATTR_DESCR_VALID) == 0)
+		if ((oldpte & ATTR_DESCR_VALID) == 0) {
+			kprintf("pmap_remove: va=0x%lx pte invalid (skipping)\n",
+				(unsigned long)va);
 			continue;
+		}
+
+		kprintf("pmap_remove: va=0x%lx pte=0x%lx clearing\n",
+			(unsigned long)va, (unsigned long)oldpte);
 
 		/* Clear the PTE */
 		*ptep = 0;
@@ -497,11 +510,20 @@ pmap_remove(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 		/* Handle managed page removal */
 		if (oldpte & pmap->pmap_bits[PG_MANAGED_IDX]) {
 			pa = oldpte & ATTR_ADDR;
+			kprintf("pmap_remove: managed page pa=0x%lx\n",
+				(unsigned long)pa);
 			m = PHYS_TO_VM_PAGE(pa);
-			if (m != NULL)
+			kprintf("pmap_remove: vm_page=%p\n", m);
+			if (m != NULL) {
+				kprintf("pmap_remove: calling pmap_removed_pte\n");
 				pmap_removed_pte(pmap, m, oldpte);
+				kprintf("pmap_remove: pmap_removed_pte done\n");
+			}
 		}
+		count++;
 	}
+
+	kprintf("pmap_remove: cleared %d pages, doing TLB invalidate\n", count);
 
 	/* TLB invalidate the range */
 	if (sva < eva) {
@@ -511,6 +533,8 @@ pmap_remove(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 		}
 		__asm __volatile("dsb ish; isb" ::: "memory");
 	}
+
+	kprintf("pmap_remove: done\n");
 }
 
 /*
