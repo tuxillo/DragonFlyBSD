@@ -1205,9 +1205,16 @@ vm_map_lookup_entry(vm_map_t map, vm_offset_t address, vm_map_entry_t *entry)
 {
 	vm_map_entry_t tmp;
 	vm_map_entry_t last;
+#ifdef __aarch64__
+	int iter_count = 0;
+#endif
 
 	ASSERT_VM_MAP_LOCKED(map);
 
+#ifdef __aarch64__
+	kprintf("vm_map_lookup_entry: map=%p address=0x%lx\n",
+		map, (unsigned long)address);
+#endif
 	/*
 	 * Locate the record from the top of the tree.  'last' tracks the
 	 * closest prior record and is returned if no match is found, which
@@ -1216,10 +1223,29 @@ vm_map_lookup_entry(vm_map_t map, vm_offset_t address, vm_map_entry_t *entry)
 	 */
 	last = NULL;
 	tmp = RB_ROOT(&map->rb_root);
+#ifdef __aarch64__
+	kprintf("vm_map_lookup_entry: rb_root=%p\n", tmp);
+#endif
 
 	while (tmp) {
+#ifdef __aarch64__
+		iter_count++;
+		if (iter_count <= 10 || (iter_count % 1000) == 0) {
+			kprintf("vm_map_lookup_entry: iter=%d tmp=%p start=0x%lx end=0x%lx\n",
+				iter_count, tmp, (unsigned long)tmp->ba.start,
+				(unsigned long)tmp->ba.end);
+		}
+		if (iter_count > 100000) {
+			kprintf("vm_map_lookup_entry: INFINITE LOOP DETECTED!\n");
+			*entry = NULL;
+			return (FALSE);
+		}
+#endif
 		if (address >= tmp->ba.start) {
 			if (address < tmp->ba.end) {
+#ifdef __aarch64__
+				kprintf("vm_map_lookup_entry: found at iter=%d\n", iter_count);
+#endif
 				*entry = tmp;
 				return(TRUE);
 			}
@@ -1229,6 +1255,10 @@ vm_map_lookup_entry(vm_map_t map, vm_offset_t address, vm_map_entry_t *entry)
 			tmp = RB_LEFT(tmp, rb_entry);
 		}
 	}
+#ifdef __aarch64__
+	kprintf("vm_map_lookup_entry: not found after %d iterations, last=%p\n",
+		iter_count, last);
+#endif
 	*entry = last;
 	return (FALSE);
 }
