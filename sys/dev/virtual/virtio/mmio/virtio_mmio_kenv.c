@@ -109,8 +109,8 @@ vtmmio_parsearg(driver_t *driver, device_t parent, char *arg)
 	if (child == NULL)
 		return;
 	device_set_driver(child, driver);
-	bus_set_resource(child, SYS_RES_MEMORY, 0, baseaddr, sz);
-	bus_set_resource(child, SYS_RES_IRQ, 0, irq, 1);
+	bus_set_resource(child, SYS_RES_MEMORY, 0, baseaddr, sz, -1);
+	bus_set_resource(child, SYS_RES_IRQ, 0, irq, 1, -1);
 
 	return;
 
@@ -150,4 +150,7 @@ static device_method_t vtmmio_kenv_methods[] = {
 DEFINE_CLASS_1(virtio_mmio, vtmmio_kenv_driver, vtmmio_kenv_methods,
     sizeof(struct vtmmio_softc), vtmmio_driver);
 
-DRIVER_MODULE(virtio_mmio_kenv, nexus, vtmmio_kenv_driver, 0, 0);
+static devclass_t vtmmio_kenv_devclass;
+
+DRIVER_MODULE(virtio_mmio_kenv, nexus, vtmmio_kenv_driver, vtmmio_kenv_devclass,
+    NULL, NULL);
