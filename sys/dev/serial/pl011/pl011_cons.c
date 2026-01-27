@@ -30,11 +30,11 @@
 #include <sys/conf.h>
 #include <sys/fcntl.h>
 #include <sys/tty.h>
-#include <sys/ttydev.h>
 #include <sys/devfs.h>
 #include <sys/ucred.h>
 #include <sys/cons.h>
 #include <sys/device.h>
+#include <machine/vmparam.h>
 
 #include "pl011_reg.h"
 
@@ -95,7 +95,8 @@ pl011_cnprobe(struct consdev *cp)
 static void
 pl011_cninit(struct consdev *cp)
 {
-	cp->cn_private = (void *)PL011_QEMU_BASE;
+	/* Use DMAP mapping for UART access after MMU enablement */
+	cp->cn_private = (void *)PHYS_TO_DMAP(PL011_QEMU_BASE);
 }
 
 static void
