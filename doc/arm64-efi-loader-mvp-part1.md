@@ -1888,3 +1888,112 @@ vring_avail_event(struct vring *vr)
 - ✅ Kernel builds successfully with VirtIO MMIO support
 - ✅ QEMU test passes (full boot to timeout)
 - ✅ No strict-aliasing warnings or errors
+
+---
+
+## MVP Part 12: Dynamic Physical Load Address Detection (COMPLETE)
+
+### Status: COMPLETE ✅
+
+### Problem
+
+The kernel was crashing immediately after the loader jumped to it with **Data Abort** errors. The root cause was that the kernel had **hardcoded physical addresses** (KERN_LOAD = 0x40000000) in its page table setup, but the EFI loader was allocating the staging area at runtime at a different address (e.g., 0x56200000).
+
+### Issues Fixed
+
+#### 1. locore.s: Hardcoded KERN_LOAD (commit `04326e94d8`)
+
+**Problem:** Page tables in `create_pagetables()` used hardcoded physical addresses that didn't match where the kernel was actually loaded.
+
+**Fix:** Added `get_load_phys_addr()` function (based on FreeBSD's approach) that computes the physical load address at runtime using PC-relative addressing:
+
+```asm
+get_load_phys_addr:
+    ldr     x28, =(get_load_phys_addr - KERNBASE)
+    adr     x29, get_load_phys_addr
+    sub     x28, x29, x28
+    ret
+```
+
+Updated `create_pagetables()` to use x28 (the detected load address) instead of hardcoded constants.
+
+#### 2. locore.s: BSS Zeroing with Virtual Addresses (commit `205243ed7a`)
+
+**Problem:** BSS zeroing code loaded `__bss_start` and `__bss_end` from literal pools containing **virtual addresses** (linked at KERNBASE), but the MMU was off, so physical addresses were needed.
+
+**Fix:** Convert VAs to PAs: `PA = VA - KERNBASE + x28`
+
+```asm
+ldr     x15, .Lbss_start        /* x15 = __bss_start (VA) */
+ldr     x14, .Lbss_end          /* x14 = __bss_end (VA) */
+ldr     x16, =KERNBASE
+sub     x15, x15, x16           /* x15 = offset from KERNBASE */
+add     x15, x15, x28           /* x15 = physical address of BSS start */
+sub     x14, x14, x16
+add     x14, x14, x28           /* x14 = physical address of BSS end */
+```
+
+#### 3. machdep.c: Incorrect modulep VA-to-PA Conversion (commit `7eb7af4394`)
+
+**Problem:** `initarm()` tried to convert modulep from VA to PA using a hardcoded `ARM64_PTOTV_OFF = KERNBASE - 0x40000000`, but this is wrong when the kernel is loaded at a different address.
+
+**Fix:** Since the MMU is on when `initarm()` runs and TTBR1 maps 16MB starting at KERNBASE to the actual load address, the modulep VA is already valid. Just use it directly without conversion.
+
+### Key Technical Details
+
+#### VA-to-PA Translation in Loader
+
+The loader allocates a staging area at a physical address determined by EFI (e.g., 0x56200000) and uses `stage_offset` to translate kernel VAs to staging PAs:
+
+```
+staging = 0x56200000 (physical)
+dest = 0xffffff8000000000 (kernel's link VA)
+stage_offset = staging - dest
+
+To translate: physical = VA + stage_offset
+```
+
+#### Page Table Structure
+
+```
+TTBR1 (kernel space, VA 0xffffff80xxxxxxxx):
+  L0[511] -> L1 table
+    L1[0] -> L2 table
+      L2[0] = x28 + 0x000000 | attrs  (2MB block)
+      L2[1] = x28 + 0x200000 | attrs
+      ... (8 entries = 16MB total)
+
+TTBR0 (identity map for early boot):
+  L0[0] -> L1 table
+    L1[0] = 0x00000000 | device_attrs  (UART region)
+    L1[n] = (x28 & ~0x3fffffff) | normal_attrs  (1GB block containing kernel)
+```
+
+### Debug Output Cleanup (commit `7b4c568930`)
+
+Removed verbose debug printf() statements from the loader that were added during diagnosis:
+- `stand/boot/efi/loader/copy.c` - Removed stage_offset and efi_copyin tracing
+- `stand/boot/efi/loader/bootinfo.c` - Removed modulep/kernend debug dumps
+
+### Commits
+
+| Commit | Description |
+|--------|-------------|
+| `04326e94d8` | arm64/locore: Detect physical load address at runtime |
+| `205243ed7a` | arm64/locore: Convert BSS addresses from VA to PA for early zeroing |
+| `7eb7af4394` | arm64/machdep: Use modulep VA directly instead of broken PA conversion |
+| `7b4c568930` | arm64/loader: Remove debug printf output from VA-to-PA translation |
+
+### Success Criteria (All Met)
+
+- ✅ Kernel detects physical load address at runtime
+- ✅ BSS zeroing works with correct physical addresses
+- ✅ Kernel reads metadata at virtual address (MMU working)
+- ✅ Kernel parses EFI memory map successfully
+- ✅ Kernel builds page tables and DMAP
+- ✅ Kernel reaches high-VA trampoline execution
+- ✅ Debug output cleaned up
+
+---
+
+*Last updated: 2026-01-27 (MVP Part 12 - Dynamic physical load address detection complete)*
