@@ -823,23 +823,49 @@ vtmmio_probe_and_attach_child(struct vtmmio_softc *sc)
 {
 	device_t dev, child;
 	int error;
+	uint32_t devtype;
 
 	dev = sc->dev;
 	child = sc->vtmmio_child_dev;
 
-	if (child == NULL)
+	kprintf("vtmmio_probe_and_attach_child: called for %s\n",
+	    device_get_nameunit(dev));
+
+	if (child == NULL) {
+		kprintf("vtmmio_probe_and_attach_child: child is NULL\n");
 		return;
-	if (device_get_state(child) != DS_NOTPRESENT)
+	}
+
+	kprintf("vtmmio_probe_and_attach_child: child state=%d (DS_NOTPRESENT=%d)\n",
+	    device_get_state(child), DS_NOTPRESENT);
+
+	if (device_get_state(child) != DS_NOTPRESENT) {
+		kprintf("vtmmio_probe_and_attach_child: child already present, returning\n");
 		return;
+	}
+
+	/* Read and log device type for debugging */
+	devtype = vtmmio_read_config_4(sc, VIRTIO_MMIO_DEVICE_ID);
+	kprintf("vtmmio_probe_and_attach_child: MMIO device_id=%u (VIRTIO_ID_BLOCK=%d)\n",
+	    devtype, 2);
 
 	vtmmio_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER);
+	kprintf("vtmmio_probe_and_attach_child: status set to DRIVER, calling device_probe_and_attach\n");
+
 	error = device_probe_and_attach(child);
+
+	kprintf("vtmmio_probe_and_attach_child: device_probe_and_attach returned %d\n", error);
+	kprintf("vtmmio_probe_and_attach_child: child state after probe=%d (DS_ATTACHED=%d)\n",
+	    device_get_state(child), DS_ATTACHED);
+
 	if (error != 0 || device_get_state(child) == DS_NOTPRESENT) {
+		kprintf("vtmmio_probe_and_attach_child: FAILED path - error=%d\n", error);
 		vtmmio_set_status(dev, VIRTIO_CONFIG_STATUS_FAILED);
 		vtmmio_reset(sc);
 		vtmmio_release_child_resources(sc);
 		vtmmio_set_status(dev, VIRTIO_CONFIG_STATUS_ACK);
 	} else {
+		kprintf("vtmmio_probe_and_attach_child: SUCCESS path - setting DRIVER_OK\n");
 		vtmmio_set_status(dev, VIRTIO_CONFIG_STATUS_DRIVER_OK);
 	}
 }
