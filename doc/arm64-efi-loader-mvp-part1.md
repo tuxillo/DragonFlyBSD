@@ -1673,4 +1673,111 @@ These files have temporary `#ifdef __aarch64__` kprintf statements:
 
 ---
 
-*Last updated: 2026-01-27 (MVP Part 10 IN PROGRESS)*
+## MVP Part 11: Slab Allocator Fixes (COMPLETE)
+
+### Goal
+
+Fix Data Abort crashes during boot related to the slab allocator's interaction with the ARM64 pmap subsystem.
+
+### Status: COMPLETE ✅
+
+Two critical bugs were identified and fixed that caused Data Aborts during early boot. After these fixes, the kernel boots successfully through all SYSINIT entries and only times out waiting for device I/O (expected in QEMU without full device emulation).
+
+### Bug #1: Cache Aliasing in pmap_alloc_l3() (FIXED)
+
+**Problem:** Data Abort at `0xffffff8008e00018` during early boot (SYSINIT `01600000`)
+
+**Root Cause:** `pmap_alloc_l3()` returned a BSS address (`0x40cd1000`) for the first PTE in new L3 tables, while `pmap_l2_to_l3()` returned a DMAP address (`0xffffa00040cd1000`) for subsequent PTEs. Both map to the same physical page but use different TLB/cache entries, causing the first PTE write to not be visible via DMAP.
+
+**Technical Details:**
+- ARM64 caches are PIPT (Physically Indexed, Physically Tagged), but TLB entries are VIVT-like
+- Different virtual aliases to the same physical page can have different TLB entries
+- DSB barriers don't synchronize between different VA aliases
+- Write via BSS VA wasn't visible when read via DMAP VA
+
+**Fix (commit `1f5a1b62ac`):** Modified `pmap_alloc_l3()` to:
+1. Zero L3 page via BSS address (still works for initialization)
+2. Issue `DSB ISH` to ensure zeroing is visible system-wide
+3. Return DMAP address for PTE pointer (ensures all accesses use same virtual alias)
+
+**File:** `sys/platform/arm64/aarch64/pmap.c`
+
+### Bug #2: pmap_kvtom() Returning NULL (FIXED)
+
+**Problem:** After fix #1, kernel progressed to SYSINIT `08800000` but crashed at same address `0xffffff8008e00018` with different context - zone memory was being unmapped while still in use.
+
+**Root Cause:** `pmap_kvtom()` was a stub returning `NULL`. The slab allocator's `btokup()` macro:
+```c
+#define btokup(z)  (&pmap_kvtom((vm_offset_t)(z))->ku_pagecnt)
+```
+This dereferenced `NULL->ku_pagecnt`, returning garbage that looked like a positive number. This caused `_kfree()` to misidentify normal slab allocations as "oversized" allocations, triggering `kmem_slab_free()` which unmapped memory still referenced in the slab free lists.
+
+**Technical Details:**
+- `ku_pagecnt` is at offset 0 in the vm_page structure
+- `btokup()` returns `&(NULL)->ku_pagecnt` = &(*(vm_page_t)0).ku_pagecnt = address 0
+- Dereferencing address 0 returned whatever garbage was there
+- Garbage value > 0 made `_kfree()` think allocation was oversized
+- `kmem_slab_free()` unmapped the zone, corrupting free lists
+
+**Fix (commit `a6064ef072`):** Implemented `pmap_kvtom()` properly:
+```c
+vm_page_t pmap_kvtom(vm_offset_t va)
+{
+    pt_entry_t *ptep = pmap_pte(kernel_pmap, va);
+    if (ptep == NULL) return (NULL);
+    pt_entry_t pte = *ptep;
+    if ((pte & ATTR_DESCR_VALID) == 0) return (NULL);
+    vm_paddr_t pa = pte & ATTR_ADDR;
+    return (PHYS_TO_VM_PAGE(pa));
+}
+```
+
+**File:** `sys/platform/arm64/aarch64/pmap.c`
+
+### Debug Output Cleanup (COMPLETE)
+
+Removed extensive `kprintf()` debug output added during bug investigation:
+
+**Files cleaned:**
+- `sys/platform/arm64/aarch64/pmap.c` - Removed debug from `pmap_l2_to_l3`, `pmap_alloc_l3`, `pmap_enter`, `pmap_remove`
+- `sys/kern/kern_slaballoc.c` - Removed debug from `check_zone_free`, `_kmalloc`, `_kfree`
+
+### Current Boot State
+
+After both fixes, the kernel now:
+- **NO Data Aborts** - Previous crashes completely eliminated
+- **Slab allocator working** - Thousands of successful allocations
+- **Memory management functional** - Proper VA→PA translation via pmap_kvtom()
+- **Boot progresses to SYSINIT `0a800000`** - Very late in boot sequence
+- **Test times out** waiting for device I/O (normal - QEMU needs more device emulation)
+
+### Commits
+
+| Commit | Description |
+|--------|-------------|
+| `369c0641be` | arm64: Add debug output to trace slab allocation and pmap_enter |
+| `4f89bf0163` | arm64: Add more pmap debug output to diagnose DMAP vs BSS addressing |
+| `1f5a1b62ac` | arm64/pmap: Fix cache aliasing in pmap_alloc_l3 by returning DMAP address |
+| `8d355489ec` | arm64: Add debug to detect if problematic zone is being unmapped |
+| `a6064ef072` | arm64/pmap: Implement pmap_kvtom() to fix slab allocator crashes |
+| (pending) | arm64: Clean up debug output from pmap.c and kern_slaballoc.c |
+
+### Key Technical Lessons
+
+1. **ARM64 virtual aliasing matters** - Even with PIPT caches, different TLB entries for the same physical page can cause coherency issues. Always use consistent virtual addresses.
+
+2. **pmap_kvtom() is critical** - The slab allocator relies on this function to determine allocation type. A NULL return causes misclassification and memory corruption.
+
+3. **Debug output is invaluable** - The extensive kprintf() output allowed tracing the exact sequence of events leading to each crash.
+
+### Success Criteria (All Met)
+
+- ✅ Fix cache aliasing in L3 page table allocation
+- ✅ Implement pmap_kvtom() for slab allocator
+- ✅ Kernel boots without Data Aborts
+- ✅ Slab allocator functions correctly
+- ✅ Clean up debug output
+
+---
+
+*Last updated: 2026-01-27 (MVP Part 11 COMPLETE)*

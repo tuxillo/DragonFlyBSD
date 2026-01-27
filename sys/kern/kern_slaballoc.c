@@ -736,17 +736,7 @@ check_zone_free(SLGlobalData *slgd, SLZone *z)
 	(TAILQ_FIRST(&slgd->ZoneAry[z->z_ZoneIndex]) != z || znext)) {
 	int *kup;
 
-#ifdef __aarch64__
-	kprintf("check_zone_free: moving zone %p to FreeZones, zi=%d\n",
-		z, z->z_ZoneIndex);
-	kprintf("check_zone_free: before TAILQ_REMOVE tqh_last=%p\n",
-		slgd->ZoneAry[z->z_ZoneIndex].tqh_last);
-#endif
 	TAILQ_REMOVE(&slgd->ZoneAry[z->z_ZoneIndex], z, z_Entry);
-#ifdef __aarch64__
-	kprintf("check_zone_free: after TAILQ_REMOVE tqh_last=%p\n",
-		slgd->ZoneAry[z->z_ZoneIndex].tqh_last);
-#endif
 
 	z->z_Magic = -1;
 	TAILQ_INSERT_HEAD(&slgd->FreeZones, z, z_Entry);
@@ -916,9 +906,6 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
 
 	    z = TAILQ_LAST(&slgd->FreeZones, SLZoneList);
 	    KKASSERT(z != NULL);
-#ifdef __aarch64__
-	    kprintf("_kmalloc hysteresis: freeing zone %p from FreeZones\n", z);
-#endif
 	    TAILQ_REMOVE(&slgd->FreeZones, z, z_Entry);
 	    --slgd->NFreeZones;
 	    kup = btokup(z);
@@ -980,26 +967,6 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
     zi = zoneindex(&size, &align);
     KKASSERT(zi < NZONES);
     crit_enter();
-
-#ifdef __aarch64__
-    {
-	/* Debug: print slgd and ZoneAry info before TAILQ_LAST */
-	SLZoneList *zlist = &slgd->ZoneAry[zi];
-	kprintf("_kmalloc: slgd=%p zi=%d zlist=%p tqh_first=%p tqh_last=%p\n",
-		slgd, zi, zlist, zlist->tqh_first, zlist->tqh_last);
-	/* TAILQ_LAST will access tqh_last+8, print that address */
-	if (zlist->tqh_last) {
-		vm_offset_t access_va = (vm_offset_t)((char *)zlist->tqh_last + 8);
-		vm_paddr_t access_pa = pmap_kextract(access_va);
-		kprintf("_kmalloc: TAILQ_LAST will access %p (pa=0x%lx)\n",
-			(void *)access_va, (unsigned long)access_pa);
-		if (access_pa == 0) {
-			kprintf("_kmalloc: WARNING: VA 0x%lx has NO MAPPING!\n",
-				(unsigned long)access_va);
-		}
-	}
-    }
-#endif
 
     if ((z = TAILQ_LAST(&slgd->ZoneAry[zi], SLZoneList)) != NULL) {
 	/*
@@ -1432,9 +1399,6 @@ _kfree(void *ptr, struct malloc_type *type)
     SLChunk *bchunk;
     int rsignal;
 
-#ifdef __aarch64__
-    kprintf("_kfree: ptr=%p type=%p\n", ptr, type);
-#endif
     logmemory_quick(free_beg);
     gd = mycpu;
     slgd = &gd->gd_slab;
@@ -1464,15 +1428,9 @@ _kfree(void *ptr, struct malloc_type *type)
      * This code is never called via an ipi.
      */
     kup = btokup(ptr);
-#ifdef __aarch64__
-    kprintf("_kfree: kup=%p *kup=%d\n", kup, *kup);
-#endif
     if (*kup > 0) {
 	size = *kup << PAGE_SHIFT;
 	*kup = 0;
-#ifdef __aarch64__
-	kprintf("_kfree: oversized path, size=%lu\n", size);
-#endif
 #ifdef INVARIANTS
 	if (use_weird_array) {
 		KKASSERT(sizeof(weirdary) <= size);
@@ -1489,16 +1447,9 @@ _kfree(void *ptr, struct malloc_type *type)
 	 * gd_intr_nesting_level so check TDF_INTTHREAD.  This is
 	 * primarily until we can fix softupdate's assumptions about free().
 	 */
-#ifdef __aarch64__
-	kprintf("_kfree: crit_enter\n");
-#endif
 	crit_enter();
 	--type->ks_use[gd->gd_cpuid].inuse;
 	type->ks_use[gd->gd_cpuid].memuse -= size;
-#ifdef __aarch64__
-	kprintf("_kfree: intr_nesting=%d td_flags=0x%x\n", 
-		mycpu->gd_intr_nesting_level, gd->gd_curthread->td_flags);
-#endif
 	if (mycpu->gd_intr_nesting_level ||
 	    (gd->gd_curthread->td_flags & TDF_INTTHREAD)) {
 	    logmemory(free_ovsz_delayed, ptr, type, size, 0);
@@ -1509,15 +1460,9 @@ _kfree(void *ptr, struct malloc_type *type)
 	    TAILQ_INSERT_HEAD(&slgd->FreeOvZones, z, z_Entry);
 	    crit_exit();
 	} else {
-#ifdef __aarch64__
-	    kprintf("_kfree: calling kmem_slab_free(%p, %lu)\n", ptr, size);
-#endif
 	    crit_exit();
 	    logmemory(free_ovsz, ptr, type, size, 0);
 	    kmem_slab_free(ptr, size);	/* may block */
-#ifdef __aarch64__
-	    kprintf("_kfree: kmem_slab_free returned\n");
-#endif
 	}
 	logmemory_quick(free_end);
 	return;
@@ -1529,14 +1474,8 @@ _kfree(void *ptr, struct malloc_type *type)
      */
     z = (SLZone *)((uintptr_t)ptr & ZoneMask);
     kup = btokup(z);
-#ifdef __aarch64__
-    kprintf("_kfree: zone case, z=%p kup=%p *kup=%d\n", z, kup, *kup);
-#endif
     KKASSERT(*kup < 0);
     KKASSERT(z->z_Magic == ZALLOC_SLAB_MAGIC);
-#ifdef __aarch64__
-    kprintf("_kfree: z_CpuGd=%p gd=%p\n", z->z_CpuGd, gd);
-#endif
 
     /*
      * If we do not own the zone then use atomic ops to free to the

@@ -158,12 +158,7 @@ pmap_l2_to_l3(pd_entry_t *l2, vm_offset_t va)
 {
 	pd_entry_t l2e = *l2;
 	pt_entry_t *l3 = (pt_entry_t *)PHYS_TO_DMAP(l2e & ATTR_ADDR);
-#ifdef __aarch64__
-	if (va >= 0xffffff8000000000UL && va < 0xffffff9000000000UL) {
-		kprintf("pmap_l2_to_l3: l2=%p l2e=0x%lx l3_pa=0x%lx l3_dmap=%p\n",
-			l2, l2e, l2e & ATTR_ADDR, l3);
-	}
-#endif
+
 	return (&l3[pmap_l3_index(va)]);
 }
 
@@ -237,11 +232,6 @@ pmap_alloc_l3(pmap_t pmap __unused, pd_entry_t *l2, vm_offset_t va)
 	 * install the L2 entry and return the DMAP pointer.
 	 */
 	__asm __volatile("dsb ish" ::: "memory");
-
-#ifdef __aarch64__
-	kprintf("pmap_alloc_l3: allocating L3 #%d for va=0x%lx, l3_bss=%p l3_dmap=%p l3_pa=0x%lx l2=%p\n",
-		kern_l3_next - 1, va, l3_bss, l3_dmap, l3_pa, l2);
-#endif
 
 	/* Install L2 entry pointing to new L3 table */
 	*l2 = l3_pa | L2_TABLE;
@@ -435,18 +425,6 @@ pmap_enter(pmap_t pmap, vm_offset_t va, struct vm_page *m, vm_prot_t prot,
 	/* Store the PTE */
 	*ptep = newpte;
 
-#ifdef __aarch64__
-	/* Debug: trace kernel slab mappings */
-	if (va >= 0xffffff8000000000UL && va < 0xffffff9000000000UL) {
-		pt_entry_t readback = *ptep;
-		kprintf("pmap_enter: va=0x%lx pa=0x%lx ptep=%p pte=0x%lx readback=0x%lx\n",
-			va, pa, ptep, newpte, readback);
-		if (readback != newpte) {
-			kprintf("pmap_enter: WARNING: PTE readback mismatch!\n");
-		}
-	}
-#endif
-
 	/* TLB invalidate */
 	__asm __volatile(
 		"dsb ishst\n"
@@ -515,36 +493,18 @@ pmap_remove(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 	vm_offset_t va;
 	vm_page_t m;
 	vm_paddr_t pa;
-	int count = 0;
 
 	if (pmap == NULL)
 		return;
 
-	/* Flag if removing the problematic zone range */
-	if (sva <= 0xffffff8008e00000UL && eva > 0xffffff8008e00000UL) {
-		kprintf("pmap_remove: *** REMOVING PROBLEMATIC ZONE 0xffffff8008e00000! ***\n");
-	}
-
-	kprintf("pmap_remove: pmap=%p sva=0x%lx eva=0x%lx\n",
-		pmap, (unsigned long)sva, (unsigned long)eva);
-
 	for (va = sva; va < eva; va += PAGE_SIZE) {
 		ptep = pmap_pte(pmap, va);
-		if (ptep == NULL) {
-			kprintf("pmap_remove: va=0x%lx ptep=NULL (skipping)\n",
-				(unsigned long)va);
+		if (ptep == NULL)
 			continue;
-		}
 
 		oldpte = *ptep;
-		if ((oldpte & ATTR_DESCR_VALID) == 0) {
-			kprintf("pmap_remove: va=0x%lx pte invalid (skipping)\n",
-				(unsigned long)va);
+		if ((oldpte & ATTR_DESCR_VALID) == 0)
 			continue;
-		}
-
-		kprintf("pmap_remove: va=0x%lx pte=0x%lx clearing\n",
-			(unsigned long)va, (unsigned long)oldpte);
 
 		/* Clear the PTE */
 		*ptep = 0;
@@ -557,20 +517,11 @@ pmap_remove(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 		/* Handle managed page removal */
 		if (oldpte & pmap->pmap_bits[PG_MANAGED_IDX]) {
 			pa = oldpte & ATTR_ADDR;
-			kprintf("pmap_remove: managed page pa=0x%lx\n",
-				(unsigned long)pa);
 			m = PHYS_TO_VM_PAGE(pa);
-			kprintf("pmap_remove: vm_page=%p\n", m);
-			if (m != NULL) {
-				kprintf("pmap_remove: calling pmap_removed_pte\n");
+			if (m != NULL)
 				pmap_removed_pte(pmap, m, oldpte);
-				kprintf("pmap_remove: pmap_removed_pte done\n");
-			}
 		}
-		count++;
 	}
-
-	kprintf("pmap_remove: cleared %d pages, doing TLB invalidate\n", count);
 
 	/* TLB invalidate the range */
 	if (sva < eva) {
@@ -580,8 +531,6 @@ pmap_remove(pmap_t pmap, vm_offset_t sva, vm_offset_t eva)
 		}
 		__asm __volatile("dsb ish; isb" ::: "memory");
 	}
-
-	kprintf("pmap_remove: done\n");
 }
 
 /*
