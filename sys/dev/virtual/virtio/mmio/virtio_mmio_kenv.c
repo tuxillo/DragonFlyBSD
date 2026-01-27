@@ -115,7 +115,7 @@ vtmmio_parsearg(driver_t *driver, device_t parent, char *arg)
 	return;
 
 bad:
-	printf("Error parsing hw.virtio.mmio.device parameter: %s\n", arg);
+	kprintf("Error parsing hw.virtio.mmio.device parameter: %s\n", arg);
 }
 
 static void
