@@ -106,8 +106,8 @@ ENTRY(cpu_lwkt_switch)
 
 	/*
 	 * Push the restore function address onto the stack.
-	 * When we switch to the new thread, its 'ret' will pop this
-	 * address and jump to it.
+	 * ARM64 'ret' returns to lr (x30), not the stack, so we store
+	 * the restore address here and load it into lr before returning.
 	 */
 	adr	x2, cpu_lwkt_restore
 	sub	sp, sp, #16
@@ -123,7 +123,8 @@ ENTRY(cpu_lwkt_switch)
 	 * Switch to the new thread:
 	 * 1. Set curthread to new thread
 	 * 2. Load new thread's stack pointer
-	 * 3. Return (which jumps to the restore function on new stack)
+	 * 3. Load restore function address into lr
+	 * 4. Return (jumps to address in lr)
 	 *
 	 * x0 = newtd (preserved from function argument)
 	 * x1 = oldtd (to be returned by restore function)
@@ -133,13 +134,23 @@ ENTRY(cpu_lwkt_switch)
 	mov	sp, x2				/* switch stacks */
 
 	/*
-	 * Move oldtd to x0 for the restore function to return.
-	 * The restore function expects oldtd in x0.
+	 * Load restore function address from new thread's stack into lr.
+	 * The restore function address was pushed by the previous switch
+	 * (or by cpu_set_thread_handler for new threads).
 	 */
-	mov	x0, x1
+	ldr	x30, [sp]
 
 	/*
-	 * Return to the restore function (address popped from new stack).
+	 * Set up arguments for restore function:
+	 * x0 = newtd (new thread, now current)
+	 * x1 = oldtd (old thread, for lwkt_switch_return)
+	 *
+	 * x0 already contains newtd (preserved from function argument)
+	 * x1 already contains oldtd (loaded at line 91)
+	 */
+
+	/*
+	 * Return to the restore function (address now in lr).
 	 */
 	ret
 END(cpu_lwkt_switch)
@@ -150,12 +161,19 @@ END(cpu_lwkt_switch)
  *	Standard LWKT restore function.  This function is always called
  *	while in a critical section.
  *
- *	Entry: x0 = old thread (to be returned to caller)
+ *	Entry: x0 = new thread (current thread after switch)
+ *	       x1 = old thread (to be returned to caller)
  *	       sp points to saved registers on new thread's stack
  *
  *	Returns: x0 = old thread (for lwkt_switch_return)
  */
 ENTRY(cpu_lwkt_restore)
+	/*
+	 * Save oldtd (x1) - we need to return it after restoring registers.
+	 * Use x9 (caller-saved temp) since we're about to restore x19-x28.
+	 */
+	mov	x9, x1
+
 	/*
 	 * Pop the restore function address placeholder (already consumed by ret).
 	 * The ret that got us here already popped the address, but we pushed
@@ -165,7 +183,6 @@ ENTRY(cpu_lwkt_restore)
 
 	/*
 	 * Restore callee-saved registers.
-	 * x0 is preserved (old thread pointer).
 	 */
 	ldp	x19, x20, [sp, #0]
 	ldp	x21, x22, [sp, #16]
@@ -179,6 +196,7 @@ ENTRY(cpu_lwkt_restore)
 	 * Return to the original caller of cpu_lwkt_switch.
 	 * x0 = old thread (for lwkt_switch_return)
 	 */
+	mov	x0, x9
 	ret
 END(cpu_lwkt_restore)
 
