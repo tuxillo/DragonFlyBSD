@@ -255,9 +255,10 @@ restart:
 		if (sip->subsystem == SI_SPECIAL_DONE)
 			continue;
 
-#if 0
-		if (bootverbose)
-			kprintf("(%08x-%p)\n", sip->subsystem, sip->func);
+#ifdef __aarch64__
+		/* Debug: trace SYSINIT execution on ARM64 */
+		if (sip->subsystem >= 0x2300000)
+			kprintf("SYSINIT(%08x-%p)\n", sip->subsystem, sip->func);
 #endif
 
 		/* Call function */
