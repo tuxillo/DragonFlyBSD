@@ -212,13 +212,8 @@ bi_copymodules(vm_offset_t addr)
 	uint64_t v;
 
 	c = addr != 0;
-	printf("bi_copymodules: starting at addr=0x%lx copy=%d\n",
-	    (unsigned long)addr, c);
 	/* Start with the first module on the list, should be the kernel. */
 	for (fp = file_findfile(NULL, NULL); fp != NULL; fp = fp->f_next) {
-		printf("bi_copymodules: %s %s f_addr=0x%lx f_size=0x%lx\n",
-		    fp->f_name, fp->f_type ? fp->f_type : "(null)",
-		    (unsigned long)fp->f_addr, (unsigned long)fp->f_size);
 		MOD_NAME(addr, fp->f_name, c); /* This must come first. */
 		MOD_TYPE(addr, fp->f_type, c);
 		if (fp->f_args)
