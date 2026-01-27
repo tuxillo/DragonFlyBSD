@@ -121,9 +121,18 @@ _start:
 	 * The page tables (ttbr0_l0, etc.) are in BSS, so we must zero BSS
 	 * first, then build the page tables into the zeroed memory.
 	 * With MMU off, we access physical memory directly.
+	 *
+	 * The linker provides __bss_start and __bss_end as virtual addresses
+	 * (linked at KERNBASE = 0xffffff8000000000). We must convert them
+	 * to physical addresses: PA = VA - KERNBASE + x28
 	 */
-	ldr	x15, .Lbss_start
-	ldr	x14, .Lbss_end
+	ldr	x15, .Lbss_start	/* x15 = __bss_start (VA) */
+	ldr	x14, .Lbss_end		/* x14 = __bss_end (VA) */
+	ldr	x16, =KERNBASE
+	sub	x15, x15, x16		/* x15 = offset from KERNBASE */
+	add	x15, x15, x28		/* x15 = physical address of BSS start */
+	sub	x14, x14, x16		/* x14 = offset from KERNBASE */
+	add	x14, x14, x28		/* x14 = physical address of BSS end */
 1:
 	cmp	x15, x14
 	b.hs	2f
