@@ -275,12 +275,17 @@ arm64_irq_handler(void)
 {
 	struct gic_irq_entry *entry;
 	int irq;
+	static int irq_count = 0;
 
 	/*
 	 * Acknowledge interrupt and get IRQ number.
 	 * Reading GICC_IAR also acknowledges the interrupt.
 	 */
 	irq = gic_get_irq();
+
+	if (++irq_count <= 10) {
+		kprintf("GIC: IRQ %d received (count=%d)\n", irq, irq_count);
+	}
 
 	/* Check for spurious interrupt */
 	if (irq == GIC_SPURIOUS_IRQ)
