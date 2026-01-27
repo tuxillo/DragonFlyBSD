@@ -1996,6 +1996,161 @@ Removed verbose debug printf() statements from the loader that were added during
 
 ---
 
+## MVP Part 13: High VA Boot Fix - Kernel Boots to Mountroot
+
+**Date:** 2026-01-27
+
+### Problem: Callout Verifier Panic
+
+After MVP Part 12, the kernel was panicking with:
+```
+panic: _callout 0x56d1de60 verifier 0x56d1de48 failed func 0x567178c0/0xffffff80000f0080
+```
+
+Debug output revealed the root cause:
+```
+proc0paddr_buff=0x56d1a000   # WRONG - physical address!
+td_kstack=0x56d1a000         # WRONG - physical address!
+```
+
+Static kernel variables should have virtual addresses like `0xffffff80xxxxxxxx`, not physical addresses.
+
+### Root Cause Analysis
+
+After `start_mmu` in locore.s, the MMU was enabled with both TTBR0 (identity map) and TTBR1 (kernel map), but the **PC remained at a low physical address**. This meant:
+
+1. Code executed via TTBR0 (identity mapping)
+2. PC-relative addressing (`adrp`/`add`) returned physical addresses
+3. All kernel symbols resolved to physical addresses instead of virtual
+
+The callout verifier failed because it compared addresses across different address spaces.
+
+### Fix 1: Jump to High VA After MMU Enable (commit `a0eca92bfd`)
+
+Following FreeBSD's approach, added a jump to high VA immediately after enabling the MMU:
+
+```asm
+/* After start_mmu returns, PC is still at low (physical) address.
+ * Jump to high VA so PC-relative addressing gives kernel VAs. */
+ldr    x15, .Lvirtdone
+br     x15
+
+virtdone:
+    /* Now running at high VA, PC-relative addresses are kernel VAs */
+    adrp   x1, initstack_end
+    ...
+
+/* Literal pool - contains linked (high VA) address */
+.Lvirtdone:
+    .quad  virtdone
+```
+
+The key insight: `ldr x15, .Lvirtdone` loads the **linked address** of `virtdone` (a high VA like `0xffffff80xxxxxxxx`) from the literal pool, then `br x15` jumps there. Since TTBR1 maps that VA, execution continues seamlessly but now PC-relative instructions return high VAs.
+
+### Fix 2: Make All L2 Entries Executable (commit `bf88ea1716`)
+
+After the high VA jump, the kernel hit an Instruction Abort:
+```
+!!! EXC ESR=000000008600000e FAR=ffffff8000311ec0 ELR=ffffff8000311ec0
+EC=21 (IABT)
+```
+
+The kernel text extends beyond 2MB, but L2 entries 1-7 were marked Execute Never (XN). Changed all 8 L2 entries to be executable:
+
+```asm
+/* L2 entries 0-7: kernel (RW, executable) - no XN bits */
+ldr    x4, =0x0000000000000709
+```
+
+**Note:** This is a security hack documented below. Proper fix requires determining kernel section boundaries.
+
+### Fix 3: Remove Broken TTBR1 Trampoline (commit `e3751ec770`)
+
+The `arm64_ttbr1_switch()` function had a trampoline that calculated incorrect addresses:
+
+```c
+/* BROKEN - assumed we were at physical address */
+uintptr_t tramp_pa = (uintptr_t)&arm64_high_trampoline;  // Now a VA!
+uintptr_t tramp_va = (tramp_pa - arm64_kern_physbase) + ARM64_KERNBASE;  // Garbage!
+```
+
+Since we're already at high VA after the locore.s fix, the trampoline is unnecessary. Simplified to just switch TTBR1 directly.
+
+### Result: Successful Boot to Mountroot
+
+After these fixes, the kernel boots successfully:
+
+```
+arm64_gdinit_full: proc0paddr_buff=0xffffff8000b1a000
+arm64_gdinit_full: thread0.td_kstack=0xffffff8000b1a000
+arm64_gdinit_full: thread0.td_pcb=0xffffff8000b1df80
+...
+[arm64] ttbr1 switching...
+[arm64] ttbr1 switch done
+...
+Mounting root from ufs:YOURDISK
+Manual root filesystem specification:
+  <fstype>:<device>  Specify root (e.g. ufs:da0s1a)
+  ?                  List valid disk boot devices
+  panic              Just panic
+  abort              Abort manual input
+
+mountroot>
+```
+
+All addresses now show correct high kernel virtual addresses (`0xffffff80xxxxxxxx`).
+
+### Boot Progress Achieved
+
+| Milestone | Status |
+|-----------|--------|
+| Loader loads kernel | ✅ |
+| MMU enabled | ✅ |
+| Jump to high VA | ✅ |
+| TTBR1 switch | ✅ |
+| Console init (PL011) | ✅ |
+| GIC init | ✅ |
+| Memory detection (375 MB) | ✅ |
+| Timer/cputimer | ✅ |
+| All SYSINITs | ✅ |
+| VirtIO disk detection | ✅ |
+| **Mountroot prompt** | ✅ |
+
+### Commits
+
+| Commit | Description |
+|--------|-------------|
+| `91a537c983` | arm64: Add debug output for stack pointer investigation |
+| `a0eca92bfd` | arm64: Jump to high VA after MMU enable |
+| `bf88ea1716` | arm64: Make all kernel page table entries executable |
+| `e3751ec770` | arm64: Remove broken TTBR1 trampoline, document known hacks |
+
+### Technical Details
+
+#### Why High VA Jump Matters
+
+```
+Before jump:  PC = 0x562xxxxx (physical via TTBR0)
+              adrp x0, symbol  -> returns physical address
+              
+After jump:   PC = 0xffffff80xxxxxxxx (virtual via TTBR1)
+              adrp x0, symbol  -> returns kernel virtual address
+```
+
+ARM64 `adrp` instruction calculates addresses relative to the current PC. If PC is physical, you get physical addresses. If PC is virtual, you get virtual addresses.
+
+#### Page Table State After Fixes
+
+```
+TTBR1 L0[511] -> L1[0] -> L2[0-7]: 8 x 2MB blocks at kernel load PA
+  - All blocks: RW, executable, MAIR idx 2 (normal memory), SH=IS, AF
+  
+TTBR0 L0[0] -> L1[0]: identity map for UART
+TTBR0 L0[0] -> L1[n]: 1GB block containing kernel (for transition)
+```
+
+---
+
 ## ⚠️ KNOWN HACKS AND ISSUES - MUST ADDRESS BEFORE RELEASE
 
 This section documents temporary hacks that must be addressed before the arm64 port
@@ -2107,4 +2262,4 @@ checking. The root cause was not fully diagnosed; disabling guards was a workaro
 
 ---
 
-*Last updated: 2026-01-27 (MVP Part 12 - Dynamic physical load address detection complete)*
+*Last updated: 2026-01-27 (MVP Part 13 - Kernel boots to mountroot prompt)*
