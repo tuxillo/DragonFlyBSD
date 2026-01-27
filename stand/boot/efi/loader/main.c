@@ -472,13 +472,35 @@ main(int argc, CHAR16 *argv[])
 
 #ifdef __aarch64__
 	/*
-	 * QEMU -M virt provides VirtIO MMIO devices at fixed addresses.
-	 * Set kenv variable for the virtio_mmio_kenv driver to discover.
+	 * QEMU -M virt provides 32 VirtIO MMIO device slots at fixed addresses.
+	 * Each slot is 0x200 bytes starting at 0x0a000000.
+	 * IRQs are 48-79 (SPI 16-47 in GIC terminology).
 	 *
-	 * Memory map: base 0x0a000000, size 0x200, IRQ 48 for device 0
+	 * QEMU assigns devices to slots from the HIGHEST slot downward, so
+	 * with one virtio-blk-device, it will be at slot 31 (0x0a003e00, IRQ 79).
+	 *
+	 * We register all 32 slots and let the kernel probe each one.
+	 * Empty slots will have device_id=0 and probe will skip them.
+	 *
 	 * Format: <size>@<baseaddr>:<irq>
 	 */
-	setenv("hw.virtio.mmio.device", "0x200@0x0a000000:48", 1);
+	{
+		char varname[40];
+		char varval[40];
+		int i;
+		
+		/* First device uses hw.virtio.mmio.device */
+		setenv("hw.virtio.mmio.device", "0x200@0x0a000000:48", 1);
+		
+		/* Remaining devices use hw.virtio.mmio.device_N */
+		for (i = 1; i < 32; i++) {
+			snprintf(varname, sizeof(varname),
+			    "hw.virtio.mmio.device_%d", i);
+			snprintf(varval, sizeof(varval),
+			    "0x200@0x%x:%d", 0x0a000000 + (i * 0x200), 48 + i);
+			setenv(varname, varval, 1);
+		}
+	}
 #endif
 
 	setenv("LINES", "24", 1);	/* optional */
