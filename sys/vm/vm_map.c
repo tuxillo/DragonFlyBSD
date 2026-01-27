@@ -3406,9 +3406,15 @@ again:
 		 * to not blindly iterate the range when pt and pd pages
 		 * are missing.
 		 */
+#ifdef __aarch64__
+		kprintf("vm_map_delete: checking wired_count=%d\n", entry->wired_count);
+#endif
 		if (entry->wired_count)
 			vm_map_entry_unwire_all(map, entry);
 
+#ifdef __aarch64__
+		kprintf("vm_map_delete: computing offidxend\n");
+#endif
 		offidxend = offidxstart + count;
 
 #ifdef __aarch64__
