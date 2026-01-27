@@ -82,8 +82,18 @@ md_strcmp(const char *a, const char *b)
 }
 
 #define	ARM64_KERNBASE	0xffffff8000000000ULL
-#define	ARM64_PHYSBASE	0x0000000040000000ULL
-#define	ARM64_PTOTV_OFF	(ARM64_KERNBASE - ARM64_PHYSBASE)
+
+/*
+ * arm64_kern_physbase - Physical address where the kernel was loaded.
+ *
+ * This is detected at runtime by locore.s (get_load_phys_addr) and stored
+ * here before calling initarm(). The EFI loader can place the kernel at
+ * any physical address, so we cannot hardcode this.
+ *
+ * Set by locore.s, used by arm64_pmap_bootstrap() to build correct page
+ * table mappings for KERNBASE -> actual physical load address.
+ */
+uint64_t arm64_kern_physbase;
 
 typedef u_long vm_offset_t;
 
@@ -371,10 +381,14 @@ arm64_pmap_bootstrap(struct arm64_phys_range *ranges, int count)
 			 * Map 16MB of kernel space (8 x 2MB blocks).
 			 * kernend is around 0x40cb0000 (~12MB), so we need
 			 * at least 7 entries. Map 8 to be safe.
+			 *
+			 * Use arm64_kern_physbase (set by locore.s) as the
+			 * base physical address. The kernel may be loaded
+			 * anywhere by the EFI loader.
 			 */
 			for (int i = 0; i < 8; i++) {
 				((u_int64_t *)(uintptr_t)l2_kern)[i] =
-				    (ARM64_PHYSBASE + (i * 0x200000)) |
+				    (arm64_kern_physbase + (i * 0x200000)) |
 				    PTE_BLOCK_NORMAL_FLAGS;
 			}
 			uart_puts("[arm64] pt l2=0x");
@@ -529,8 +543,20 @@ arm64_ttbr1_switch(void)
 
 	uart_puts("[arm64] ttbr1 switch done, calling trampoline\r\n");
 
-	void (*tramp)(void) =
-	    (void (*)(void))((uintptr_t)&arm64_high_trampoline + ARM64_PTOTV_OFF);
+	/*
+	 * Calculate the high VA for the trampoline function.
+	 * The function is linked at a low VA (identity-mapped via TTBR0).
+	 * After switching TTBR1, we want to call it via its high VA
+	 * (KERNBASE-based) to verify the new mapping works.
+	 *
+	 * High VA = (function_PA - arm64_kern_physbase) + KERNBASE
+	 *
+	 * Since arm64_high_trampoline is in the kernel image which is
+	 * identity-mapped, its current address IS its PA.
+	 */
+	uintptr_t tramp_pa = (uintptr_t)&arm64_high_trampoline;
+	uintptr_t tramp_va = (tramp_pa - arm64_kern_physbase) + ARM64_KERNBASE;
+	void (*tramp)(void) = (void (*)(void))tramp_va;
 
 	uart_puts("[arm64] trampoline addr=0x");
 	uart_puthex((u_int64_t)(uintptr_t)tramp);
@@ -905,8 +931,10 @@ initarm(uintptr_t modulep)
 		 * virtual_start begins after the kernel's static allocations.
 		 * Use arm64_boot_alloc_next which tracks our bootstrap allocations.
 		 * Convert to high VA for kernel space.
+		 *
+		 * Formula: VA = PA - arm64_kern_physbase + KERNBASE
 		 */
-		virtual_start = KERNBASE + (arm64_boot_alloc_next - ARM64_PHYSBASE);
+		virtual_start = KERNBASE + (arm64_boot_alloc_next - arm64_kern_physbase);
 		virtual_end = VM_MAX_KERNEL_ADDRESS;
 
 		/* No secondary KVA range for now */

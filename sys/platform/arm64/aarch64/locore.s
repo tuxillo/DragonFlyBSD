@@ -149,6 +149,18 @@ _start:
 	add	x1, x1, :lo12:initstack_end
 	mov	sp, x1
 
+	/*
+	 * Store the physical load address (x28) to arm64_kern_physbase
+	 * before calling initarm(). This allows C code to know where
+	 * the kernel was loaded in physical memory.
+	 *
+	 * We use adrp/add to get the physical address of the variable
+	 * since we're running with identity mapping at this point.
+	 */
+	adrp	x1, arm64_kern_physbase
+	add	x1, x1, :lo12:arm64_kern_physbase
+	str	x28, [x1]
+
 	/* Call early C entry with modulep */
 	mov	x0, x19
 	bl	initarm
