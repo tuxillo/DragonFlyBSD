@@ -88,10 +88,11 @@ extern pd_entry_t ttbr1_l2[];
 
 /*
  * Pre-allocated L3 pages for early kernel mappings.
- * 16 pages = 16 * 512 entries = 8192 PTEs = 32MB of mappable KVA.
+ * 64 pages = 64 * 512 entries = 32768 PTEs = 128MB of mappable KVA.
+ * Increased from 16 to handle device driver KVA allocations during boot.
  * This matches FreeBSD's approach for early boot before kmalloc works.
  */
-#define NKERN_L3_PAGES	16
+#define NKERN_L3_PAGES	64
 static pt_entry_t kern_l3_pages[NKERN_L3_PAGES][Ln_ENTRIES] __aligned(PAGE_SIZE);
 static int kern_l3_next = 0;
 
