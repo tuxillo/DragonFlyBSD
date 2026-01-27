@@ -289,6 +289,13 @@ restart:
 		/* Call function */
 		(*(sip->func))(sip->udata);
 
+#ifdef __aarch64__
+		/* Debug: confirm function returned */
+		if (sip->subsystem >= 0x7400000) {
+			kprintf("  <- returned from %p\n", sip->func);
+		}
+#endif
+
 		/* Check off the one we're just done */
 		sip->subsystem = SI_SPECIAL_DONE;
 
