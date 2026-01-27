@@ -420,6 +420,13 @@ pmap_enter(pmap_t pmap, vm_offset_t va, struct vm_page *m, vm_prot_t prot,
 	}
 	if (wired && (origpte == 0 || !(origpte & pmap->pmap_bits[PG_W_IDX]))) {
 		pmap->pm_stats.wired_count++;
+		/*
+		 * Wire the page in the VM system.  This increments m->wire_count
+		 * which will be decremented by vm_page_unwire() when pmap_unwire()
+		 * returns this page during unwiring.
+		 */
+		if ((m->flags & PG_FICTITIOUS) == 0)
+			vm_page_wire(m);
 	}
 }
 
