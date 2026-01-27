@@ -3366,10 +3366,21 @@ again:
 
 		s = entry->ba.start;
 		e = entry->ba.end;
+#ifdef __aarch64__
+		kprintf("vm_map_delete: s=0x%lx e=0x%lx\n",
+			(unsigned long)s, (unsigned long)e);
+#endif
 		next = vm_map_rb_tree_RB_NEXT(entry);
+#ifdef __aarch64__
+		kprintf("vm_map_delete: next=%p\n", next);
+#endif
 
 		offidxstart = OFF_TO_IDX(entry->ba.offset);
 		count = OFF_TO_IDX(e - s);
+#ifdef __aarch64__
+		kprintf("vm_map_delete: offidxstart=%ld count=%ld maptype=%d\n",
+			(long)offidxstart, (long)count, entry->maptype);
+#endif
 
 		switch(entry->maptype) {
 		case VM_MAPTYPE_NORMAL:
@@ -3381,6 +3392,9 @@ again:
 			object = NULL;
 			break;
 		}
+#ifdef __aarch64__
+		kprintf("vm_map_delete: object=%p\n", object);
+#endif
 
 		/*
 		 * Unwire before removing addresses from the pmap; otherwise,
@@ -3397,8 +3411,17 @@ again:
 
 		offidxend = offidxstart + count;
 
+#ifdef __aarch64__
+		kprintf("vm_map_delete: kernel_object=%p\n", kernel_object);
+#endif
 		if (object == kernel_object) {
+#ifdef __aarch64__
+			kprintf("vm_map_delete: calling pmap_remove for kernel_object\n");
+#endif
 			pmap_remove(map->pmap, s, e);
+#ifdef __aarch64__
+			kprintf("vm_map_delete: pmap_remove done\n");
+#endif
 			vm_object_hold(object);
 			vm_object_page_remove(object, offidxstart,
 					      offidxend, FALSE);
