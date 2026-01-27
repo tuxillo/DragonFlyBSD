@@ -70,6 +70,7 @@ run_interrupt_driven_config_hooks(void *dummy)
 	int waiting;
 
 #ifdef __aarch64__
+	kprintf("X");  /* Minimal test - does kprintf work at all here? */
 	kprintf("ARM64: run_interrupt_driven_config_hooks: start\n");
 #endif
 
