@@ -1192,11 +1192,77 @@ These debug markers were added during bring-up:
 
 Implement `cpu_startup()` for ARM64 to initialize kernel submaps (`buffer_map`, `pager_map`, `clean_map`) and buffer arrays required by the VM subsystem.
 
+### Status: COMPLETE ✅
+
+The `cpu_startup()` function has been implemented in `sys/platform/arm64/aarch64/machdep.c`. The kernel now successfully initializes buffer cache and VM submaps.
+
+### Implementation Summary
+
+**Commit:** `1b68068698` - arm64: Implement cpu_startup() and remove timer debug output
+
+Changes made:
+1. Added `MAXBUFSTRUCTSIZE` constant and static variables (`buffer_sva`, `buffer_eva`, `clean_sva`, `clean_eva`, `pager_sva`, `pager_eva`)
+2. Implemented full `cpu_startup()` function following x86_64 pattern
+3. Calculates `nbuf`, `nswbuf_mem`, `nswbuf_kva` based on physmem
+4. Creates VM submaps via `kmem_suballoc()`: `clean_map`, `buffer_map`, `pager_map`
+5. Registered with `SYSINIT(cpu, SI_BOOT2_START_CPU, SI_ORDER_FIRST, cpu_startup, NULL)`
+6. Removed timer debug kprintf() statements from `kern_cputimer.c` and `kern_systimer.c`
+
+### Additional Fixes (same session)
+
+**Commit:** `83afdd8c77` - arm64: Add tsc_frequency for kern_clock.c compatibility
+- Added `tsc_frequency` variable for `kern_clock.c` compatibility
+- ARM64 uses generic timer counter frequency (CNTFRQ_EL0)
+
+**Commit:** `a70e25f0c0` - arm64: Add tsc_present for kern_nrandom.c compatibility
+- Added `tsc_present` variable for `kern_nrandom.c` compatibility
+- ARM64 generic timer is always present (mandatory per ARMv8)
+
+**Commit:** `d4c0b8432a` - arm64: Remove duplicate tsc_present/tsc_frequency from machdep.c
+- Cleaned up duplicate definitions (now properly in generic_timer.c)
+
+### Success Criteria (All Met)
+
+- [x] Kernel passes `vm_pager_bufferinit()` without panicking
+- [x] Kernel continues past `SI_BOOT2_MACHDEP` (0x1d80000)
+- [x] `pager_map` is properly initialized before use
+- [x] Timer debug output removed from kern_cputimer.c and kern_systimer.c
+
+### Current Boot Output (Post cpu_startup)
+
+```
+DragonFly 6.5-DEVELOPMENT #58: Tue Jan 27 00:19:14 UTC 2026
+    root@dev01.localhost:/usr/src/sys/compile/ARM64_GENERIC
+real memory  = 461320192 (439 MB)
+avail memory = 461320192 (439 MB)
+SYSINIT: subsystem 01a58000
+CPU Topology: cores_per_chip: 1; threads_per_core: 1; chips_per_package: 1;
+SYSINIT: subsystem 01a80000
+Initialize MI interrupts for 1 cpus
+SYSINIT: subsystem 01ac0000
+ARM64 timer: frequency 24000000 Hz (24.0 MHz)
+ARM64 timer: calling cputimer_intr_register
+ARM64 timer: calling cputimer_intr_select
+ARM64 timer: calling cputimer_register
+ARM64 timer: calling cputimer_select
+ARM64 timer: registered cputimer and cputimer_intr
+... [continues through many more SYSINITs] ...
+panic: cpu_lwkt_switch: real context switch not implemented
+```
+
+---
+
+## MVP Part 8: cpu_lwkt_switch() - LWKT Context Switching
+
+### Goal
+
+Implement ARM64 context switching for the Light Weight Kernel Thread (LWKT) subsystem to allow the kernel to switch between threads.
+
 ### Status: PENDING
 
 The kernel currently panics with:
 ```
-panic: Not enough pager_map VM space for physical buffers
+panic: cpu_lwkt_switch: real context switch not implemented
 cpuid = 0
 boot() called on cpu#0
 Uptime: 1s
@@ -1204,166 +1270,58 @@ Uptime: 1s
 
 ### Problem Analysis
 
-ARM64 is missing the `cpu_startup()` function that x86_64 has in `sys/platform/pc64/x86_64/machdep.c:327-510`. This function:
+The LWKT scheduler needs to switch between kernel threads. On ARM64, this requires:
+1. Saving callee-saved registers (x19-x30)
+2. Saving/restoring stack pointer (sp)
+3. Saving/restoring program counter (via x30/lr)
 
-1. Calculates `nbuf`, `nswbuf_mem`, `nswbuf_kva` based on physmem
-2. Allocates `swbuf_mem`, `swbuf_kva`, `buf` arrays via `valloc()`
-3. Creates `clean_map`, `buffer_map`, `pager_map` submaps via `kmem_suballoc()`
-
-Without `cpu_startup()`, `pager_map` is never initialized, causing `vm_pager_bufferinit()` to fail at `SI_BOOT2_MACHDEP` (0x1d80000).
-
-### SYSINIT Order (Relevant)
-
-| Priority | Name | Description |
-|----------|------|-------------|
-| 0x1a40000 | SI_BOOT2_START_CPU | Where `cpu_startup()` must run |
-| 0x1d80000 | SI_BOOT2_MACHDEP | Where `vm_pager_bufferinit()` runs (needs pager_map) |
-
-### Reference: x86_64 cpu_startup()
-
-Located at `sys/platform/pc64/x86_64/machdep.c:327-510`. Key operations:
-
+The current stub in `machdep.c:1536` just panics:
 ```c
-static void
-cpu_startup(void *dummy)
+void
+cpu_lwkt_switch(struct thread *ntd)
 {
-    // Calculate nbuf based on physmem
-    // valloc() swbuf_mem, swbuf_kva, buf arrays
-    // kmem_suballoc() to create clean_map, buffer_map, pager_map
-    
-    kmem_suballoc(kernel_map, clean_map, &clean_sva, &clean_eva, ...);
-    kmem_suballoc(clean_map, buffer_map, &buffer_sva, &buffer_eva, ...);
-    kmem_suballoc(clean_map, pager_map, &pager_sva, &pager_eva, ...);
-    pager_map->system_map = 1;
+    struct thread *otd = curthread;
+    if (otd == ntd)
+        return;
+    panic("cpu_lwkt_switch: real context switch not implemented");
 }
-SYSINIT(cpu, SI_BOOT2_START_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
 ```
+
+### Reference: x86_64 Implementation
+
+Located at `sys/platform/pc64/x86_64/swtch.s`. Key operations:
+1. Save callee-saved registers to old thread's PCB
+2. Switch stack pointer to new thread
+3. Restore callee-saved registers from new thread's PCB
+4. Return (which continues in new thread context)
 
 ### Implementation Plan
 
-#### Files to Modify
-
+**Files to create/modify:**
 | File | Changes |
 |------|---------|
-| `sys/platform/arm64/aarch64/machdep.c` | Add `cpu_startup()` function with SYSINIT |
-| `sys/kern/kern_cputimer.c` | Remove debug kprintf() from `cputimer_select()` |
-| `sys/kern/kern_systimer.c` | Remove debug kprintf() from `systimer_changed()` |
+| `sys/platform/arm64/aarch64/swtch.S` | New file - assembly context switch |
+| `sys/platform/arm64/aarch64/machdep.c` | Remove stub, extern declaration |
+| `sys/platform/arm64/conf/files` | Add swtch.S to build |
 
-#### Required Includes (already present in machdep.c)
+**ARM64 Callee-saved registers:**
+- x19-x28: General purpose callee-saved
+- x29 (fp): Frame pointer
+- x30 (lr): Link register (return address)
+- sp: Stack pointer
 
-```c
-#include <sys/buf.h>
-#include <sys/kernel.h>
-#include <vm/vm_kern.h>
-#include <vm/vm_pager.h>
-```
-
-#### Implementation Steps
-
-**Step 1: Add constant and static variables (near top of machdep.c):**
-
-```c
-#define MAXBUFSTRUCTSIZE    ((size_t)512 * 1024 * 1024)
-
-static vm_offset_t buffer_sva, buffer_eva;
-vm_offset_t clean_sva, clean_eva;
-static vm_offset_t pager_sva, pager_eva;
-```
-
-**Step 2: Implement `cpu_startup()` function:**
-
-Core operations (following x86_64 pattern):
-1. Print kernel version string
-2. Print real memory size
-3. Optionally print physical memory chunks (when bootverbose)
-4. Calculate `nbuf` based on `physmem`:
-   - Base: 50 buffers
-   - Add more based on memory above 128MB
-   - Cap at `MAXBUFSTRUCTSIZE / sizeof(struct buf)`
-   - Cap at 50% of physical memory
-5. Calculate `nswbuf_mem = max(min(nbuf/32, 512), 8)`
-6. Calculate `nswbuf_kva = max(min(nbuf/4, 512), 16)`
-7. Two-pass valloc allocation:
-   - Pass 1: Calculate total size needed
-   - Allocate via `kmem_alloc(kernel_map, size, VM_SUBSYS_BUF)`
-   - Pass 2: Assign addresses to `swbuf_mem`, `swbuf_kva`, `buf`
-8. Create VM submaps via `kmem_suballoc()`:
-   - `clean_map` from `kernel_map`
-   - `buffer_map` from `clean_map`
-   - `pager_map` from `clean_map`
-9. Set `buffer_map->system_map = 1` and `pager_map->system_map = 1`
-10. Print available memory
-
-**Step 3: Register with SYSINIT:**
-
-```c
-SYSINIT(cpu, SI_BOOT2_START_CPU, SI_ORDER_FIRST, cpu_startup, NULL);
-```
-
-**Step 4: Remove timer debug output:**
-
-Remove debug kprintf() statements added during timer bring-up from:
-- `sys/kern/kern_cputimer.c` - `cputimer_select()`
-- `sys/kern/kern_systimer.c` - `systimer_changed()` and `systimer_changed_pcpu()`
-
-### Key Variables (from x86_64)
-
-| Variable | Description |
-|----------|-------------|
-| `nbuf` | Number of buffer headers |
-| `nswbuf_mem` | Number of swap buffers (memory) |
-| `nswbuf_kva` | Number of swap buffers (KVA) |
-| `swbuf_mem` | Swap buffer array (memory) |
-| `swbuf_kva` | Swap buffer array (KVA) |
-| `buf` | Buffer header array |
-| `clean_map` | VM submap for clean I/O |
-| `buffer_map` | VM submap for buffers |
-| `pager_map` | VM submap for pager (must be initialized!) |
-
-### Simplified nbuf Calculation for ARM64
-
-```c
-/* Calculate nbuf: ~1/20 of physical memory for buffer cache, min 50 */
-if (nbuf == 0) {
-    long factor = NBUFCALCSIZE / 1024;       /* KB per buf */
-    long kbytes = physmem * (PAGE_SIZE / 1024);
-    
-    nbuf = 50;
-    if (kbytes > 128 * 1024)
-        nbuf += (kbytes - 128 * 1024) / (factor * 20);
-    
-    /* Cap at reasonable limit */
-    if ((size_t)nbuf * sizeof(struct buf) > MAXBUFSTRUCTSIZE) {
-        kprintf("Warning: nbuf capped at %ld due to reasonability limit\n", nbuf);
-        nbuf = MAXBUFSTRUCTSIZE / sizeof(struct buf);
-    }
-    
-    /* Cap based on available physical memory (50%) */
-    if (nbuf > physmem * PAGE_SIZE / (NBUFCALCSIZE * 2)) {
-        nbuf = physmem * PAGE_SIZE / (NBUFCALCSIZE * 2);
-        kprintf("Warning: nbufs capped at %ld due to physmem\n", nbuf);
-    }
-}
-
-nswbuf_mem = lmax(lmin(nbuf / 32, 512), 8);
-nswbuf_kva = lmax(lmin(nbuf / 4, 512), 16);
-```
+**PCB fields needed:**
+- `pcb_x19` through `pcb_x28`
+- `pcb_x29` (fp)
+- `pcb_x30` (lr) 
+- `pcb_sp`
 
 ### Success Criteria
 
-- [ ] Kernel passes `vm_pager_bufferinit()` without panicking
-- [ ] Kernel continues past `SI_BOOT2_MACHDEP` (0x1d80000)
-- [ ] `pager_map` is properly initialized before use
-- [ ] Timer debug output removed from kern_cputimer.c and kern_systimer.c
-
-### Testing
-
-After implementation:
-1. Build kernel via arm64-port-testing subagent
-2. Run QEMU test
-3. Expected: Kernel should get past the "Not enough pager_map VM space" panic
-4. Boot output should be cleaner (no timer debug messages)
+- [ ] `cpu_lwkt_switch()` implemented in assembly
+- [ ] Kernel can switch between threads without panicking
+- [ ] Kernel continues boot past current failure point
 
 ---
 
-*Last updated: 2026-01-27 (MVP Part 7 consolidated with full implementation plan)*
+*Last updated: 2026-01-27 (MVP Part 7 COMPLETE, MVP Part 8 added)*
