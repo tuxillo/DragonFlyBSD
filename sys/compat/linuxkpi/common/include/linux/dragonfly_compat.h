@@ -48,6 +48,7 @@
 #include <sys/vnode.h>
 #include <sys/errno.h>
 #include <sys/bitstring.h>
+#include <sys/rman.h>
 #include <sys/mutex.h>
 #include <sys/mutex2.h>
 #include <sys/lock.h>
@@ -65,6 +66,11 @@
 #include <vm/vm_page.h>
 #include <vm/vm_extern.h>
 #include <vm/vm_kern.h>
+
+#ifndef _LINUXKPI_RMAN_RES_T
+typedef u_long rman_res_t;
+#define _LINUXKPI_RMAN_RES_T
+#endif
 #include <sys/vmmeter.h>
 
 /*
