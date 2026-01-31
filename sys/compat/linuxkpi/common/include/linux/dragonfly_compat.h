@@ -459,11 +459,11 @@ kva_free(vm_offset_t addr, vm_size_t size)
  * malloc_domainset/contigmalloc_domainset - ignore domainset.
  */
 #ifndef malloc_domainset
-#define malloc_domainset(size, type, flags, domain)	\
+#define malloc_domainset(size, type, domain, flags, ...)	\
 	malloc((size), (type), (flags))
 #endif
 #ifndef contigmalloc_domainset
-#define contigmalloc_domainset(size, type, flags, low, high, align, boundary, domain, memattr)	\
+#define contigmalloc_domainset(size, type, domain, flags, low, high, align, boundary, ...)	\
 	contigmalloc((size), (type), (flags), (low), (high), (align), (boundary))
 #endif
 
