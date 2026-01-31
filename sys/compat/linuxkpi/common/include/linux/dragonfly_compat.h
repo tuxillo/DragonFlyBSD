@@ -265,6 +265,15 @@ strchrnul(const char *s, int c)
 #define bitcountl(x)	__builtin_popcountl((unsigned long)(x))
 #endif
 
+#ifndef PROC_LOCK
+#define PROC_LOCK(p) lwkt_gettoken(&(p)->p_token)
+#define PROC_UNLOCK(p) lwkt_reltoken(&(p)->p_token)
+#define PROC_LOCK_ASSERT(p, what) do { \
+	if ((what) == MA_OWNED) \
+		ASSERT_LWKT_TOKEN_HELD(&(p)->p_token); \
+} while (0)
+#endif
+
 /*
  * thread lookup and signal helpers.
  */
