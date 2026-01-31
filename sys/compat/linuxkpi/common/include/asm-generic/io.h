@@ -31,9 +31,11 @@
 
 #include <machine/cpufunc.h>
 
+#ifndef __DragonFly__
 #define	outb(a,b)	outb(b,a)
 #define	outw(a,b)	outw(b,a)
 #define	outl(a,b)	outl(b,a)
+#endif
 
 #endif
 

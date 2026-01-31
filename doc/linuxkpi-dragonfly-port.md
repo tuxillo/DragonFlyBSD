@@ -21,21 +21,29 @@ The LinuxKPI port is **GPU/DRM-focused only**. All networking, wireless, USB, an
 **Branch:** `port-linuxkpi`
 **Backup:** `backup-port-linuxkpi-115commits` (original 115 commits before squashing)
 
-### Commit History (3 clean commits)
+### Commit History (recent)
 
 ```
-136dbb5672 doc: Add LinuxKPI porting documentation and build agent
-362b42d15f linuxkpi: Add FreeBSD LinuxKPI, Concurrency Kit, and eventfd for DRM/GPU
-b0d64f73d4 drm: Remove legacy DRM stack to prepare for LinuxKPI-based drm-kmod
-<origin/master>
+c02154e447 linuxkpi: Move PROC_LOCK before tdfind
+ad8f587d67 linuxkpi: Add rman_res_t for DragonFly
+54905cc935 linuxkpi: Add PCI stubs and rename ida_init
+468a0a3a2d linuxkpi: Add DragonFly VM and thread shims
+6103239379 linuxkpi: Add DragonFly scheduler and VM helpers
+84b6b732fc linuxkpi: Adjust domainset alloc shims
+1efe33da8c linuxkpi: Relax callout_reset_sbt shim
+339c179671 linuxkpi: Fix vm_fault_page_quick shim
+892260b3f3 linuxkpi: Fix vm_page_flag_set macro
+... (earlier import and DRM removal commits)
 ```
 
 ### Build Status
 
 **Last tested:** 2026-01-31
-**Result:** FAIL (expected - API mismatches need fixing in Phase 2C)
+**Result:** PASS (full `buildkernel` on X86_64_GENERIC)
 
-The kernel builds up to LinuxKPI compilation, then fails with API mismatches between FreeBSD and DragonFly. See Phase 2C for details.
+LinuxKPI now builds cleanly in the DragonFly kernel. Remaining work is
+functional validation (drm-kmod build and runtime) and reducing stubbed
+compat glue where possible.
 
 ---
 
@@ -363,38 +371,25 @@ Phase 2B completed successfully:
 
 ### Phase 2C: Fix Remaining Compilation Errors
 
-**Status:** IN PROGRESS
+**Status:** BUILD CLEAN ✓ (functional validation pending)
 **Started:** 2026-01-31
 **Goal:** Fix API mismatches between FreeBSD and DragonFly in LinuxKPI source files
 
-#### Current Build Errors (from quickkernel test)
+#### What was fixed
 
-The following errors need to be fixed:
+- PCI MSI inline clash and PCI helper gaps (MSI/MSI-X shims and fallbacks)
+- I2C bus interface naming differences (`iicbus_*` method mapping)
+- Netdevice notifier stubs for DRM-only build
+- Memory/page API mismatches (`vm_page_initfake`, `jiffies`, vm fault helpers)
+- Scheduler/thread helpers (PROC_LOCK ordering, tdfind/tdsignal shims)
+- Kernel callout and timer shims (hrtimer path)
+- IDR/IDA symbol conflict (`ida_init` rename)
 
-**1. PCI MSI Function Declaration Conflict** (3 files affected)
-- Files: `linux_aperture.c`, `linux_firmware.c`, `linux_folio.c`
-- Error: `static declaration of 'pci_alloc_msi' follows non-static declaration`
-- Location: `sys/bus/pci/pcivar.h:453`
-- Cause: Conflict between static inline function in header and extern declaration
+#### Current status
 
-**2. I2C Bus Interface Errors** (`linux_i2c.c`)
-- Line 137: `'iicbus_transfer_desc' undeclared` (DragonFly uses `iicbus_transfer_gen`)
-- Line 138: `'iicbus_reset_desc' undeclared` (DragonFly uses `iicbus_reset`)
-- Line 139: `'iicbus_callback_desc' undeclared` (DragonFly uses `iicbus_callback`)
-
-**3. Unknown Storage Size** (`linux_compat.c`)
-- Lines 2612, 2627, 2639, 2651, 2663: `storage size of 'ni' isn't known`
-- Cause: Missing type definition or incomplete type for network interface variable `ni`
-
-**4. Implicit Function Declaration** (`linux_compat.c:485`)
-- Function: `vm_page_updatefake()` not declared
-- DragonFly equivalent: `vm_page_initfake`
-
-#### Failed Object Files
-
-- `linux_aperture.o`
-- `linux_i2c.o`
-- `linux_compat.o`
+- `quickkernel` and full `buildkernel` pass on X86_64_GENERIC
+- Remaining work is drm-kmod build and runtime validation, and replacing
+  stubbed PCI helpers with real DragonFly implementations where needed
 
 ---
 
@@ -581,3 +576,35 @@ drm-kmod requires **199 unique Linux headers**. Key categories:
 | FP in kernel for AMD DC | MEDIUM | Test early; may need DC workarounds |
 | DragonFly PCI differences | MEDIUM | Adapt `linux_pci.c` as needed |
 | Thread/scheduler differences | MEDIUM | Test RCU integration thoroughly |
+
+---
+
+## DRM-KMOD Validation Plan (QEMU-first)
+
+### QEMU-first loop (low-turnover)
+
+1. **Prepare sources**
+   - Record DragonFly commit hash used for the kernel build.
+   - Record drm-kmod commit hash.
+   - Repo locations:
+     - VM: `/opt/s/drm-kmod`
+     - Local: `~/s/drm-kmod`
+2. **Build drm-kmod (clean)**
+   - Build against the DragonFly source tree for the recorded commit.
+   - Capture missing headers/symbols and API mismatches.
+3. **Module load sanity (no GPU required)**
+   - Load drm-kmod modules in QEMU without passthrough.
+   - Verify clean load/unload and no unresolved symbols.
+4. **Fix build/runtime errors (iterative)**
+   - Add minimal LinuxKPI shims or DragonFly mappings only when exercised.
+5. **Gate for hardware**
+   - Only move to real hardware once drm-kmod builds cleanly and modules load cleanly in QEMU.
+
+### Hardware milestone (when ready)
+
+1. **Install kernel + modules**
+   - Install updated kernel and drm-kmod modules.
+2. **Boot and probe**
+   - Load required DRM modules and confirm GPU probe.
+3. **Functional smoke test**
+   - Validate console/X11/Wayland and basic GPU activity.

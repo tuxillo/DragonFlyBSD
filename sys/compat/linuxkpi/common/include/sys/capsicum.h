@@ -112,13 +112,18 @@
 #define CAP_FCNTL_SETOWN 0x08
 
 /* Capability mode ioctls */
+#ifndef IOCBASECMD
 #define IOCBASECMD(cmd)     ((cmd) & ~(0xFF << 16))
+#endif
+#ifndef IOCGROUP
 #define IOCGROUP(cmd)       (((cmd) >> 8) & 0xFF)
+#endif
 
 /* Capability rights structure (stub) */
 struct cap_rights {
     uint64_t cr_rights[2];  /* Capability rights */
 };
+typedef struct cap_rights cap_rights_t;
 
 /* Capability mode status for process */
 struct cap_mode {

@@ -41,8 +41,12 @@
  */
 
 /* x86_64 specific cache line size */
+#ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE		64
+#endif
+#ifndef CACHE_LINE_SHIFT
 #define CACHE_LINE_SHIFT	6
+#endif
 
 /* Page-level cache attributes for x86 PAT (Page Attribute Table) */
 #ifndef _MACHINE_PAT_H_
@@ -56,20 +60,38 @@
 #endif
 
 /* Memory type range definitions */
+#ifndef VM_MEMATTR_DEFAULT
 #define VM_MEMATTR_DEFAULT	0
+#endif
+#ifndef VM_MEMATTR_UNCACHEABLE
 #define VM_MEMATTR_UNCACHEABLE	1
+#endif
+#ifndef VM_MEMATTR_WRITE_COMBINING
 #define VM_MEMATTR_WRITE_COMBINING	2
+#endif
+#ifndef VM_MEMATTR_WRITE_THROUGH
 #define VM_MEMATTR_WRITE_THROUGH	3
+#endif
+#ifndef VM_MEMATTR_WRITE_BACK
 #define VM_MEMATTR_WRITE_BACK	4
+#endif
+#ifndef VM_MEMATTR_WEAKLY_ORDERED
 #define VM_MEMATTR_WEAKLY_ORDERED	5
+#endif
 
 /*
  * Cacheability attributes for device memory mapping
  * These are commonly used by DRM drivers for GPU memory
  */
+#ifndef VM_WC
 #define VM_WC			VM_MEMATTR_WRITE_COMBINING
+#endif
+#ifndef VM_UNCACHED
 #define VM_UNCACHED		VM_MEMATTR_UNCACHEABLE
+#endif
+#ifndef VM_CACHEABLE
 #define VM_CACHEABLE		VM_MEMATTR_WRITE_BACK
+#endif
 
 /* Page attribute flags for machine-level operations */
 #define VM_PAGE_FICTITIOUS	0x01

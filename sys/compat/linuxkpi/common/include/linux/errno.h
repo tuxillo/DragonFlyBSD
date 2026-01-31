@@ -65,7 +65,9 @@
 #define	EIOCBQUEUED	529
 #define	ERFKILL		530
 #define	EBADE		531
+#ifndef ENOMEDIUM
 #define	ENOMEDIUM	532
+#endif
 #define	ENOSR		533
 #define	ELNRNG		534
 #define	ENAVAIL		535

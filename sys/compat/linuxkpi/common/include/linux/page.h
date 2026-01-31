@@ -111,7 +111,7 @@ static inline void
 lkpi_clflushopt(unsigned long addr)
 {
 	if (cpu_stdext_feature & CPUID_STDEXT_CLFLUSHOPT)
-		clflushopt(addr);
+		clflush(addr);
 	else if (cpu_feature & CPUID_CLFSH)
 		clflush(addr);
 	else

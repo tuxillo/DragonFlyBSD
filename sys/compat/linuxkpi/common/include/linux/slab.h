@@ -36,6 +36,7 @@
 #include <sys/types.h>
 #include <sys/malloc.h>
 #include <sys/limits.h>
+#include <sys/param.h>
 /*
  * DragonFly: include sys/uio.h BEFORE we define kfree macro.
  * sys/uio.h contains iovec_free() which uses native kfree(ptr, type).
@@ -315,7 +316,7 @@ kfree_sensitive(const void *ptr)
 	if (ZERO_OR_NULL_PTR(ptr))
 		return;
 
-	zfree(__DECONST(void *, ptr), M_KMALLOC);
+	kfree(ptr);
 }
 
 static inline size_t
@@ -323,6 +324,16 @@ ksize(const void *ptr)
 {
 	return (malloc_usable_size(ptr));
 }
+
+#ifndef malloc_size
+static inline size_t
+malloc_size(size_t size)
+{
+	if (size <= MINALLOCSIZE)
+		return (MINALLOCSIZE);
+	return (roundup2(size, MINALLOCSIZE));
+}
+#endif
 
 static inline size_t
 kmalloc_size_roundup(size_t size)

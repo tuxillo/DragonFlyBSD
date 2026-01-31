@@ -51,6 +51,14 @@
 #define	BITS_PER_TYPE(t)	(sizeof(t) * BITS_PER_BYTE)
 #define	BITS_TO_BYTES(n)	howmany((n), BITS_PER_BYTE)
 
+#ifndef ffsll
+static inline int
+ffsll(long long mask)
+{
+	return (__builtin_ffsll(mask));
+}
+#endif
+
 #if __has_builtin(__builtin_popcountg)
 #define	HWEIGHT8(x)	(__builtin_popcountg((uint8_t)(x)))
 #define	HWEIGHT16(x)	(__builtin_popcountg((uint16_t)(x)))

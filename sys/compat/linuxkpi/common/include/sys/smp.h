@@ -49,8 +49,12 @@
 #endif
 
 /* CPU identification */
+#ifndef CPU_FOREACH
 #define CPU_FOREACH(cpu) for ((cpu) = 0; (cpu) < ncpus; (cpu)++)
+#endif
+#ifndef CPU_FOREACH_ISSET
 #define CPU_FOREACH_ISSET(cpu, cpuset) CPU_FOREACH(cpu)
+#endif
 
 /* smp_processor_id equivalent - use mycpuid */
 #define smp_processor_id() mycpuid

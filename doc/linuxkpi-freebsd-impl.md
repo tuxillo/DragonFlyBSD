@@ -387,4 +387,11 @@ DragonFly now has native kernel eventfd support:
 - `sys/sys/eventfd.h` - Kernel header
 - `DTYPE_EVENTFD` in `sys/sys/file.h`
 
+### DragonFly Build Status (GPU/DRM scope)
+
+As of 2026-01-31, LinuxKPI builds cleanly on DragonFly with a set of
+compatibility shims in `sys/compat/linuxkpi/common/include/linux/dragonfly_compat.h`.
+Build success does not yet imply full runtime support; drm-kmod build and
+runtime validation are still pending.
+
 See `doc/linuxkpi-dragonfly-port.md` for current porting status.

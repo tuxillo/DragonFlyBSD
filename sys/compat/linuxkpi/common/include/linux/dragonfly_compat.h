@@ -37,6 +37,7 @@
  */
 
 #include <sys/param.h>
+#include <sys/cdefs.h>
 #include <sys/types.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
@@ -255,7 +256,7 @@ strchrnul(const char *s, int c)
 
 	while (*p && *p != (char)c)
 		p++;
-	return ((char *)p);
+	return (__DECONST(char *, p));
 }
 
 /*
@@ -618,6 +619,8 @@ refcount_acquire_if_not_zero(volatile u_int *countp)
  * XXX: This may cause incorrect behavior in code that relies on this.
  */
 #ifndef taskqueue_poll_is_busy
+struct task;
+struct taskqueue;
 static __inline int
 taskqueue_poll_is_busy(struct taskqueue *tq __unused, struct task *t __unused)
 {
@@ -1107,13 +1110,7 @@ lkpi_finit(struct file *fp, int flags, int type, void *data,
 static __inline void
 lkpi_fdclose(struct thread *td, struct file *fp, int fd)
 {
-    struct filedesc *fdp = td->td_proc->p_fd;
-    
-    /* Remove the fd from the descriptor table */
-    funsetfd(fdp, fd);
-    
-    /* Drop the reference */
-    fdrop(fp);
+	dropfp(td, fd, fp);
 }
 
 /*
