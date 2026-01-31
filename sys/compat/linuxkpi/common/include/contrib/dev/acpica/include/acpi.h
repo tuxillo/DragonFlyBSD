@@ -24,8 +24,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __ACPI_H__
-#define __ACPI_H__
+#ifndef _LINUXKPI_ACPICA_REDIRECT_H_
+#define _LINUXKPI_ACPICA_REDIRECT_H_
 
 /* 
  * This is a compatibility redirect for LinuxKPI.
@@ -37,4 +37,4 @@
 
 #include <acpi/acpi.h>
 
-#endif /* __ACPI_H__ */
+#endif /* _LINUXKPI_ACPICA_REDIRECT_H_ */
