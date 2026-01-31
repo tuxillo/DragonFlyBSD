@@ -382,7 +382,7 @@ vm_fault_quick_hold_pages(vm_map_t map __unused, vm_offset_t start,
 	int error;
 
 	for (i = 0, va = start; i < nr_pages; i++, va += PAGE_SIZE) {
-		pages[i] = vm_fault_page_quick(va, prot, &error);
+		pages[i] = vm_fault_page_quick(va, prot, &error, NULL);
 		if (pages[i] == NULL)
 			return (-1);
 	}
