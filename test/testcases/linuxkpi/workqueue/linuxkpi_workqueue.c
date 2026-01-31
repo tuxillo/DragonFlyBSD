@@ -35,8 +35,6 @@
 #include <sys/module.h>
 #include <sys/tbridge.h>
 #include <sys/thread.h>
-#include <sys/mutex.h>
-#include <sys/atomic.h>
 #include <dfregress.h>
 
 /*
@@ -44,8 +42,8 @@
  * 
  * This test verifies that the LinuxKPI workqueue infrastructure is present
  * and functional by checking:
- * 1. Sysctl entries exist (prove SYSINITs ran)
- * 2. Workqueue threads are visible in the system
+ * 1. Workqueue threads are visible in the system
+ * 2. Thread fields are accessible
  * 3. The kernel module loads successfully (implies all workqueue init ran)
  */
 
