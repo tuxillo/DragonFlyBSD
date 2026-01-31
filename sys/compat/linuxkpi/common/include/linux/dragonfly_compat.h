@@ -177,6 +177,35 @@ lkpi_mtx_init(struct mtx *mtx, const char *name, const char *type __unused,
 #endif
 
 /*
+ * realloc() compatibility using kmalloc/kfree.
+ */
+static __inline void *
+lkpi_realloc(void *ptr, size_t size, struct malloc_type *type, int flags)
+{
+	void *newptr;
+	size_t oldsize;
+
+	if (ptr == NULL)
+		return (_kmalloc(size, type, flags));
+	if (size == 0) {
+		_kfree(ptr, type);
+		return (NULL);
+	}
+	newptr = _kmalloc(size, type, flags);
+	if (newptr == NULL)
+		return (NULL);
+	oldsize = kmalloc_usable_size(ptr);
+	if (oldsize > size)
+		oldsize = size;
+	memcpy(newptr, ptr, oldsize);
+	_kfree(ptr, type);
+	return (newptr);
+}
+#undef realloc
+#define realloc(ptr, size, type, flags)	\
+	lkpi_realloc((ptr), (size), (type), (flags))
+
+/*
  * Scheduler state helpers.
  * DragonFly does not expose FreeBSD's scheduler stopped flag.
  */
