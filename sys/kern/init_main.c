@@ -180,6 +180,7 @@ mi_proc0init(struct globaldata *gd, struct user *proc0paddr)
 	thread0.td_flags |= TDF_RUNNING;
 	thread0.td_proc = &proc0;
 	thread0.td_lwp = &lwp0;
+	thread0.td_tid = lwp0.lwp_tid;
 	thread0.td_switch = cpu_lwkt_switch;
 	lwkt_schedule_self(curthread);
 }
@@ -788,4 +789,3 @@ mi_gdinit(struct globaldata *gd, int cpuid)
 	ATOMIC_CPUMASK_ORBIT(usched_global_cpumask, cpuid);
 	gd->gd_vmstats = vmstats;
 }
-

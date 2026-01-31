@@ -451,6 +451,9 @@ lwkt_init_thread(thread_t td, void *stack, int stksize, int flags,
     td->td_gd = gd;
     td->td_pri = TDPRI_KERN_DAEMON;
     td->td_critcount = 1;
+    td->td_pflags = 0;
+    td->td_name = td->td_comm;
+    td->td_tid = -1;
     td->td_toks_have = NULL;
     td->td_toks_stop = &td->td_toks_base;
     if (lwkt_use_spin_port || (flags & TDF_FORCE_SPINPORT)) {
@@ -485,6 +488,7 @@ lwkt_set_comm(thread_t td, const char *ctl, ...)
     __va_start(va, ctl);
     kvsnprintf(td->td_comm, sizeof(td->td_comm), ctl, va);
     __va_end(va);
+    td->td_name = td->td_comm;
     KTR_LOG(ctxsw_newtd, td, td->td_comm);
 }
 

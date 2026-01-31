@@ -1,0 +1,175 @@
+/*-
+ * Copyright (c) 2026 The DragonFly Project
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice unmodified, this list of conditions, and the following
+ *    disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+ * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+ * OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+ * IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+ * NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+#ifndef _SYS_PRIV_H_
+#define _SYS_PRIV_H_
+
+/* DragonFly privilege compatibility for LinuxKPI (FreeBSD privilege checks) */
+
+#include <sys/types.h>
+
+/* Privilege types - stub definitions */
+#define PRIV_KMEM 1
+#define PRIV_SETUID 2
+#define PRIV_SETGID 3
+#define PRIV_SETLOGIN 4
+#define PRIV_SETPPRIV 5
+#define PRIV_CHOWN 6
+#define PRIV_CHROOT 7
+#define PRIV_ACCT 8
+#define PRIV_REBOOT 9
+#define PRIV_NFS_DAEMON 10
+#define PRIV_VFS_READ 11
+#define PRIV_VFS_WRITE 12
+#define PRIV_VFS_EXEC 13
+#define PRIV_VFS_LOOKUP 14
+#define PRIV_VFS_CHOWN 15
+#define PRIV_VFS_CHMOD 16
+#define PRIV_VFS_CHROOT 17
+#define PRIV_VFS_ADMIN 18
+#define PRIV_VFS_MOUNT 19
+#define PRIV_VFS_UNMOUNT 20
+#define PRIV_VFS_EXTATTRCTL 21
+#define PRIV_VFS_EXTAATTR_GET 22
+#define PRIV_VFS_EXTATTR_SET 23
+#define PRIV_VFS_EXTATTR_DELETE 24
+#define PRIV_VFS_ACCESS 25
+#define PRIV_VFS_GETQUOTA 26
+#define PRIV_VFS_SETQUOTA 27
+#define PRIV_VFS_SETUSE 28
+#define PRIV_VFS_FCHOWN 29
+#define PRIV_VFS_FCHMOD 30
+#define PRIV_VFS_STICKYFILE 31
+#define PRIV_VFS_SYSFLAGS 32
+#define PRIV_VFS_FCHFLAGS 33
+#define PRIV_VFS_CHFLAGS 34
+#define PRIV_VFS_FSCK 35
+#define PRIV_VFS_REVOKE 36
+#define PRIV_VFS_MQUERY 37
+#define PRIV_NET_RAW 38
+#define PRIV_NET_ADMIN 39
+#define PRIV_NET_GIF 40
+#define PRIV_NET_GRE 41
+#define PRIV_NET_BPF 42
+#define PRIV_NET_WCC 43
+#define PRIV_NET_ROUTE 44
+#define PRIV_NET_INET 45
+#define PRIV_NET_INET6 46
+#define PRIV_NETATM_ADMIN 47
+#define PRIV_NETATM_VCC 48
+#define PRIV_NETBLUETOOTH_RAW 49
+#define PRIV_NETBLUETOOTH_ADMIN 50
+#define PRIV_NETGRAPH_CONTROL 51
+#define PRIV_NETGRAPH_TTY 52
+#define PRIV_NETGRAPH_SOCKET 53
+#define PRIV_NETGRAPH_VCC 54
+#define PRIV_NETINTERFACE_IFLISTMOD 55
+#define PRIV_NETINTERFACE_SETMTU 56
+#define PRIV_NETINTERFACE_MONITOR 57
+#define PRIV_NETINTERFACE_SETMACADDR 58
+#define PRIV_NETINTERFACE_GETMACADDR 59
+#define PRIV_NETINET_RESERVEDPORT 60
+#define PRIV_NETINET_RAW 61
+#define PRIV_NETINET_REUSEPORT 62
+#define PRIV_NETINET_SETDSCP 63
+#define PRIV_NETINET_HASH 64
+#define PRIV_NETINET_MAXID 65
+#define PRIV_NETINET6_RESERVEDPORT 66
+#define PRIV_NETINET6_RAW 67
+#define PRIV_NETINET6_REUSEPORT 68
+#define PRIV_NETINET6_SETDSCP 69
+#define PRIV_NETINET6_MAXID 70
+#define PRIV_NETIPX_RESERVEDPORT 71
+#define PRIV_NETIPX_RAW 72
+#define PRIV_NETATALK_RESERVEDPORT 73
+#define PRIV_NETATALK_AARP 74
+#define PRIV_NETATALK_ROUTE 75
+#define PRIV_NETATM_CRED 76
+#define PRIV_NETATM_CFG 77
+#define PRIV_NETATM_STATUS 78
+#define PRIV_NETATM_PIPE 79
+#define PRIV_NETATM_ADDR 80
+#define PRIV_NETATM_VCC 81
+#define PRIV_NETATM_DEREG 82
+#define PRIV_NETGRAPH_VCONNECT 83
+#define PRIV_NETGRAPH_VBIND 84
+#define PRIV_NETGRAPH_VUNBIND 85
+#define PRIV_NETGRAPH_VLISTEN 86
+#define PRIV_NETGRAPH_VACCEPT 87
+#define PRIV_NETGRAPH_VCONNECT 88
+#define PRIV_NETGRAPH_VRECV 89
+#define PRIV_NETGRAPH_VSEND 90
+#define PRIV_NETGRAPH_VSHUTDOWN 91
+#define PRIV_NETGRAPH_VFLUSH 92
+#define PRIV_NETGRAPH_VGETNAME 93
+#define PRIV_NETGRAPH_VGETPEERNAME 94
+#define PRIV_NETGRAPH_VGETOPT 95
+#define PRIV_NETGRAPH_VSETOPT 96
+#define PRIV_NETGRAPH_VGETCRED 97
+#define PRIV_NETGRAPH_VSENDHOOK 98
+#define PRIV_NETGRAPH_VGETHOOK 99
+#define PRIV_NETGRAPH_VGETID 100
+#define PRIV_NETGRAPH_VGETTYPE 101
+#define PRIV_NETGRAPH_VGETIFACE 102
+#define PRIV_NETGRAPH_VSETFLAGS 103
+#define PRIV_NETGRAPH_VGETFLAGS 104
+#define PRIV_NETGRAPH_VGETPERSIST 105
+#define PRIV_NETGRAPH_VSETPERSIST 106
+#define PRIV_NETGRAPH_VGETDEBUG 107
+#define PRIV_NETGRAPH_VSETDEBUG 108
+#define PRIV_NETGRAPH_VGETCLEAR 109
+#define PRIV_NETGRAPH_VGETCLR 110
+#define PRIV_NETGRAPH_VGETINFG 111
+#define PRIV_NETGRAPH_VGETINFG2 112
+#define PRIV_NETGRAPH_VGETINFG3 113
+#define PRIV_NETGRAPH_VGETINFG4 114
+#define PRIV_NETGRAPH_VGETINFG5 115
+#define PRIV_NETGRAPH_VGETINFG6 116
+#define PRIV_NETGRAPH_VGETINFG7 117
+#define PRIV_NETGRAPH_VGETINFG8 118
+#define PRIV_NETGRAPH_VGETINFG9 119
+#define PRIV_NETGRAPH_VGETINFG10 120
+
+/* Privilege check function - stub that always returns 0 (privileged) */
+static __inline int
+priv_check(struct thread *td, int priv)
+{
+    /* Stub - always succeeds in kernel context */
+    return 0;
+}
+
+static __inline int
+priv_check_cred(void *cred, int priv)
+{
+    /* Stub - always succeeds in kernel context */
+    return 0;
+}
+
+/* Process privilege - stub */
+#define IS_PRIVILEGED(cr) 1
+#define IS_NOT_PRIVILEGED(cr) 0
+
+#endif /* _SYS_PRIV_H_ */

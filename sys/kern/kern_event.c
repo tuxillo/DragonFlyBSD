@@ -50,11 +50,13 @@
 #include <sys/filio.h>
 #include <sys/ktr.h>
 #include <sys/spinlock.h>
+#include <sys/mutex.h>
 
 #include <sys/thread2.h>
 #include <sys/file2.h>
 #include <sys/mplock2.h>
 #include <sys/spinlock2.h>
+#include <sys/mutex2.h>
 
 #define EVENT_REGISTER	1
 #define EVENT_PROCESS	2
@@ -117,6 +119,25 @@ static void	precise_sleep_intr(systimer_t info, int in_ipi,
 				   struct intrframe *frame);
 static int	precise_sleep(void *ident, int flags, const char *wmesg,
 			      int us);
+
+static struct mtx knlist_lock = MTX_INITIALIZER("knlist");
+
+static void
+knlist_mtx_lock(void *arg)
+{
+	mtx_lock((struct mtx *)arg);
+}
+
+static void
+knlist_mtx_unlock(void *arg)
+{
+	mtx_unlock((struct mtx *)arg);
+}
+
+static void
+knlist_mtx_assert_lock(void *arg, int what)
+{
+}
 
 static void	filt_kqdetach(struct knote *kn);
 static int	filt_kqueue(struct knote *kn, long hint);
@@ -2129,4 +2150,102 @@ precise_sleep(void *ident, int flags, const char *wmesg, int us)
 		r = EWOULDBLOCK;
 
 	return r;
+}
+
+void
+knote_knlist(struct knlist *knl, long hint, int flags)
+{
+	if (KNLIST_EMPTY(knl))
+		return;
+	if ((flags & KNF_LISTLOCKED) == 0)
+		knl->kl_lock(knl->kl_lockarg);
+	if (!SLIST_EMPTY(&knl->kl_list))
+		knote(&knl->kl_list, hint);
+	if ((flags & KNF_LISTLOCKED) == 0)
+		knl->kl_unlock(knl->kl_lockarg);
+}
+
+void
+knlist_init(struct knlist *knl, void *lock,
+    void (*kl_lock)(void *), void (*kl_unlock)(void *),
+    void (*kl_assert_lock)(void *, int))
+{
+	SLIST_INIT(&knl->kl_list);
+	knl->kl_autodestroy = 0;
+	if (kl_lock == NULL || kl_unlock == NULL) {
+		knl->kl_lockarg = &knlist_lock;
+		knl->kl_lock = knlist_mtx_lock;
+		knl->kl_unlock = knlist_mtx_unlock;
+		knl->kl_assert_lock = knlist_mtx_assert_lock;
+	} else {
+		knl->kl_lockarg = lock;
+		knl->kl_lock = kl_lock;
+		knl->kl_unlock = kl_unlock;
+		knl->kl_assert_lock = kl_assert_lock;
+	}
+}
+
+void
+knlist_init_mtx(struct knlist *knl, struct mtx *lock)
+{
+	knlist_init(knl, lock, knlist_mtx_lock, knlist_mtx_unlock,
+	    knlist_mtx_assert_lock);
+}
+
+void
+knlist_destroy(struct knlist *knl)
+{
+	SLIST_INIT(&knl->kl_list);
+	knl->kl_lockarg = NULL;
+	knl->kl_lock = NULL;
+	knl->kl_unlock = NULL;
+	knl->kl_assert_lock = NULL;
+	knl->kl_autodestroy = 0;
+}
+
+int
+knlist_empty(struct knlist *knl)
+{
+	return (SLIST_EMPTY(&knl->kl_list));
+}
+
+void
+knlist_add(struct knlist *knl, struct knote *kn, int islocked)
+{
+	if (!islocked)
+		knl->kl_lock(knl->kl_lockarg);
+	SLIST_INSERT_HEAD(&knl->kl_list, kn, kn_next);
+	kn->kn_status &= ~KN_DETACHED;
+	if (!islocked)
+		knl->kl_unlock(knl->kl_lockarg);
+}
+
+void
+knlist_remove(struct knlist *knl, struct knote *kn, int islocked)
+{
+	if (!islocked)
+		knl->kl_lock(knl->kl_lockarg);
+	SLIST_REMOVE(&knl->kl_list, kn, knote, kn_next);
+	kn->kn_status |= KN_DETACHED;
+	if (!islocked)
+		knl->kl_unlock(knl->kl_lockarg);
+}
+
+void
+knlist_cleardel(struct knlist *knl, struct thread *td, int islocked,
+    int killkn)
+{
+	struct knote *kn;
+
+	(void)td;
+	(void)killkn;
+
+	if (!islocked)
+		knl->kl_lock(knl->kl_lockarg);
+	while ((kn = SLIST_FIRST(&knl->kl_list)) != NULL) {
+		SLIST_REMOVE_HEAD(&knl->kl_list, kn_next);
+		kn->kn_status |= KN_DETACHED;
+	}
+	if (!islocked)
+		knl->kl_unlock(knl->kl_lockarg);
 }

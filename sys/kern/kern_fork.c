@@ -821,6 +821,7 @@ lwp_fork2(struct lwp *lp1, struct proc *destproc, struct lwp *lp2, int flags)
 	td2->td_ucred = crhold(destproc->p_ucred);
 	td2->td_proc = destproc;
 	td2->td_lwp = lp2;
+	td2->td_tid = lp2->lwp_tid;
 	td2->td_switch = cpu_heavy_switch;
 #ifdef NO_LWKT_SPLIT_USERPRI
 	lwkt_setpri(td2, TDPRI_USER_NORM);

@@ -77,6 +77,8 @@ int	taskqueue_start_threads(struct taskqueue **tqp, int count, int pri,
 				int ncpu, const char *name, ...)
 				__printflike(5, 6);
 int	taskqueue_enqueue(struct taskqueue *queue, struct task *task);
+int	taskqueue_enqueue_flags(struct taskqueue *queue, struct task *task,
+	    int flags);
 int	taskqueue_enqueue_optq(struct taskqueue *queue,
 	    struct taskqueue **qpp, struct task *task);
 int	taskqueue_enqueue_timeout(struct taskqueue *queue,
@@ -155,6 +157,9 @@ struct __hack
 TASKQUEUE_DEFINE(name, taskqueue_thread_enqueue, &taskqueue_##name,	\
 	taskqueue_start_threads(&taskqueue_##name, 1,			\
 	TDPRI_KERN_DAEMON, -1, "%s taskq", #name))
+
+#define	TASKQUEUE_FAIL_IF_CANCELING	0x0001
+#define	TASKQUEUE_FAIL_IF_PENDING	0x0002
 /*
  * This queue is serviced by a software interrupt handler.  To enqueue
  * a task, call taskqueue_enqueue(taskqueue_swi, &task).

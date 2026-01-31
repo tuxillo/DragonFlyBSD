@@ -41,6 +41,9 @@
 #ifndef _SYS_PARAM_H_
 #include <sys/param.h>		/* MAXCOMLEN */
 #endif
+#ifndef _SYS_TYPES_H_
+#include <sys/types.h>
+#endif
 #ifndef _SYS_QUEUE_H_
 #include <sys/queue.h>		/* TAILQ_* macros */
 #endif
@@ -80,6 +83,8 @@ struct fdnode;
 union sysunion;
 
 struct sleepqueue_wchan;
+struct seltd;
+struct task_struct;
 
 typedef struct lwkt_queue	*lwkt_queue_t;
 typedef struct lwkt_token	*lwkt_token_t;
@@ -335,12 +340,16 @@ struct thread {
     struct fdcache    td_fdcache[NFDCACHE];
 
     /*
-     * Linux and FreeBSD compat fields
+     * FreeBSD compat fields
      */
-    void	*td_linux_task;		/* drm/linux support */
     struct sleepqueue_wchan *td_sqwc;	/* freebsd sleepq*() API */
     sbintime_t	td_sqtimo;		/* freebsd sleepq*() API */
     int		td_sqqueue;		/* freebsd sleepq*() API */
+    struct seltd	*td_sel;		/* freebsd selinfo API */
+    struct task_struct *td_lkpi_task;	/* linuxkpi task */
+    u_int	td_pflags;		/* linuxkpi pflags */
+    const char	*td_name;		/* linuxkpi thread name */
+    lwpid_t	td_tid;		/* linuxkpi thread id */
 
     /*
      * Debugging
@@ -417,6 +426,7 @@ struct thread {
 #define TDF_TIMEOUT_RUNNING	0x00004000	/* tsleep timeout race */
 #define TDF_TIMEOUT		0x00008000	/* tsleep timeout */
 #define TDF_INTTHREAD		0x00010000	/* interrupt thread */
+#define TDP_ITHREAD		TDF_INTTHREAD
 #define TDF_TSLEEP_DESCHEDULED	0x00020000	/* tsleep core deschedule */
 #define TDF_BLOCKED		0x00040000	/* Thread is blocked */
 #define TDF_PANICWARN		0x00080000	/* panic warning in switch */
@@ -429,6 +439,7 @@ struct thread {
 #define TDF_FIXEDCPU		0x04000000	/* running cpu is fixed */
 #define TDF_USERMODE		0x08000000	/* in or entering user mode */
 #define TDF_NOFAULT		0x10000000	/* force onfault on fault */
+#define TDP_NOFAULTING		TDF_NOFAULT
 #define TDF_CLKTHREAD		0x20000000	/* detect INTTHREAD clock */
 
 #define TDF_MP_STOPREQ		0x00000001	/* suspend_kproc */
@@ -474,9 +485,6 @@ struct thread {
 #define IN_CRITICAL_SECT(td)	((td)->td_critcount)
 
 #ifdef _KERNEL
-
-extern void (*linux_task_drop_callback)(struct thread *);
-extern void (*linux_proc_drop_callback)(struct proc *);
 
 /*
  * Global tokens
@@ -572,4 +580,3 @@ void lwkt_remove_tdallq(struct thread *);
 #endif /* _KERNEL */
 
 #endif /* !_SYS_THREAD_H_ */
-

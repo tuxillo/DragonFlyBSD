@@ -161,11 +161,29 @@ struct kqinfo {
 	struct	klist ki_note;		/* kernel note list */
 };
 
+struct knlist {
+	struct klist	kl_list;
+	void	(*kl_lock)(void *);
+	void	(*kl_unlock)(void *);
+	void	(*kl_assert_lock)(void *, int);
+	void	*kl_lockarg;
+	int	kl_autodestroy;
+};
+
 #endif
 
 #ifdef _KERNEL
 
 #define KNOTE(list, hint)	if (!SLIST_EMPTY((list))) knote(list, hint)
+
+/*
+ * Flags for knote call on knlist.
+ */
+#define	KNF_LISTLOCKED	0x0001			/* knlist is locked */
+
+#define KNOTE_LOCKED(list, hint)	knote_knlist((list), (hint), KNF_LISTLOCKED)
+#define KNOTE_UNLOCKED(list, hint)	knote_knlist((list), (hint), 0)
+#define	KNLIST_EMPTY(list)		SLIST_EMPTY(&(list)->kl_list)
 
 /*
  * Flag indicating hint is a signal.  Used by EVFILT_SIGNAL, and also
@@ -237,6 +255,7 @@ struct proc;
 struct thread;
 struct filedesc;
 struct kevent_args;
+struct mtx;
 
 #define KEVENT_TIMEOUT_PRECISE		0x01
 #define KEVENT_AUTO_STALE		0x02	/* used by poll/select */
@@ -256,11 +275,23 @@ int kern_kevent(struct kqueue *kq, int nevents, int *res, void *uap,
     struct timespec *tsp, int flags);
 
 void	knote(struct klist *, long);
+void	knote_knlist(struct knlist *, long, int);
 void	knote_insert(struct klist *, struct knote *);
 void	knote_remove(struct klist *, struct knote *);
 void	knote_assume_knotes(struct kqinfo *, struct kqinfo *,
 	    struct filterops *, void *);
 void	knote_fdclose(struct file *, struct filedesc *, int);
+
+void	knlist_init(struct knlist *, void *, void (*)(void *),
+	    void (*)(void *), void (*)(void *, int));
+void	knlist_init_mtx(struct knlist *, struct mtx *);
+void	knlist_destroy(struct knlist *);
+void	knlist_add(struct knlist *, struct knote *, int);
+void	knlist_remove(struct knlist *, struct knote *, int);
+int	knlist_empty(struct knlist *);
+void	knlist_cleardel(struct knlist *, struct thread *, int, int);
+#define knlist_clear(knl, islocked)	knlist_cleardel((knl), NULL, (islocked), 0)
+#define knlist_delete(knl, td, islocked)	knlist_cleardel((knl), (td), (islocked), 1)
 void	kqueue_init(struct kqueue *, struct filedesc *);
 void	kqueue_terminate(struct kqueue *);
 int 	kqueue_register(struct kqueue *, struct kevent *, int *, int);

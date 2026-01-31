@@ -255,6 +255,25 @@ taskqueue_enqueue(struct taskqueue *queue, struct task *task)
 	return (res);
 }
 
+int
+taskqueue_enqueue_flags(struct taskqueue *queue, struct task *task, int flags)
+{
+	int res;
+
+	TQ_LOCK(queue);
+	if ((flags & TASKQUEUE_FAIL_IF_PENDING) && task->ta_pending) {
+		res = EBUSY;
+	} else if ((flags & TASKQUEUE_FAIL_IF_CANCELING) &&
+	    task == queue->tq_running) {
+		res = EBUSY;
+	} else {
+		res = taskqueue_enqueue_locked(queue, task);
+	}
+	TQ_UNLOCK(queue);
+
+	return (res);
+}
+
 /*
  * This version allows a task to be moved between queues in an uncontrolled
  * fashion.  (*qpp) is set to the queue the task is (possibly already)

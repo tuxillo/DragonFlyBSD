@@ -77,11 +77,17 @@ INCLUDES+= -I${.OBJDIR} -I$S/${OSACPI_MI_DIR} -I$S/${ACPICA_DIR}/include
 # ... and the same for Atheros HAL
 INCLUDES+= -I$S/dev/netif/ath/ath_hal -I$S/contrib/dev/ath/ath_hal
 
-# Same thing for drm includes
-INCLUDES+= -I$S/dev/drm/include
-INCLUDES+= -I$S/dev/drm/include/drm
-INCLUDES+= -I$S/dev/drm/include/uapi
-INCLUDES+= -I$S/dev/drm/amd/include
+# Concurrency Kit includes (for RCU support in LinuxKPI)
+INCLUDES+= -I$S/contrib/ck/include
+
+# LinuxKPI (Linux Kernel Programming Interface) includes
+LINUXKPI_INCLUDES= -I$S/compat/linuxkpi/common/include \
+		-I$S/compat/linuxkpi/dummy/include \
+		-include $S/compat/linuxkpi/common/include/linux/kconfig.h
+LINUXKPI_C= ${NORMAL_C} ${LINUXKPI_INCLUDES}
+
+# Add LinuxKPI includes globally so mkdep can find headers during dependency generation
+INCLUDES+= ${LINUXKPI_INCLUDES}
 
 COPTS=	${INCLUDES} ${IDENT} -D_KERNEL -DHAVE_KERNEL_OPTION_HEADERS -include opt_global.h
 CFLAGS=	${COPTFLAGS} ${KCFLAGS} ${CWARNFLAGS} -std=${CSTD} ${DEBUG} ${COPTS}

@@ -45,11 +45,13 @@
 #include <sys/filio.h>
 #include <sys/fcntl.h>
 #include <sys/file.h>
+#include <sys/selinfo.h>
 #include <sys/proc.h>
 #include <sys/signalvar.h>
 #include <sys/socketvar.h>
 #include <sys/malloc.h>
 #include <sys/uio.h>
+#include <sys/condvar.h>
 #include <sys/kernel.h>
 #include <sys/kern_syscall.h>
 #include <sys/mapped_ioctl.h>
@@ -69,12 +71,16 @@
 #include <sys/file2.h>
 #include <sys/spinlock2.h>
 #include <sys/signal2.h>
+#include <sys/mutex.h>
+#include <sys/mutex2.h>
 
 #include <machine/limits.h>
+#include <machine/atomic.h>
 
 static MALLOC_DEFINE(M_IOCTLOPS, "ioctlops", "ioctl data buffer");
 static MALLOC_DEFINE(M_IOCTLMAP, "ioctlmap", "mapped ioctl handler buffer");
 static MALLOC_DEFINE(M_SELECT, "select", "select() buffer");
+static MALLOC_DEFINE(M_SELFD, "selfd", "selfd");
 MALLOC_DEFINE(M_IOV, "iov", "large iov's");
 
 static struct krate krate_poll = { .freq = 1 };
@@ -113,6 +119,51 @@ static int	dopoll(int nfds, struct pollfd *fds, struct timespec *ts,
 		       int *res, int flags);
 static int	dofileread(int, struct file *, struct uio *, int, size_t *);
 static int	dofilewrite(int, struct file *, struct uio *, int, size_t *);
+static void	selfdalloc(struct thread *td, void *cookie) __unused;
+static void	selfdfree(struct seltd *stp, struct selfd *sfp) __unused;
+static void	doselwakeup(struct selinfo *sip, int pri);
+static void	seltdinit(struct thread *td);
+static int	seltdwait(struct thread *td, sbintime_t sbt, sbintime_t precision) __unused;
+static void	seltdclear(struct thread *td) __unused;
+
+#define SELINFO_MTXPOOL_SIZE 128
+static struct mtx selinfo_mtx_pool[SELINFO_MTXPOOL_SIZE];
+
+/*
+ * One seltd per-thread allocated on demand as needed.
+ */
+struct seltd {
+	STAILQ_HEAD(, selfd)	st_selq;	/* List of selfds. */
+	struct selfd		*st_free1;	/* free fd for read set. */
+	struct selfd		*st_free2;	/* free fd for write set. */
+	struct mtx		st_mtx;		/* Protects struct seltd. */
+	struct cv		st_wait;	/* Wait channel. */
+	int			st_flags;	/* SELTD_ flags. */
+};
+
+#define	SELTD_PENDING	0x0001			/* We have pending events. */
+#define	SELTD_RESCAN	0x0002			/* Doing a rescan. */
+
+/*
+ * One selfd allocated per-thread per-file-descriptor.
+ */
+struct selfd {
+	STAILQ_ENTRY(selfd)	sf_link;	/* fds owned by this td. */
+	TAILQ_ENTRY(selfd)	sf_threads;	/* fds on this selinfo. */
+	struct selinfo		*sf_si;		/* selinfo when linked. */
+	struct mtx		*sf_mtx;	/* Pointer to selinfo mtx. */
+	struct seltd		*sf_td;		/* owning seltd. */
+	void			*sf_cookie;	/* fd or pollfd. */
+};
+
+static struct mtx *
+selinfo_mtx_select(struct selinfo *sip)
+{
+	uintptr_t idx;
+
+	idx = ((uintptr_t)sip >> 5) & (SELINFO_MTXPOOL_SIZE - 1);
+	return (&selinfo_mtx_pool[idx]);
+}
 
 /*
  * Read system call.
@@ -1744,4 +1795,208 @@ int
 seltrue(cdev_t dev, int events)
 {
 	return (events & (POLLIN | POLLOUT | POLLRDNORM | POLLWRNORM));
+}
+
+static void
+selfdalloc(struct thread *td, void *cookie)
+{
+	struct seltd *stp;
+
+	stp = td->td_sel;
+	if (stp->st_free1 == NULL)
+		stp->st_free1 = kmalloc(sizeof(*stp->st_free1), M_SELFD,
+		    M_WAITOK | M_ZERO);
+	stp->st_free1->sf_td = stp;
+	stp->st_free1->sf_cookie = cookie;
+	if (stp->st_free2 == NULL)
+		stp->st_free2 = kmalloc(sizeof(*stp->st_free2), M_SELFD,
+		    M_WAITOK | M_ZERO);
+	stp->st_free2->sf_td = stp;
+	stp->st_free2->sf_cookie = cookie;
+}
+
+static void
+selfdfree(struct seltd *stp, struct selfd *sfp)
+{
+	STAILQ_REMOVE(&stp->st_selq, sfp, selfd, sf_link);
+	if (atomic_load_acq_ptr((uintptr_t *)&sfp->sf_si) != (uintptr_t)NULL) {
+		mtx_lock(sfp->sf_mtx);
+		if (sfp->sf_si != NULL)
+			TAILQ_REMOVE(&sfp->sf_si->si_tdlist, sfp, sf_threads);
+		mtx_unlock(sfp->sf_mtx);
+	}
+	kfree(sfp, M_SELFD);
+}
+
+void
+seldrain(struct selinfo *sip)
+{
+	doselwakeup(sip, -1);
+}
+
+void
+selrecord(struct thread *selector, struct selinfo *sip)
+{
+	struct selfd *sfp;
+	struct seltd *stp;
+	struct mtx *mtxp;
+
+	stp = selector->td_sel;
+	if (stp == NULL) {
+		seltdinit(selector);
+		stp = selector->td_sel;
+	}
+	if (stp->st_flags & SELTD_RESCAN)
+		return;
+	sfp = stp->st_free1;
+	if (sfp != NULL)
+		stp->st_free1 = NULL;
+	else if ((sfp = stp->st_free2) != NULL)
+		stp->st_free2 = NULL;
+	else
+		panic("selrecord: no free selfd");
+	mtxp = sip->si_mtx;
+	if (mtxp == NULL)
+		mtxp = selinfo_mtx_select(sip);
+	sfp->sf_si = sip;
+	sfp->sf_mtx = mtxp;
+	STAILQ_INSERT_TAIL(&stp->st_selq, sfp, sf_link);
+	mtx_lock(mtxp);
+	if (sip->si_mtx == NULL) {
+		sip->si_mtx = mtxp;
+		TAILQ_INIT(&sip->si_tdlist);
+	}
+	TAILQ_INSERT_TAIL(&sip->si_tdlist, sfp, sf_threads);
+	mtx_unlock(sip->si_mtx);
+}
+
+void
+selwakeup(struct selinfo *sip)
+{
+	doselwakeup(sip, -1);
+}
+
+void
+selwakeuppri(struct selinfo *sip, int pri)
+{
+	doselwakeup(sip, pri);
+}
+
+static void
+doselwakeup(struct selinfo *sip, int pri)
+{
+	struct selfd *sfp;
+	struct selfd *sfn;
+	struct seltd *stp;
+
+	if (sip->si_mtx == NULL)
+		return;
+	mtx_lock(sip->si_mtx);
+	TAILQ_FOREACH_MUTABLE(sfp, &sip->si_tdlist, sf_threads, sfn) {
+		TAILQ_REMOVE(&sip->si_tdlist, sfp, sf_threads);
+		stp = sfp->sf_td;
+		mtx_lock(&stp->st_mtx);
+		stp->st_flags |= SELTD_PENDING;
+		cv_broadcastpri(&stp->st_wait, pri);
+		mtx_unlock(&stp->st_mtx);
+		atomic_store_rel_ptr((uintptr_t *)&sfp->sf_si, (uintptr_t)NULL);
+	}
+	mtx_unlock(sip->si_mtx);
+}
+
+static void
+seltdinit(struct thread *td)
+{
+	struct seltd *stp;
+
+	stp = td->td_sel;
+	if (stp != NULL) {
+		KKASSERT(stp->st_flags == 0);
+		KKASSERT(STAILQ_EMPTY(&stp->st_selq));
+		return;
+	}
+	stp = kmalloc(sizeof(*stp), M_SELECT, M_WAITOK | M_ZERO);
+	mtx_init(&stp->st_mtx, "sellck");
+	cv_init(&stp->st_wait, "select");
+	stp->st_flags = 0;
+	STAILQ_INIT(&stp->st_selq);
+	td->td_sel = stp;
+}
+
+static int
+seltdwait(struct thread *td, sbintime_t sbt, sbintime_t precision)
+{
+	struct seltd *stp;
+	int error;
+	int timo;
+
+	(void)precision;
+
+	stp = td->td_sel;
+	mtx_lock(&stp->st_mtx);
+	stp->st_flags |= SELTD_RESCAN;
+	if (stp->st_flags & SELTD_PENDING) {
+		mtx_unlock(&stp->st_mtx);
+		return (0);
+	}
+	if (sbt == 0) {
+		error = EWOULDBLOCK;
+	} else if (sbt != -1) {
+		if (sbt > INT_MAX)
+			timo = INT_MAX;
+		else
+			timo = (int)sbt;
+		error = cv_mtx_timedwait_sig(&stp->st_wait, &stp->st_mtx,
+		    timo);
+	} else {
+		error = cv_mtx_wait_sig(&stp->st_wait, &stp->st_mtx);
+	}
+	mtx_unlock(&stp->st_mtx);
+
+	return (error);
+}
+
+void
+seltdfini(struct thread *td)
+{
+	struct seltd *stp;
+
+	stp = td->td_sel;
+	if (stp == NULL)
+		return;
+	KKASSERT(stp->st_flags == 0);
+	KKASSERT(STAILQ_EMPTY(&stp->st_selq));
+	if (stp->st_free1)
+		kfree(stp->st_free1, M_SELFD);
+	if (stp->st_free2)
+		kfree(stp->st_free2, M_SELFD);
+	td->td_sel = NULL;
+	cv_destroy(&stp->st_wait);
+	mtx_uninit(&stp->st_mtx);
+	kfree(stp, M_SELECT);
+}
+
+static void
+seltdclear(struct thread *td)
+{
+	struct seltd *stp;
+	struct selfd *sfp;
+	struct selfd *sfn;
+
+	stp = td->td_sel;
+	STAILQ_FOREACH_MUTABLE(sfp, &stp->st_selq, sf_link, sfn)
+		selfdfree(stp, sfp);
+	stp->st_flags = 0;
+}
+
+static void selectinit(void *);
+SYSINIT(select, SI_SUB_PSEUDO, SI_ORDER_ANY, selectinit, NULL);
+
+static void
+selectinit(void *dummy __unused)
+{
+	int i;
+
+	for (i = 0; i < SELINFO_MTXPOOL_SIZE; ++i)
+		mtx_init(&selinfo_mtx_pool[i], "selinfo");
 }

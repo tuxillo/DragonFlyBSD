@@ -86,7 +86,12 @@ struct	fileops {
 	int (*fo_close)	(struct file *fp);
 	int (*fo_shutdown)(struct file *fp, int how);
 	int (*fo_seek)	(struct file *fp, off_t offset, int whence, off_t *res);
+	int	fo_flags;
 };
+
+#define	DFLAG_PASSABLE	0x01	/* may be passed via unix sockets. */
+#define	DFLAG_SEEKABLE	0x02	/* seekable / nonsequential */
+#define	DFLAG_FORK	0x04	/* copy on fork */
 
 /*
  * Kernel descriptor table - One entry for each open kernel vnode and socket.
@@ -130,6 +135,7 @@ struct file {
 #define DTYPE_CRYPTO	6	/* crypto */
 #define DTYPE_MQUEUE	7	/* message queue */
 #define DTYPE_DMABUF	8	/* DRM DMA buffer */
+#define DTYPE_EVENTFD	9	/* eventfd */
 
 LIST_HEAD(filelist, file);
 
