@@ -443,6 +443,8 @@ lwkt_init_thread(thread_t td, void *stack, int stksize, int flags,
     globaldata_t mygd = mycpu;
 
     bzero(td, sizeof(struct thread));
+    if (td->td_lkpi_task != NULL)
+        kprintf("LKPI WARNING: thread %p td_lkpi_task=%p after bzero!\n", td, td->td_lkpi_task);
     td->td_kstack = stack;
     td->td_kstack_size = stksize;
     td->td_flags = flags;

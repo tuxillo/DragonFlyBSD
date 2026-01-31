@@ -125,7 +125,11 @@ linux_alloc_current(struct thread *td, int flags)
 	struct task_struct *ts;
 	struct mm_struct *mm, *mm_other;
 
-	MPASS(td->td_lkpi_task == NULL);
+	if (td->td_lkpi_task != NULL) {
+		kprintf("LKPI: %s called on thread %p but td_lkpi_task=%p already set!\n",
+		    __func__, td, td->td_lkpi_task);
+		return (0);
+	}
 
 	if ((td->td_pflags & TDP_ITHREAD) != 0 || !THREAD_CAN_SLEEP()) {
 		flags &= ~M_WAITOK;
@@ -312,6 +316,7 @@ SYSCTL_INT(_compat_linuxkpi, OID_AUTO, task_struct_reserve,
 static void
 linux_current_init(void *arg __unused)
 {
+	kprintf("LKPI: linux_current_init starting\n");
 	TUNABLE_INT_FETCH("compat.linuxkpi.task_struct_reserve",
 	    &lkpi_task_resrv);
 	if (lkpi_task_resrv == 0) {

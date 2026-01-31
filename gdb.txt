@@ -1,0 +1,47 @@
+
+Thread 8 (Thread 1.8 (CPU#7 [halted ])):
+#0  0xffffffff80bf925a in Xioapic_intr114 () at /usr/src/sys/platform/pc64/apic/apic_vector.s:520
+#1  0x0000000000000000 in ?? ()
+
+Thread 7 (Thread 1.7 (CPU#6 [halted ])):
+#0  0xffffffff80bf925a in Xioapic_intr114 () at /usr/src/sys/platform/pc64/apic/apic_vector.s:520
+#1  0x0000000000000000 in ?? ()
+
+Thread 6 (Thread 1.6 (CPU#5 [running])):
+#0  0xffffffff806aa73f in grouptask_block (grouptask=0xffffffff8107f8a0 <bce_RXP_b09FwText+29600>) at /usr/src/sys/kern/subr_gtaskqueue.c:178
+#1  0xffffffff806d3d7b in unp_gc (arg=<optimized out>, pending=<optimized out>) at /usr/src/sys/kern/uipc_usrreq.c:2195
+#2  0xffffffff806d3f2d in unp_gc_process (unp=0xfffff80156f15738) at /usr/src/sys/kern/uipc_usrreq.c:2116
+#3  unp_gc (arg=<optimized out>, pending=<optimized out>) at /usr/src/sys/kern/uipc_usrreq.c:2189
+#4  0xffffffff8069ec60 in logioctl (ap=0xffffffff806d3f2d <unp_gc+1085>) at /usr/src/sys/kern/subr_log.c:266
+Backtrace stopped: previous frame inner to this frame (corrupt stack?)
+
+Thread 5 (Thread 1.5 (CPU#4 [halted ])):
+#0  0xffffffff80bf925a in Xioapic_intr114 () at /usr/src/sys/platform/pc64/apic/apic_vector.s:520
+#1  0x0000000000000000 in ?? ()
+
+Thread 4 (Thread 1.4 (CPU#3 [halted ])):
+#0  0xffffffff80bf925a in Xioapic_intr114 () at /usr/src/sys/platform/pc64/apic/apic_vector.s:520
+#1  0x0000000000000000 in ?? ()
+
+Thread 3 (Thread 1.3 (CPU#2 [halted ])):
+#0  0xffffffff80bf925a in Xioapic_intr114 () at /usr/src/sys/platform/pc64/apic/apic_vector.s:520
+#1  0x0000000000000000 in ?? ()
+
+Thread 2 (Thread 1.2 (CPU#1 [halted ])):
+#0  0xffffffff80bf925a in Xioapic_intr114 () at /usr/src/sys/platform/pc64/apic/apic_vector.s:520
+#1  0x0000000000000000 in ?? ()
+
+Thread 1 (Thread 1.1 (CPU#0 [halted ])):
+#0  0xffffffff80bf925a in Xioapic_intr114 () at /usr/src/sys/platform/pc64/apic/apic_vector.s:520
+#1  0xffffffff81929aa0 in ioapic_irqmaps ()
+#2  0xffffffff8191d880 in ioapic_irqmaps ()
+#3  0xffffffff811cd200 in dfly_pcpu ()
+#4  0xffffffff811cd200 in dfly_pcpu ()
+#5  0xffffffff8191b000 in ioapic_irqmaps ()
+#6  0x00000000000000a3 in ?? ()
+#7  0x00000000693e7776 in ?? ()
+#8  0xffffffff811cd200 in dfly_pcpu ()
+#9  0x0000000000000000 in ?? ()
+Warning: 'set logging off', an alias for the command 'set logging enabled', is deprecated.
+Use 'set logging enabled off'.
+

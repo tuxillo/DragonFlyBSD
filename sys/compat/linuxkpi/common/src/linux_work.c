@@ -767,19 +767,20 @@ linux_irq_work_init_fn(void *context, int pending)
 {
 	struct thread *td;
 
-	/*
-	 * LinuxKPI performs lazy allocation of memory structures required by
-	 * current on the first access to it.  As some irq_work clients read
-	 * it with spinlock taken, we have to preallocate td_lkpi_task before
-	 * first call to irq_work_queue().  As irq_work uses a single thread,
-	 * it is enough to read current once at SYSINIT stage.
-	 */
 	td = curthread;
-	if (td == NULL)
-		return;
-	linux_set_current(td);
-	if (td->td_lkpi_task == NULL)
+	kprintf("LKPI: linux_irq_work_init_fn called, td=%p, td_lkpi_task=%p\n",
+	    td, td ? td->td_lkpi_task : NULL);
+	if (td == NULL) {
+		kprintf("LKPI: curthread is NULL, requeuing\n");
 		taskqueue_enqueue(linux_irq_work_tq, &linux_irq_work_init_task);
+		return;
+	}
+	linux_set_current(td);
+	kprintf("LKPI: after linux_set_current, td_lkpi_task=%p\n", td->td_lkpi_task);
+	if (td->td_lkpi_task == NULL) {
+		kprintf("LKPI: td_lkpi_task still NULL, requeuing\n");
+		taskqueue_enqueue(linux_irq_work_tq, &linux_irq_work_init_task);
+	}
 }
 static struct task linux_irq_work_init_task =
     TASK_INITIALIZER(0, linux_irq_work_init_fn, &linux_irq_work_init_task);
@@ -787,8 +788,10 @@ static struct task linux_irq_work_init_task =
 static void
 linux_irq_work_init(void *arg)
 {
+	kprintf("LKPI: linux_irq_work_init starting\n");
 	linux_irq_work_tq = taskqueue_create_fast("linuxkpi_irq_wq",
 	    M_WAITOK, taskqueue_thread_enqueue, &linux_irq_work_tq);
+	kprintf("LKPI: taskqueue created, starting threads\n");
 #ifdef __DragonFly__
 	taskqueue_start_threads(&linux_irq_work_tq, 1, PWAIT, -1,
 	    "linuxkpi_irq_wq");
@@ -796,7 +799,9 @@ linux_irq_work_init(void *arg)
 	taskqueue_start_threads(&linux_irq_work_tq, 1, PWAIT,
 	    "linuxkpi_irq_wq");
 #endif
+	kprintf("LKPI: threads started, enqueuing init task\n");
 	taskqueue_enqueue(linux_irq_work_tq, &linux_irq_work_init_task);
+	kprintf("LKPI: init task enqueued\n");
 }
 SYSINIT(linux_irq_work_init, SI_SUB_TASKQ, SI_ORDER_SECOND,
     linux_irq_work_init, NULL);
