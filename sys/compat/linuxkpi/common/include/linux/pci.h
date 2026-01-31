@@ -44,6 +44,11 @@
 #include <sys/nv.h>
 #include <sys/pciio.h>
 #ifdef __DragonFly__
+#ifndef PCIR_PWRMGTCAP
+#define PCIR_PWRMGTCAP	PCIR_POWER_CAP
+#endif
+#endif
+#ifdef __DragonFly__
 #include <bus/pci/pcivar.h>
 #include <bus/pci/pcireg.h>
 #include <bus/pci/pci_private.h>
