@@ -760,6 +760,8 @@ linux_irq_work_fn(void *context, int pending)
 	irqw->func(irqw);
 }
 
+static struct task linux_irq_work_init_task;
+
 static void
 linux_irq_work_init_fn(void *context, int pending)
 {
