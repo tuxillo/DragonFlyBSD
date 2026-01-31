@@ -138,6 +138,33 @@ lkpi_mtx_init(struct mtx *mtx, const char *name, const char *type __unused,
 #endif
 
 /*
+ * Scheduler state helpers.
+ * DragonFly does not expose FreeBSD's scheduler stopped flag.
+ */
+#ifndef SCHEDULER_STOPPED
+#define SCHEDULER_STOPPED() (0)
+#endif
+
+/*
+ * CPU_ABSENT - FreeBSD CPU presence check.
+ * DragonFly does not provide an equivalent; assume present.
+ */
+#ifndef CPU_ABSENT
+#define CPU_ABSENT(cpu) (0)
+#endif
+
+/*
+ * THREAD_SLEEPING_OK/THREAD_NO_SLEEPING - FreeBSD thread sleep guards.
+ * DragonFly does not expose these; treat as no-ops.
+ */
+#ifndef THREAD_SLEEPING_OK
+#define THREAD_SLEEPING_OK() do { } while (0)
+#endif
+#ifndef THREAD_NO_SLEEPING
+#define THREAD_NO_SLEEPING() do { } while (0)
+#endif
+
+/*
  * callout_init compatibility.
  * FreeBSD: callout_init(c, flags) - takes 2 arguments
  * DragonFly: callout_init(c) - takes 1 argument (it's a macro in sys/callout.h)

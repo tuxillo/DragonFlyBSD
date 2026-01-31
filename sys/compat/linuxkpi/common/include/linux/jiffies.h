@@ -36,8 +36,13 @@
 #include <sys/limits.h>
 #include <sys/time.h>
 
+#ifdef __DragonFly__
+#define	jiffies		((unsigned long)ticks)
+#define	jiffies_64	((uint64_t)ticks)
+#else
 extern unsigned long jiffies;	/* defined in sys/kern/subr_ticks.S */
 #define	jiffies_64		jiffies	/* XXX-MJ wrong on 32-bit platforms */
+#endif
 #define	jiffies_to_msecs(x)     ((unsigned int)(((int64_t)(int)(x)) * 1000 / hz))
 
 #define	MAX_JIFFY_OFFSET	((LONG_MAX >> 1) - 1)
