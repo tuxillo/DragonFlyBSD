@@ -207,6 +207,12 @@ If an agent violates restrictions:
 
 ## Version History
 
+- **2026-01-31:** Repository reorganization
+  - Squashed 115 commits into 3 clean commits
+  - Created backup branch `backup-port-linuxkpi-115commits`
+  - Completed Phase 2B (removed non-GPU code)
+  - Updated documentation for Phase 2C
+
 - **2026-01-30:** Initial agent configuration
   - Created build-test agent
   - Defined safety restrictions

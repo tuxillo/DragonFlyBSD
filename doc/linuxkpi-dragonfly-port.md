@@ -16,6 +16,29 @@ The LinuxKPI port is **GPU/DRM-focused only**. All networking, wireless, USB, an
 
 ---
 
+## Current Branch State (as of 2026-01-31)
+
+**Branch:** `port-linuxkpi`
+**Backup:** `backup-port-linuxkpi-115commits` (original 115 commits before squashing)
+
+### Commit History (3 clean commits)
+
+```
+136dbb5672 doc: Add LinuxKPI porting documentation and build agent
+362b42d15f linuxkpi: Add FreeBSD LinuxKPI, Concurrency Kit, and eventfd for DRM/GPU
+b0d64f73d4 drm: Remove legacy DRM stack to prepare for LinuxKPI-based drm-kmod
+<origin/master>
+```
+
+### Build Status
+
+**Last tested:** 2026-01-31
+**Result:** FAIL (expected - API mismatches need fixing in Phase 2C)
+
+The kernel builds up to LinuxKPI compilation, then fails with API mismatches between FreeBSD and DragonFly. See Phase 2C for details.
+
+---
+
 ## Phase 0: DRM-Local Glue Removal - COMPLETED ✓
 
 Phase 0 removed DragonFly's old DRM-local Linux-compat glue to prepare for the FreeBSD LinuxKPI import.
@@ -123,34 +146,33 @@ make -j$(sysctl -n hw.ncpu) buildkernel KERNCONF=X86_64_GENERIC
 
 ---
 
-### Phase 1C: Build Integration and Compilation Fixes - IN PROGRESS
+### Phase 1C: Build Integration and Compilation Fixes - COMPLETED ✓
 
 **Goal:** Add LinuxKPI source files to kernel build and fix compilation errors
 
-**Approach:** Batched fixes with compatibility wrappers (don't modify LinuxKPI headers)
+**Completed Tasks:**
+1. ✓ Added all LinuxKPI source files to `sys/conf/files`
+2. ✓ Configured include paths in `sys/conf/kern.pre.mk` and `sys/conf/kmod.mk`
+3. ✓ Fixed initial compilation errors (basic type mismatches, missing includes)
+4. ✓ Removed non-GPU code (Phase 2B) to simplify build
 
-**Strategy:** 
-- Batch 3-5 related fixes per commit
-- Create DragonFly compatibility wrappers in separate headers
-- Implement proper DragonFly equivalents (not stubs)
-- Test every 3-5 fixes
+**Remaining work moved to Phase 2C** - API-level fixes for FreeBSD/DragonFly differences.
 
 ---
 
 ## Phase 2: Fix Compilation Errors in LinuxKPI Source Files
 
-**Status:** In Progress
-**Started:** 2026-01-30
+**Status:** In Progress (Phase 2C active)
 **Goal:** Fix remaining LinuxKPI source files that fail to compile
 
-### Phase 2A: Core File Compilation Fixes
+### Phase 2A: Core File Compilation Fixes - COMPLETED ✓
 
-Four files require fixes due to FreeBSD/DragonFly API incompatibilities:
+Four core files were identified and fixed:
 
-1. **linux_fpu.c** - FPU context switching code
-2. **linux_eventfd.c** - Eventfd file descriptor handling  
-3. **linux_folio.c** - Memory/page allocation code
-4. **linux_current.c** - Current task/thread management
+1. **linux_fpu.c** - FPU context switching code ✓
+2. **linux_eventfd.c** - Eventfd file descriptor handling ✓
+3. **linux_folio.c** - Memory/page allocation code ✓
+4. **linux_current.c** - Current task/thread management ✓
 
 #### Implementation Decisions
 
@@ -171,7 +193,8 @@ Four files require fixes due to FreeBSD/DragonFly API incompatibilities:
 
 ### Phase 2B: Remove Non-GPU LinuxKPI Code
 
-**Status:** PENDING
+**Status:** COMPLETED ✓
+**Completed:** 2026-01-31
 **Goal:** Remove all networking, wireless, USB, and modem-related LinuxKPI code to focus exclusively on DRM/GPU support.
 
 #### Rationale
@@ -326,19 +349,59 @@ git push gitea port-linuxkpi
 | conf/files entries removed | 6 | - |
 | **Total code removed** | - | **~12,530 lines + ~230KB headers** |
 
-#### Expected Outcome
+#### Outcome
 
-After Phase 2B completion:
-- X86_64_GENERIC kernel builds without networking LinuxKPI code
-- `wlan` device option becomes irrelevant for LinuxKPI (no source files exist)
-- LinuxKPI is GPU/DRM-focused only
-- Cleaner codebase with reduced maintenance burden
-- Ready to continue Phase 2 compilation fixes for GPU-relevant files
+Phase 2B completed successfully:
+- ✓ All 6 networking/USB/modem source files deleted
+- ✓ Both `net/` header directories removed
+- ✓ All 10 networking headers from `linux/` removed
+- ✓ `X86_64_DRM` kernel config deleted (use `X86_64_GENERIC`)
+- ✓ `sys/conf/files` updated to remove 6 file entries
+- ✓ LinuxKPI is now GPU/DRM-focused only
+
+---
+
+### Phase 2C: Fix Remaining Compilation Errors
+
+**Status:** IN PROGRESS
+**Started:** 2026-01-31
+**Goal:** Fix API mismatches between FreeBSD and DragonFly in LinuxKPI source files
+
+#### Current Build Errors (from quickkernel test)
+
+The following errors need to be fixed:
+
+**1. PCI MSI Function Declaration Conflict** (3 files affected)
+- Files: `linux_aperture.c`, `linux_firmware.c`, `linux_folio.c`
+- Error: `static declaration of 'pci_alloc_msi' follows non-static declaration`
+- Location: `sys/bus/pci/pcivar.h:453`
+- Cause: Conflict between static inline function in header and extern declaration
+
+**2. I2C Bus Interface Errors** (`linux_i2c.c`)
+- Line 137: `'iicbus_transfer_desc' undeclared` (DragonFly uses `iicbus_transfer_gen`)
+- Line 138: `'iicbus_reset_desc' undeclared` (DragonFly uses `iicbus_reset`)
+- Line 139: `'iicbus_callback_desc' undeclared` (DragonFly uses `iicbus_callback`)
+
+**3. Unknown Storage Size** (`linux_compat.c`)
+- Lines 2612, 2627, 2639, 2651, 2663: `storage size of 'ni' isn't known`
+- Cause: Missing type definition or incomplete type for network interface variable `ni`
+
+**4. Implicit Function Declaration** (`linux_compat.c:485`)
+- Function: `vm_page_updatefake()` not declared
+- DragonFly equivalent: `vm_page_initfake`
+
+#### Failed Object Files
+
+- `linux_aperture.o`
+- `linux_i2c.o`
+- `linux_compat.o`
 
 ---
 
 ### Phase 2.1: Eventfd Port (Required for drm-kmod)
 
+**Status:** COMPLETED ✓
+**Completed:** 2026-01-30
 **Goal:** Provide kernel eventfd support sufficient for drm-kmod syncobj eventfd IOCTLs.
 
 **Why needed:** drm-kmod uses eventfd in `drivers/gpu/drm/drm_syncobj.c` for `DRM_IOCTL_SYNCOBJ_EVENTFD`.

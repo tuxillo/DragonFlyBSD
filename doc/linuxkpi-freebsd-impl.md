@@ -344,3 +344,47 @@ Some Linux APIs are stubbed or partially implemented:
 - FreeBSD Handbook: "Linuxulator" chapter (for userland, but related concepts)
 - Source tree: `sys/compat/linuxkpi/`
 - Example consumers: `sys/dev/mlx4/`, `sys/dev/mlx5/`, `sys/dev/qat/`
+
+---
+
+## DragonFly BSD Adaptation Notes
+
+When adapting FreeBSD LinuxKPI to DragonFly, key differences include:
+
+### Removed Subsystems (GPU/DRM-focused port)
+
+The DragonFly port excludes non-GPU code:
+- `linux_80211.c`, `linux_80211_macops.c` - Wireless/WiFi
+- `linux_skbuff.c` - Socket buffers
+- `linux_netdev.c` - Network devices
+- `linux_mhi.c` - Modem Host Interface
+- `linux_usb.c` - USB stack
+- All `net/` headers (cfg80211, mac80211)
+
+### API Differences Requiring Adaptation
+
+| FreeBSD API | DragonFly Equivalent | Notes |
+|-------------|---------------------|-------|
+| `vm_page_updatefake()` | `vm_page_initfake()` | Page management |
+| `iicbus_transfer_desc` | `iicbus_transfer_gen` | I2C method names |
+| `iicbus_reset_desc` | `iicbus_reset` | I2C method names |
+| `iicbus_callback_desc` | `iicbus_callback` | I2C method names |
+| `struct ifnet` | Not available | Network interface removed |
+| `pci_alloc_msi()` static | Extern declaration | PCI MSI handling differs |
+
+### Thread Structure Modifications
+
+DragonFly's `struct thread` was extended with:
+- `td_lkpi_task` - LinuxKPI task pointer
+- `td_pflags` - Process flags
+- `td_name` - Thread name
+- `td_tid` - Thread ID
+
+### Eventfd Implementation
+
+DragonFly now has native kernel eventfd support:
+- `sys/kern/sys_eventfd.c` - Core implementation
+- `sys/sys/eventfd.h` - Kernel header
+- `DTYPE_EVENTFD` in `sys/sys/file.h`
+
+See `doc/linuxkpi-dragonfly-port.md` for current porting status.
