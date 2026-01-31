@@ -83,6 +83,7 @@
 #include <linux/mm.h>
 #include <linux/io.h>
 #include <linux/vmalloc.h>
+#include <linux/netdevice.h>
 
 #include <linux/timer.h>
 #include <linux/interrupt.h>
