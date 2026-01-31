@@ -30,6 +30,10 @@
 #include <sys/systm.h>
 #include <sys/kernel.h>
 
+#ifdef __DragonFly__
+#include <linux/dragonfly_compat.h>
+#endif
+
 #include <linux/dmi.h>
 
 static char *dmi_data[DMI_STRING_MAX];

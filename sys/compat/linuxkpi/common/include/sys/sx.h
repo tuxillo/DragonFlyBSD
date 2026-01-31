@@ -60,6 +60,8 @@ typedef struct sx {
 #define sx_try_slock(sx) (lockmgr(&(sx)->lk, LK_SHARED|LK_NOWAIT) == 0)
 #define sx_xlocked(sx) lockstatus(&(sx)->lk, LK_EXCLUSIVE)
 #define sx_assert(sx, what)
+#define sx_xlock_sig(sx) (sx_xlock(sx), 0)
+#define sx_slock_sig(sx) (sx_slock(sx), 0)
 
 /* 
  * sx_xholder - get the thread holding the exclusive lock.

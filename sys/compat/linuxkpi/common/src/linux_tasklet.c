@@ -34,6 +34,10 @@
 #include <linux/dragonfly_compat.h>
 #endif
 
+#ifdef __DragonFly__
+#include <linux/dragonfly_compat.h>
+#endif
+
 #include <linux/compiler.h>
 #include <linux/interrupt.h>
 #include <linux/compat.h>

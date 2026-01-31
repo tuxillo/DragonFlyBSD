@@ -46,6 +46,7 @@
 #include <sys/thread2.h>
 #include <sys/bus.h>
 #include <sys/vnode.h>
+#include <sys/errno.h>
 #include <sys/mutex.h>
 #include <sys/mutex2.h>
 #include <sys/lock.h>
@@ -57,6 +58,11 @@
 #include <machine/cpufunc.h>
 #include <machine/atomic.h>
 #include <machine/specialreg.h>
+
+#include <vm/pmap.h>
+#include <vm/vm_map.h>
+#include <vm/vm_page.h>
+#include <sys/vmmeter.h>
 
 /*
  * FreeBSD mutex flags - DragonFly uses different flags.
@@ -102,6 +108,15 @@ lkpi_mtx_init(struct mtx *mtx, const char *name, const char *type __unused,
 	mtx->mtx_shlink = NULL;
 	mtx->mtx_ident = name;
 }
+
+/*
+ * Map FreeBSD-style mtx_init() to lkpi_mtx_init().
+ */
+#ifdef mtx_init
+#undef mtx_init
+#endif
+#define mtx_init(mtx, name, type, opts)	\
+	lkpi_mtx_init((mtx), (name), (type), (opts))
 
 /*
  * FreeBSD mtx_destroy compatibility.
@@ -206,6 +221,38 @@ lkpi_realloc(void *ptr, size_t size, struct malloc_type *type, int flags)
 	lkpi_realloc((ptr), (size), (type), (flags))
 
 /*
+ * kern_getenv - map to DragonFly's kgetenv.
+ */
+#ifndef kern_getenv
+#define kern_getenv	kgetenv
+#endif
+
+/*
+ * thread lookup and signal helpers.
+ */
+static __inline struct thread *
+tdfind(pid_t tid, int flags __unused)
+{
+	if (curthread != NULL && curthread->td_tid == tid) {
+		PROC_LOCK(curthread->td_proc);
+		return (curthread);
+	}
+	return (NULL);
+}
+
+static __inline void
+tdsignal(struct thread *td, int sig)
+{
+	if (td != NULL)
+		ksignal(td->td_proc, sig);
+}
+
+static __inline void
+thread_reap_barrier(void)
+{
+}
+
+/*
  * Scheduler state helpers.
  * DragonFly does not expose FreeBSD's scheduler stopped flag.
  */
@@ -255,6 +302,137 @@ lkpi_realloc(void *ptr, size_t size, struct malloc_type *type, int flags)
  */
 #ifndef pmap_remove_all
 #define pmap_remove_all(m)	pmap_page_protect((m), VM_PROT_NONE)
+#endif
+
+/*
+ * pmap_extract_and_hold - DragonFly replacement.
+ */
+static __inline vm_page_t
+pmap_extract_and_hold(pmap_t pmap, vm_offset_t va, vm_prot_t prot __unused)
+{
+	vm_paddr_t pa;
+	vm_page_t m;
+	void *handle = NULL;
+
+	pa = pmap_extract(pmap, va, &handle);
+	if (pa == 0) {
+		if (handle != NULL)
+			pmap_extract_done(handle);
+		return (NULL);
+	}
+	m = PHYS_TO_VM_PAGE(pa);
+	if (m != NULL)
+		vm_page_hold(m);
+	if (handle != NULL)
+		pmap_extract_done(handle);
+	return (m);
+}
+
+/*
+ * vm_map_range_valid - DragonFly does not expose this helper.
+ */
+static __inline int
+vm_map_range_valid(vm_map_t map __unused, vm_offset_t start __unused,
+    vm_offset_t end __unused)
+{
+	return (1);
+}
+
+/*
+ * vm_fault_quick_hold_pages - map to vm_fault_page_quick loop.
+ */
+static __inline int
+vm_fault_quick_hold_pages(vm_map_t map __unused, vm_offset_t start,
+    size_t len __unused, vm_prot_t prot, vm_page_t *pages, int nr_pages)
+{
+	vm_offset_t va;
+	int i;
+	int error;
+
+	for (i = 0, va = start; i < nr_pages; i++, va += PAGE_SIZE) {
+		pages[i] = vm_fault_page_quick(va, prot, &error);
+		if (pages[i] == NULL)
+			return (-1);
+	}
+	return (nr_pages);
+}
+
+/*
+ * vm_page allocation helpers.
+ */
+static __inline vm_page_t
+vm_page_alloc_noobj(int req)
+{
+	return (vm_page_alloc(NULL, 0, req));
+}
+
+static __inline vm_page_t
+vm_page_alloc_noobj_contig(int req, unsigned long npages, vm_paddr_t low,
+    vm_paddr_t high, unsigned long alignment, unsigned long boundary,
+    vm_memattr_t memattr)
+{
+	(void)req;
+	return (vm_page_alloc_contig(low, high, alignment, boundary,
+	    npages * PAGE_SIZE, memattr));
+}
+
+static __inline int
+vm_page_reclaim_contig(int req __unused, unsigned long npages __unused,
+    vm_paddr_t low __unused, vm_paddr_t high __unused,
+    unsigned long alignment __unused, unsigned long boundary __unused)
+{
+	return (ENOMEM);
+}
+
+static __inline int
+vm_page_unwire_noq(vm_page_t m)
+{
+	vm_page_unwire(m, 0);
+	return (m->wire_count == 0);
+}
+
+#ifndef vm_page_flag_set
+#define vm_page_flag_set(m, flags)	atomic_set_int(&(m)->flags, (flags))
+#endif
+
+#ifndef vm_page_free
+#define vm_page_free(m)			vm_page_free_toq((m))
+#endif
+
+/*
+ * vm_free_count - return global free page count.
+ */
+static __inline long
+vm_free_count(void)
+{
+	return (vmstats.v_free_count);
+}
+
+/*
+ * kva_alloc/kva_free - map to kmem_alloc/kmem_free on kernel_map.
+ */
+static __inline vm_offset_t
+kva_alloc(vm_size_t size)
+{
+	return (kmem_alloc(kernel_map, size, VM_SUBSYS_DRM_VMAP));
+}
+
+static __inline void
+kva_free(vm_offset_t addr, vm_size_t size)
+{
+	kmem_free(kernel_map, addr, size);
+}
+
+/*
+ * malloc_domainset/contigmalloc_domainset - ignore domainset.
+ */
+#ifndef malloc_domainset
+#define malloc_domainset(size, type, flags, domain)	\
+	malloc((size), (type), (flags))
+#endif
+#ifndef contigmalloc_domainset
+#define contigmalloc_domainset(size, type, flags, low, high, align, boundary, domain, memattr)	\
+	contigmalloc((size), (type), (flags), (low), (high), (align), (boundary))
 #endif
 
 /*

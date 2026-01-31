@@ -38,6 +38,10 @@
 #include <sys/sched.h>
 #include <sys/memrange.h>
 
+#ifdef __DragonFly__
+#include <linux/dragonfly_compat.h>
+#endif
+
 #include <machine/bus.h>
 
 #include <vm/vm.h>

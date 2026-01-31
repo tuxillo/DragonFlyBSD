@@ -27,6 +27,10 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 
+#ifdef __DragonFly__
+#include <linux/dragonfly_compat.h>
+#endif
+
 #include <video/cmdline.h>
 
 const char *

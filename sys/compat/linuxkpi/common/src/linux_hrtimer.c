@@ -31,6 +31,10 @@
 
 #include <machine/cpu.h>
 
+#ifdef __DragonFly__
+#include <linux/dragonfly_compat.h>
+#endif
+
 #include <linux/hrtimer.h>
 
 static void
