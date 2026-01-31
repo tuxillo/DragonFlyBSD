@@ -6,7 +6,6 @@ SUBDIR=	\
 	apple \
 	crypto \
 	disk \
-	drm \
 	misc \
 	netif \
 	pccard \
