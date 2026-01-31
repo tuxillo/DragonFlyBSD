@@ -1,0 +1,14 @@
+# LinuxKPI Comprehensive Test Runlist
+# Tests LinuxKPI infrastructure and bug fixes
+
+# Basic initialization test
+linuxkpi/basic/linuxkpi_basic.ko	kernel	defaults
+
+# Workqueue infrastructure test
+linuxkpi/workqueue/linuxkpi_workqueue.ko	kernel	defaults
+
+# IRQ work infrastructure test
+linuxkpi/irqwork/linuxkpi_irqwork.ko	kernel	defaults
+
+# Memory infrastructure test
+linuxkpi/memory/linuxkpi_memory.ko	kernel	defaults
