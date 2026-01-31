@@ -58,6 +58,8 @@ options 	INVARIANTS
 device		isa
 device		acpi
 device		pci
+device		iicbus
+device		iicbb
 
 # AHCI driver, this will override NATA for AHCI devices,
 # both drivers may be included.
