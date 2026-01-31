@@ -1134,8 +1134,8 @@ lkpi_sbt_to_ticks(sbintime_t sbt)
 	callout_reset_bycpu((c), (t), (f), (a), (cpu))
 #endif
 #ifndef callout_reset_sbt
-#define callout_reset_sbt(c, sbt, pr, flags, f, a, cpu) \
-	callout_reset_bycpu((c), lkpi_sbt_to_ticks(sbt), (f), (a), (cpu))
+#define callout_reset_sbt(c, sbt, pr, flags, f, a, ...) \
+	callout_reset_bycpu((c), lkpi_sbt_to_ticks(sbt), (f), (a), 0)
 #endif
 #ifndef callout_schedule_sbt
 #define callout_schedule_sbt(c, sbt, pr, flags) \
