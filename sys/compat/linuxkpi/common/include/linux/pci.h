@@ -53,11 +53,6 @@
 #undef pci_alloc_msi
 #include <bus/pci/pcireg.h>
 #include <bus/pci/pci_private.h>
-static inline int
-lkpi_pci_alloc_msi_rid(device_t dev, int *rid, int count, int cpuid)
-{
-	return (pci_alloc_msi(dev, rid, count, cpuid));
-}
 #define pci_alloc_msi(...) lkpi_pci_alloc_msi_rid(__VA_ARGS__)
 #else
 #include <dev/pci/pcivar.h>
@@ -66,6 +61,13 @@ lkpi_pci_alloc_msi_rid(device_t dev, int *rid, int count, int cpuid)
 #endif
 
 #include <machine/resource.h>
+
+#ifdef __DragonFly__
+#ifndef _LINUXKPI_RMAN_RES_T
+typedef u_long rman_res_t;
+#define _LINUXKPI_RMAN_RES_T
+#endif
+#endif
 
 /*
  * DragonFly PCI Express compatibility.

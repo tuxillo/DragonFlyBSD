@@ -60,9 +60,7 @@
 #include <machine/resource.h>
 
 #ifdef __DragonFly__
-#include <bus/pci/pcivar.h>
-#include <bus/pci/pcireg.h>
-#include <dev/pci/pci_private.h>
+/* Linux PCI header provides DragonFly PCI includes. */
 #else
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pci_private.h>
