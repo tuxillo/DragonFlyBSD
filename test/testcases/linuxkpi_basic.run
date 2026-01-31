@@ -1,0 +1,4 @@
+# LinuxKPI Basic Test
+# Tests basic LinuxKPI initialization and thread allocation
+
+linuxkpi/basic/linuxkpi_basic.ko	kernel	defaults

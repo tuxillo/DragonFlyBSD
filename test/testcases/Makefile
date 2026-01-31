@@ -6,5 +6,6 @@ SUBDIR+= threads
 SUBDIR+= compiler
 SUBDIR+= misc
 SUBDIR+= sysv
+SUBDIR+= linuxkpi
 
 .include <bsd.subdir.mk>
