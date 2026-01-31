@@ -48,7 +48,12 @@
 #include <vm/uma.h>
 
 #ifdef DEV_APIC
+#ifdef __DragonFly__
+u_int first_msi_irq = 0;
+u_int num_msi_irqs = 0;
+#else
 extern u_int first_msi_irq, num_msi_irqs;
+#endif
 #endif
 
 static eventhandler_tag linuxkpi_thread_dtor_tag;

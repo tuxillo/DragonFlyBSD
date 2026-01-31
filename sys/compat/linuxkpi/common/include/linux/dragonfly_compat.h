@@ -37,18 +37,25 @@
  */
 
 #include <sys/param.h>
+#include <sys/types.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
 #include <sys/limits.h>
 #include <sys/proc.h>
 #include <sys/thread.h>
+#include <sys/thread2.h>
+#include <sys/bus.h>
+#include <sys/vnode.h>
 #include <sys/mutex.h>
 #include <sys/mutex2.h>
 #include <sys/lock.h>
 #include <sys/callout.h>
+#include <sys/malloc.h>
+#include <sys/libkern.h>
 #include <machine/thread.h>
 #include <machine/pmap.h>
 #include <machine/cpufunc.h>
+#include <machine/atomic.h>
 #include <machine/specialreg.h>
 
 /*
@@ -138,6 +145,38 @@ lkpi_mtx_init(struct mtx *mtx, const char *name, const char *type __unused,
 #endif
 
 /*
+ * Kernel printf/format helpers.
+ */
+#ifndef printf
+#define printf		kprintf
+#endif
+#ifndef vprintf
+#define vprintf		kvprintf
+#endif
+#ifndef snprintf
+#define snprintf	ksnprintf
+#endif
+#ifndef vsnprintf
+#define vsnprintf	kvsnprintf
+#endif
+
+/*
+ * Kernel malloc helpers.
+ */
+#ifndef malloc
+#define malloc(size, type, flags)	kmalloc((size), (type), (flags))
+#endif
+#ifndef free
+#define free(addr, type)		kfree((addr), (type))
+#endif
+#ifndef realloc
+#define realloc(addr, size, type, flags)	krealloc((addr), (size), (type), (flags))
+#endif
+#ifndef malloc_usable_size
+#define malloc_usable_size(ptr)	kmalloc_usable_size((ptr))
+#endif
+
+/*
  * Scheduler state helpers.
  * DragonFly does not expose FreeBSD's scheduler stopped flag.
  */
@@ -163,6 +202,128 @@ lkpi_mtx_init(struct mtx *mtx, const char *name, const char *type __unused,
 #ifndef THREAD_NO_SLEEPING
 #define THREAD_NO_SLEEPING() do { } while (0)
 #endif
+
+/*
+ * critical_enter/critical_exit - map to DragonFly's crit_enter/crit_exit.
+ */
+#ifndef critical_enter
+#define critical_enter()	crit_enter()
+#endif
+#ifndef critical_exit
+#define critical_exit()		crit_exit()
+#endif
+
+/*
+ * qsort_r - map to DragonFly's kqsort_r.
+ */
+#ifndef qsort_r
+#define qsort_r(base, nmemb, size, thunk, cmp)	\
+	kqsort_r((base), (nmemb), (size), (thunk), (cmp))
+#endif
+
+/*
+ * pmap_remove_all - use pmap_page_protect as a replacement.
+ */
+#ifndef pmap_remove_all
+#define pmap_remove_all(m)	pmap_page_protect((m), VM_PROT_NONE)
+#endif
+
+/*
+ * atomic_thread_fence_* - map to DragonFly fence primitives.
+ */
+#ifndef atomic_thread_fence_seq_cst
+#define atomic_thread_fence_seq_cst()	cpu_mfence()
+#endif
+#ifndef atomic_thread_fence_rel
+#define atomic_thread_fence_rel()	cpu_sfence()
+#endif
+#ifndef atomic_thread_fence_acq
+#define atomic_thread_fence_acq()	cpu_lfence()
+#endif
+
+/*
+ * callout_reset_on/callout_reset_sbt/callout_schedule_sbt compatibility.
+ */
+static __inline int
+lkpi_sbt_to_ticks(sbintime_t sbt)
+{
+	if (sbt <= 0)
+		return (0);
+	return ((int)((sbt + tick_sbt - 1) / tick_sbt));
+}
+
+#ifndef callout_reset_on
+#define callout_reset_on(c, t, f, a, cpu) \
+	callout_reset_bycpu((c), (t), (f), (a), (cpu))
+#endif
+#ifndef callout_reset_sbt
+#define callout_reset_sbt(c, sbt, pr, flags, f, a, cpu) \
+	callout_reset_bycpu((c), lkpi_sbt_to_ticks(sbt), (f), (a), (cpu))
+#endif
+#ifndef callout_schedule_sbt
+#define callout_schedule_sbt(c, sbt, pr, flags) \
+	callout_reset((c), lkpi_sbt_to_ticks(sbt), callout_func(c), callout_arg(c))
+#endif
+
+/*
+ * VOP_STAT/VOP_UNLOCK compatibility.
+ */
+#ifndef VOP_STAT
+#define VOP_STAT(vp, sb, cred, fcred) vn_stat((vp), (sb), (cred))
+#endif
+#ifndef VOP_UNLOCK
+#define VOP_UNLOCK(vp) vn_unlock((vp))
+#endif
+
+/*
+ * FreeBSD ioctl helper for FIODGNAME.
+ */
+static __inline void *
+fiodgname_buf_get_ptr(struct fiodgname_arg *fgn __unused, u_long cmd __unused)
+{
+	return (fgn->buf);
+}
+
+/*
+ * _fdrop - map to DragonFly's fdrop.
+ */
+#ifndef _fdrop
+#define _fdrop(fp, td) fdrop((fp))
+#endif
+
+/*
+ * bus_bind_intr - no-op on DragonFly.
+ */
+static __inline int
+bus_bind_intr(device_t dev __unused, struct resource *irq __unused,
+    int cpu __unused)
+{
+	return (0);
+}
+
+/*
+ * makedev - ensure macro is available.
+ */
+#ifndef makedev
+#define makedev(x, y)	((dev_t)(((x) << 8) | (y)))
+#endif
+
+/*
+ * refcount_acquire_if_not_zero - FreeBSD helper.
+ */
+static __inline int
+refcount_acquire_if_not_zero(volatile u_int *countp)
+{
+	u_int old;
+
+	for (;;) {
+		old = *countp;
+		if (old == 0)
+			return (0);
+		if (atomic_cmpset_int(countp, old, old + 1))
+			return (1);
+	}
+}
 
 /*
  * callout_init compatibility.
