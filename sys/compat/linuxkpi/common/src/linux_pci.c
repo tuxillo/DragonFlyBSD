@@ -62,6 +62,7 @@
 #ifdef __DragonFly__
 #include <bus/pci/pcivar.h>
 #include <bus/pci/pcireg.h>
+#include <dev/pci/pci_private.h>
 #else
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pci_private.h>
@@ -151,6 +152,47 @@ lkpi_bus_dmamap_load_phys(bus_dma_tag_t dmat, bus_dmamap_t map,
 
 #define _bus_dmamap_load_phys(dmat, map, phys, len, flags, seg, nseg) \
     lkpi_bus_dmamap_load_phys((dmat), (map), (phys), (len), (flags), (seg), (nseg))
+
+static __inline int
+bus_translate_resource(device_t dev __unused, int type __unused,
+    rman_res_t start, rman_res_t *newstart)
+{
+	*newstart = start;
+	return (0);
+}
+
+static int
+lkpi_pci_alloc_msix(device_t dev, int *count)
+{
+	int *rids;
+	int error;
+	int i;
+
+	error = pci_setup_msix(dev);
+	if (error != 0)
+		return (error);
+
+	rids = kcalloc(*count, sizeof(*rids), GFP_KERNEL);
+	if (rids == NULL) {
+		pci_teardown_msix(dev);
+		return (ENOMEM);
+	}
+
+	for (i = 0; i < *count; i++) {
+		error = pci_alloc_msix_vector(dev, i, &rids[i], -1);
+		if (error != 0)
+			break;
+	}
+	if (error != 0) {
+		while (--i >= 0)
+			pci_release_msix_vector(dev, rids[i]);
+		pci_teardown_msix(dev);
+		kfree(rids);
+		return (error);
+	}
+	kfree(rids);
+	return (0);
+}
 #endif
 
 #ifdef __DragonFly__
@@ -1542,8 +1584,13 @@ linuxkpi_pci_enable_msix(struct pci_dev *pdev, struct msix_entry *entries,
 		return avail;
 	}
 	avail = nreq;
+#ifdef __DragonFly__
+	if ((error = -lkpi_pci_alloc_msix(pdev->dev.bsddev, &avail)) != 0)
+		return error;
+#else
 	if ((error = -pci_alloc_msix(pdev->dev.bsddev, &avail)) != 0)
 		return error;
+#endif
 	/*
 	* Handle case where "pci_alloc_msix()" may allocate less
 	* interrupts than available and return with no error:

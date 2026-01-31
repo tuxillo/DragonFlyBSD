@@ -53,6 +53,11 @@
 #undef pci_alloc_msi
 #include <bus/pci/pcireg.h>
 #include <bus/pci/pci_private.h>
+static inline int
+lkpi_pci_alloc_msi_rid(device_t dev, int *rid, int count, int cpuid)
+{
+	return (pci_alloc_msi(dev, rid, count, cpuid));
+}
 #define pci_alloc_msi(...) lkpi_pci_alloc_msi_rid(__VA_ARGS__)
 #else
 #include <dev/pci/pcivar.h>
