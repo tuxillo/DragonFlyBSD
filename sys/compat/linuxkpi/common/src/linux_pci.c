@@ -49,7 +49,11 @@
 
 #include <vm/vm.h>
 #include <vm/pmap.h>
+#ifdef __DragonFly__
+#include <machine/vmparam.h>
+#else
 #include <vm/vmparam.h>
+#endif
 #include <vm/uma.h>
 
 #include <machine/bus.h>
