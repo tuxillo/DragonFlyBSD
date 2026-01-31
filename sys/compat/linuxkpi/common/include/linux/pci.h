@@ -44,13 +44,7 @@
 #include <sys/nv.h>
 #include <sys/pciio.h>
 #ifdef __DragonFly__
-/*
- * Avoid a linkage conflict with DragonFly's inline pci_alloc_msi() wrapper
- * by renaming it within LinuxKPI translation units.
- */
-#define pci_alloc_msi lkpi_pci_alloc_msi_rid
 #include <bus/pci/pcivar.h>
-#undef pci_alloc_msi
 #include <bus/pci/pcireg.h>
 #include <bus/pci/pci_private.h>
 static inline int
