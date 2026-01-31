@@ -1609,6 +1609,12 @@ pctrie_init(struct pctrie *ptree)
 	ptree->root = NULL;
 }
 
+static __inline bool
+pctrie_is_empty(struct pctrie *ptree)
+{
+	return (ptree->root == NULL);
+}
+
 /* pctrie_zone_init - FreeBSD's per-zone init for pctrie */
 static __inline void
 pctrie_zone_init(void *mem __unused, int size __unused, int flags __unused)
@@ -1644,6 +1650,12 @@ static __inline struct type * \
 name##_PCTRIE_REMOVE(struct pctrie *ptree __unused, uint64_t key __unused) \
 { \
 	return (NULL); \
+} \
+static __inline void \
+name##_PCTRIE_RECLAIM(struct pctrie *ptree __unused) \
+{ \
+	(void)allocfn; \
+	(void)freefn; \
 }
 
 #endif /* pctrie_init */

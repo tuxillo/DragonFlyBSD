@@ -49,6 +49,7 @@
 
 #include <vm/vm.h>
 #include <vm/pmap.h>
+#include <vm/vmparam.h>
 #include <vm/uma.h>
 
 #include <machine/bus.h>
@@ -90,6 +91,63 @@
 extern int linuxkpi_debug;
 
 SYSCTL_DECL(_compat_linuxkpi);
+
+#ifdef __DragonFly__
+static __inline bool
+bus_dma_id_mapped(bus_dma_tag_t dmat __unused, vm_paddr_t phys __unused,
+    size_t len __unused)
+{
+	return (false);
+}
+
+struct lkpi_dmamap_cb_ctx {
+	bus_dma_segment_t *seg;
+	int *nseg;
+	int error;
+};
+
+static void
+lkpi_dmamap_load_cb(void *arg, bus_dma_segment_t *segs, int nsegs, int error)
+{
+	struct lkpi_dmamap_cb_ctx *ctx;
+
+	ctx = arg;
+	ctx->error = error;
+	if (error == 0 && nsegs > 0) {
+		*ctx->seg = segs[0];
+		*ctx->nseg = nsegs - 1;
+	}
+}
+
+static int
+lkpi_bus_dmamap_load_phys(bus_dma_tag_t dmat, bus_dmamap_t map,
+    vm_paddr_t phys, size_t len, int flags, bus_dma_segment_t *seg,
+    int *nseg)
+{
+	struct lkpi_dmamap_cb_ctx ctx;
+	void *vaddr;
+	int error;
+
+	/* Use DMAP if available; otherwise fail for now. */
+	if (!PMAP_HAS_DMAP)
+		return (EOPNOTSUPP);
+
+	vaddr = (void *)PHYS_TO_DMAP(phys);
+	ctx.seg = seg;
+	ctx.nseg = nseg;
+	ctx.error = 0;
+	*nseg = -1;
+
+	error = bus_dmamap_load(dmat, map, vaddr, len, lkpi_dmamap_load_cb,
+	    &ctx, flags | BUS_DMA_NOWAIT);
+	if (error != 0)
+		return (error);
+	return (ctx.error);
+}
+
+#define _bus_dmamap_load_phys(dmat, map, phys, len, flags, seg, nseg) \
+    lkpi_bus_dmamap_load_phys((dmat), (map), (phys), (len), (flags), (seg), (nseg))
+#endif
 
 #ifdef __DragonFly__
 /* DragonFly uses simple uint64_t for counters - see dragonfly_compat.h */
