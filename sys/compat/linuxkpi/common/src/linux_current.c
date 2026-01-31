@@ -93,8 +93,8 @@ find_other_mm(struct proc *p)
 static int
 linux_alloc_current_noop(struct thread *td, int flags)
 {
+	(void)td;
 	(void)flags;
-	kprintf("LKPI: linux_alloc_current_noop called, td=%p - module not initialized yet!\n", td);
 	return (0);
 }
 
@@ -125,27 +125,16 @@ linux_alloc_current(struct thread *td, int flags)
 	struct task_struct *ts;
 	struct mm_struct *mm, *mm_other;
 
-	kprintf("LKPI: linux_alloc_current called, td=%p, td_lkpi_task=%p, flags=%d\n",
-	    td, td->td_lkpi_task, flags);
-
-	if (td->td_lkpi_task != NULL) {
-		kprintf("LKPI: %s called on thread %p but td_lkpi_task=%p already set!\n",
-		    __func__, td, td->td_lkpi_task);
-		return (0);
-	}
+	MPASS(td->td_lkpi_task == NULL);
 
 	if ((td->td_pflags & TDP_ITHREAD) != 0 || !THREAD_CAN_SLEEP()) {
 		flags &= ~M_WAITOK;
 		flags |= M_NOWAIT | M_USE_RESERVE;
 	}
 
-	kprintf("LKPI: allocating from linux_current_zone=%p\n", linux_current_zone);
 	ts = uma_zalloc(linux_current_zone, flags | M_ZERO);
-	kprintf("LKPI: uma_zalloc returned ts=%p\n", ts);
-	if (ts == NULL) {
-		kprintf("LKPI: FAILED to allocate task_struct, returning ENOMEM\n");
+	if (ts == NULL)
 		return (ENOMEM);
-	}
 	mm = NULL;
 
 	/* setup new task structure */
@@ -161,42 +150,45 @@ linux_alloc_current(struct thread *td, int flags)
 
 	proc = td->td_proc;
 
-	PROC_LOCK(proc);
-	mm_other = find_other_mm(proc);
-
-	/* use allocated mm_struct as a fallback */
-	if (mm_other == NULL) {
-		PROC_UNLOCK(proc);
-		mm = uma_zalloc(linux_mm_zone, flags | M_ZERO);
-		if (mm == NULL) {
-			uma_zfree(linux_current_zone, ts);
-			return (ENOMEM);
-		}
-
+	if (proc != NULL) {
 		PROC_LOCK(proc);
 		mm_other = find_other_mm(proc);
+
+		/* use allocated mm_struct as a fallback */
 		if (mm_other == NULL) {
-			/* setup new mm_struct */
-			init_rwsem(&mm->mmap_sem);
-			atomic_set(&mm->mm_count, 1);
-			atomic_set(&mm->mm_users, 1);
-			/* set mm_struct pointer */
-			ts->mm = mm;
-			/* clear pointer to not free memory */
-			mm = NULL;
+			PROC_UNLOCK(proc);
+			mm = uma_zalloc(linux_mm_zone, flags | M_ZERO);
+			if (mm == NULL) {
+				uma_zfree(linux_current_zone, ts);
+				return (ENOMEM);
+			}
+
+			PROC_LOCK(proc);
+			mm_other = find_other_mm(proc);
+			if (mm_other == NULL) {
+				/* setup new mm_struct */
+				init_rwsem(&mm->mmap_sem);
+				atomic_set(&mm->mm_count, 1);
+				atomic_set(&mm->mm_users, 1);
+				/* set mm_struct pointer */
+				ts->mm = mm;
+				/* clear pointer to not free memory */
+				mm = NULL;
+			} else {
+				ts->mm = mm_other;
+			}
 		} else {
 			ts->mm = mm_other;
 		}
+		PROC_UNLOCK(proc);
 	} else {
-		ts->mm = mm_other;
+		/* kernel threads without a process have no mm_struct */
+		ts->mm = NULL;
 	}
 
 	/* store pointer to task struct */
-	kprintf("LKPI: setting td->td_lkpi_task = %p\n", ts);
 	td->td_lkpi_task = ts;
-	PROC_UNLOCK(proc);
 
-	kprintf("LKPI: linux_alloc_current SUCCESS, returning 0\n");
 	return (0);
 }
 
@@ -322,7 +314,6 @@ SYSCTL_INT(_compat_linuxkpi, OID_AUTO, task_struct_reserve,
 static void
 linux_current_init(void *arg __unused)
 {
-	kprintf("LKPI: linux_current_init starting\n");
 	TUNABLE_INT_FETCH("compat.linuxkpi.task_struct_reserve",
 	    &lkpi_task_resrv);
 	if (lkpi_task_resrv == 0) {
