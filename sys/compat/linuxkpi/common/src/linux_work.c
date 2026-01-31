@@ -763,6 +763,8 @@ linux_irq_work_fn(void *context, int pending)
 static void
 linux_irq_work_init_fn(void *context, int pending)
 {
+	struct thread *td;
+
 	/*
 	 * LinuxKPI performs lazy allocation of memory structures required by
 	 * current on the first access to it.  As some irq_work clients read
@@ -770,8 +772,12 @@ linux_irq_work_init_fn(void *context, int pending)
 	 * first call to irq_work_queue().  As irq_work uses a single thread,
 	 * it is enough to read current once at SYSINIT stage.
 	 */
-	if (current == NULL)
-		panic("irq_work taskqueue is not initialized");
+	td = curthread;
+	if (td == NULL)
+		return;
+	linux_set_current(td);
+	if (td->td_lkpi_task == NULL)
+		taskqueue_enqueue(linux_irq_work_tq, &linux_irq_work_init_task);
 }
 static struct task linux_irq_work_init_task =
     TASK_INITIALIZER(0, linux_irq_work_init_fn, &linux_irq_work_init_task);
