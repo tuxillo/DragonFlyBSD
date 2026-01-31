@@ -164,10 +164,10 @@ lkpi_mtx_init(struct mtx *mtx, const char *name, const char *type __unused,
  * Kernel malloc helpers.
  */
 #ifndef malloc
-#define malloc(size, type, flags)	kmalloc((size), (type), (flags))
+#define malloc(size, type, flags)	_kmalloc((size), (type), (flags))
 #endif
 #ifndef free
-#define free(addr, type)		kfree((addr), (type))
+#define free(addr, type)		_kfree((addr), (type))
 #endif
 #ifndef realloc
 #define realloc(addr, size, type, flags)	krealloc((addr), (size), (type), (flags))
@@ -242,30 +242,6 @@ lkpi_mtx_init(struct mtx *mtx, const char *name, const char *type __unused,
 #endif
 
 /*
- * callout_reset_on/callout_reset_sbt/callout_schedule_sbt compatibility.
- */
-static __inline int
-lkpi_sbt_to_ticks(sbintime_t sbt)
-{
-	if (sbt <= 0)
-		return (0);
-	return ((int)((sbt + tick_sbt - 1) / tick_sbt));
-}
-
-#ifndef callout_reset_on
-#define callout_reset_on(c, t, f, a, cpu) \
-	callout_reset_bycpu((c), (t), (f), (a), (cpu))
-#endif
-#ifndef callout_reset_sbt
-#define callout_reset_sbt(c, sbt, pr, flags, f, a, cpu) \
-	callout_reset_bycpu((c), lkpi_sbt_to_ticks(sbt), (f), (a), (cpu))
-#endif
-#ifndef callout_schedule_sbt
-#define callout_schedule_sbt(c, sbt, pr, flags) \
-	callout_reset((c), lkpi_sbt_to_ticks(sbt), callout_func(c), callout_arg(c))
-#endif
-
-/*
  * VOP_STAT/VOP_UNLOCK compatibility.
  */
 #ifndef VOP_STAT
@@ -274,15 +250,6 @@ lkpi_sbt_to_ticks(sbintime_t sbt)
 #ifndef VOP_UNLOCK
 #define VOP_UNLOCK(vp) vn_unlock((vp))
 #endif
-
-/*
- * FreeBSD ioctl helper for FIODGNAME.
- */
-static __inline void *
-fiodgname_buf_get_ptr(struct fiodgname_arg *fgn __unused, u_long cmd __unused)
-{
-	return (fgn->buf);
-}
 
 /*
  * _fdrop - map to DragonFly's fdrop.
@@ -910,6 +877,30 @@ lkpi_falloc(struct thread *td __unused, struct file **resultfp, int *resultfd,
  */
 #ifndef tick_sbt
 #define tick_sbt	(SBT_1S / hz)
+#endif
+
+/*
+ * callout_reset_on/callout_reset_sbt/callout_schedule_sbt compatibility.
+ */
+static __inline int
+lkpi_sbt_to_ticks(sbintime_t sbt)
+{
+	if (sbt <= 0)
+		return (0);
+	return ((int)((sbt + tick_sbt - 1) / tick_sbt));
+}
+
+#ifndef callout_reset_on
+#define callout_reset_on(c, t, f, a, cpu) \
+	callout_reset_bycpu((c), (t), (f), (a), (cpu))
+#endif
+#ifndef callout_reset_sbt
+#define callout_reset_sbt(c, sbt, pr, flags, f, a, cpu) \
+	callout_reset_bycpu((c), lkpi_sbt_to_ticks(sbt), (f), (a), (cpu))
+#endif
+#ifndef callout_schedule_sbt
+#define callout_schedule_sbt(c, sbt, pr, flags) \
+	callout_reset((c), lkpi_sbt_to_ticks(sbt), callout_func(c), callout_arg(c))
 #endif
 
 /*
@@ -1644,6 +1635,15 @@ struct fiodgname_arg {
 	void	*buf;
 };
 #endif
+
+/*
+ * FreeBSD ioctl helper for FIODGNAME.
+ */
+static __inline void *
+fiodgname_buf_get_ptr(struct fiodgname_arg *fgn __unused, u_long cmd __unused)
+{
+	return (fgn->buf);
+}
 
 /*
  * INTR_TYPE_NET - FreeBSD interrupt type for network devices.
