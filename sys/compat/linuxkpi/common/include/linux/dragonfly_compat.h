@@ -424,7 +424,7 @@ vm_page_unwire_noq(vm_page_t m)
 }
 
 #ifndef vm_page_flag_set
-#define vm_page_flag_set(m, flags)	atomic_set_int(&(m)->flags, (flags))
+#define vm_page_flag_set(m, flagset)	atomic_set_int(&(m)->flags, (flagset))
 #endif
 
 #ifndef vm_page_free
