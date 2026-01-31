@@ -49,6 +49,7 @@
 
 #include <vm/vm.h>
 #include <vm/pmap.h>
+#include <vm/uma.h>
 
 #include <machine/bus.h>
 #include <machine/resource.h>
@@ -1666,6 +1667,9 @@ linux_dma_uninit(void *arg)
 SYSUNINIT(linux_dma, SI_SUB_DRIVERS, SI_ORDER_THIRD, linux_dma_uninit, NULL);
 
 static void *
+#ifdef __DragonFly__
+__unused
+#endif
 linux_dma_trie_alloc(struct pctrie *ptree)
 {
 
@@ -1673,6 +1677,9 @@ linux_dma_trie_alloc(struct pctrie *ptree)
 }
 
 static void
+#ifdef __DragonFly__
+__unused
+#endif
 linux_dma_trie_free(struct pctrie *ptree, void *node)
 {
 
@@ -1681,6 +1688,10 @@ linux_dma_trie_free(struct pctrie *ptree, void *node)
 
 PCTRIE_DEFINE(LINUX_DMA, linux_dma_obj, dma_addr, linux_dma_trie_alloc,
     linux_dma_trie_free);
+
+#ifdef __DragonFly__
+#define LINUX_DMA_PCTRIE_RECLAIM(ptree) do { } while (0)
+#endif
 
 #if defined(__i386__) || defined(__amd64__) || defined(__aarch64__)
 static dma_addr_t
