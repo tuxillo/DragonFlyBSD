@@ -93,8 +93,8 @@ find_other_mm(struct proc *p)
 static int
 linux_alloc_current_noop(struct thread *td, int flags)
 {
-	(void)td;
 	(void)flags;
+	kprintf("LKPI: linux_alloc_current_noop called, td=%p - module not initialized yet!\n", td);
 	return (0);
 }
 
@@ -125,6 +125,9 @@ linux_alloc_current(struct thread *td, int flags)
 	struct task_struct *ts;
 	struct mm_struct *mm, *mm_other;
 
+	kprintf("LKPI: linux_alloc_current called, td=%p, td_lkpi_task=%p, flags=%d\n",
+	    td, td->td_lkpi_task, flags);
+
 	if (td->td_lkpi_task != NULL) {
 		kprintf("LKPI: %s called on thread %p but td_lkpi_task=%p already set!\n",
 		    __func__, td, td->td_lkpi_task);
@@ -136,9 +139,13 @@ linux_alloc_current(struct thread *td, int flags)
 		flags |= M_NOWAIT | M_USE_RESERVE;
 	}
 
+	kprintf("LKPI: allocating from linux_current_zone=%p\n", linux_current_zone);
 	ts = uma_zalloc(linux_current_zone, flags | M_ZERO);
-	if (ts == NULL)
+	kprintf("LKPI: uma_zalloc returned ts=%p\n", ts);
+	if (ts == NULL) {
+		kprintf("LKPI: FAILED to allocate task_struct, returning ENOMEM\n");
 		return (ENOMEM);
+	}
 	mm = NULL;
 
 	/* setup new task structure */
@@ -185,12 +192,11 @@ linux_alloc_current(struct thread *td, int flags)
 	}
 
 	/* store pointer to task struct */
+	kprintf("LKPI: setting td->td_lkpi_task = %p\n", ts);
 	td->td_lkpi_task = ts;
 	PROC_UNLOCK(proc);
 
-	/* free mm_struct pointer, if any */
-	uma_zfree(linux_mm_zone, mm);
-
+	kprintf("LKPI: linux_alloc_current SUCCESS, returning 0\n");
 	return (0);
 }
 
