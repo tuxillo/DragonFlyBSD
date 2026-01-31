@@ -138,7 +138,7 @@ acpi_format_exception(ACPI_STATUS Exception)
 }
 
 static inline ACPI_STATUS
-acpi_get_handle(ACPI_HANDLE Parent, const char *Pathname,
+lkpi_acpi_get_handle(ACPI_HANDLE Parent, const char *Pathname,
     ACPI_HANDLE *RetHandle)
 {
 	return (AcpiGetHandle(Parent, Pathname, RetHandle));
