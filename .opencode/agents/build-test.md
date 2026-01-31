@@ -42,11 +42,25 @@ Based on parameters:
   - Slower: rebuilds everything
   - Use when: structural changes, new files added, headers changed, build system changes
 
+## VM Information
+
+**Access:**
+- SSH: `ssh root@devbox.sector.int -p 6021`
+- Serial Console: `devbox.sector.int:5555` (for capturing boot messages)
+- QMP Socket: `devbox.sector.int:4444` (for QEMU monitor commands)
+- Source on VM: `/usr/src`
+
+**Kernel Installation:**
+When asked to install the kernel, use:
+```bash
+cd /usr/src
+make installkernel KERNCONF=X86_64_GENERIC -DNO_MODULES
+```
+Note: `-DNO_MODULES` is required since LinuxKPI is built into the kernel, not as a module.
+
 ## Workflow Steps
 
 ### 1. VM Sync
-- VM access: ssh root@devbox.sector.int -p 6021
-- Repo root on VM: /usr/src
 - Commands:
   ```bash
   cd /usr/src
