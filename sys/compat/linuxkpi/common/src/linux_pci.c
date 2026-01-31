@@ -197,7 +197,7 @@ lkpi_pci_alloc_msix(device_t dev, int *count)
 /* DragonFly uses simple uint64_t for counters - see dragonfly_compat.h */
 static counter_u64_t lkpi_pci_nseg1_fail;
 SYSCTL_QUAD(_compat_linuxkpi, OID_AUTO, lkpi_pci_nseg1_fail, CTLFLAG_RD,
-    lkpi_pci_nseg1_fail, 0, "Count of busdma mapping failures of single-segment");
+    &lkpi_pci_nseg1_fail, 0, "Count of busdma mapping failures of single-segment");
 #else
 static counter_u64_t lkpi_pci_nseg1_fail;
 SYSCTL_COUNTER_U64(_compat_linuxkpi, OID_AUTO, lkpi_pci_nseg1_fail, CTLFLAG_RD,
@@ -279,11 +279,17 @@ struct linux_dma_priv {
 #define	DMA_PRIV_UNLOCK(priv) mtx_unlock(&(priv)->lock)
 
 static void
-lkpi_set_pcim_iomap_devres(struct pcim_iomap_devres *dr, int bar,
-    void *res)
+lkpi_set_pcim_iomap_devres(struct pci_dev *pdev,
+    struct pcim_iomap_devres *dr, int bar, void *res)
 {
-	dr->mmio_table[bar] = (void *)rman_get_bushandle(res);
-	dr->res_table[bar] = res;
+	if (pdev->want_iomap_res) {
+		dr->mmio_table[bar] = (void *)rman_get_bushandle(
+		    (struct resource *)res);
+		dr->res_table[bar] = (struct resource *)res;
+	} else {
+		dr->mmio_table[bar] = res;
+		dr->res_table[bar] = NULL;
+	}
 }
 
 static bool
@@ -1086,7 +1092,7 @@ linuxkpi_pcim_iomap(struct pci_dev *pdev, int bar, unsigned long maxlen)
 		 */
 		return (NULL);
 	}
-	lkpi_set_pcim_iomap_devres(dr, bar, res);
+	lkpi_set_pcim_iomap_devres(pdev, dr, bar, res);
 
 	return (res);
 }
@@ -1142,7 +1148,7 @@ linuxkpi_pcim_iomap_regions(struct pci_dev *pdev, uint32_t mask, const char *nam
 		res = _lkpi_pci_iomap(pdev, bar, 0);
 		if (res == NULL)
 			goto err;
-		lkpi_set_pcim_iomap_devres(dr, bar, res);
+		lkpi_set_pcim_iomap_devres(pdev, dr, bar, res);
 
 		mappings |= (1 << bar);
 	}

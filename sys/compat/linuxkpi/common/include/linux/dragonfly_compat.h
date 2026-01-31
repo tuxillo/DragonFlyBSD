@@ -1706,7 +1706,14 @@ lkpi_pci_alloc_msi(device_t dev, int *count)
 #ifndef PCI_ID_RID
 #define PCI_ID_RID	0
 #define PCI_ID_OEM	1
-#define PCI_GET_ID(dev, type, id) pci_get_rid(dev)
+static __inline int
+lkpi_pci_get_id(device_t parent __unused, device_t dev, int type __unused,
+    uintptr_t *id)
+{
+	*id = pci_get_rid(dev);
+	return (0);
+}
+#define PCI_GET_ID(parent, dev, type, id) lkpi_pci_get_id(parent, dev, type, id)
 #endif
 
 /*
