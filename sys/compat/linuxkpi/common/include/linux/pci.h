@@ -53,13 +53,23 @@
 #include <bus/pci/pcireg.h>
 #include <bus/pci/pci_private.h>
 static inline int
-lkpi_pci_alloc_msi_rid(device_t dev, int *count)
+lkpi_pci_alloc_msi_compat(device_t dev, int *count)
 {
 	int rid;
 
 	return pci_alloc_msi(dev, &rid, *count, -1);
 }
-#define pci_alloc_msi(...) lkpi_pci_alloc_msi_rid(__VA_ARGS__)
+
+static inline int
+lkpi_pci_alloc_msi_native(device_t dev, int *rid, int count, int cpuid)
+{
+	return pci_alloc_msi(dev, rid, count, cpuid);
+}
+
+#define LKPI_PCI_ALLOC_MSI_SELECT(_1, _2, _3, _4, NAME, ...) NAME
+#define pci_alloc_msi(...) \
+	LKPI_PCI_ALLOC_MSI_SELECT(__VA_ARGS__, lkpi_pci_alloc_msi_native, \
+	    lkpi_pci_alloc_msi_compat, lkpi_pci_alloc_msi_compat)(__VA_ARGS__)
 #else
 #include <dev/pci/pcivar.h>
 #include <dev/pci/pcireg.h>
