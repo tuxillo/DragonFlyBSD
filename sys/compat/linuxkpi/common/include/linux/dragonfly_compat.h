@@ -39,6 +39,7 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/kernel.h>
+#include <sys/limits.h>
 #include <sys/proc.h>
 #include <sys/thread.h>
 #include <sys/mutex.h>
@@ -110,6 +111,30 @@ lkpi_mtx_init(struct mtx *mtx, const char *name, const char *type __unused,
  */
 #ifndef mtx_initialized
 #define mtx_initialized(mtx) ((mtx)->mtx_ident != NULL)
+#endif
+
+/*
+ * MPASS - FreeBSD assertion helper.
+ * Map to DragonFly's KASSERT.
+ */
+#ifndef MPASS
+#define MPASS(exp) KASSERT((exp), ("MPASS(%s)", #exp))
+#endif
+
+/*
+ * WOULD_OVERFLOW - FreeBSD overflow check helper.
+ * Used for nmemb * size style checks.
+ */
+#ifndef WOULD_OVERFLOW
+#define WOULD_OVERFLOW(a, b) ((a) != 0 && (b) > SIZE_MAX / (a))
+#endif
+
+/*
+ * VM_OBJECT_ASSERT_WLOCKED - FreeBSD VM object lock assert.
+ * DragonFly does not provide a direct equivalent.
+ */
+#ifndef VM_OBJECT_ASSERT_WLOCKED
+#define VM_OBJECT_ASSERT_WLOCKED(object) do { } while (0)
 #endif
 
 /*
