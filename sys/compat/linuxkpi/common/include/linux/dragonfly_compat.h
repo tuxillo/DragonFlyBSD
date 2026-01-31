@@ -47,6 +47,7 @@
 #include <sys/bus.h>
 #include <sys/vnode.h>
 #include <sys/errno.h>
+#include <sys/bitstring.h>
 #include <sys/mutex.h>
 #include <sys/mutex2.h>
 #include <sys/lock.h>
@@ -62,6 +63,8 @@
 #include <vm/pmap.h>
 #include <vm/vm_map.h>
 #include <vm/vm_page.h>
+#include <vm/vm_extern.h>
+#include <vm/vm_kern.h>
 #include <sys/vmmeter.h>
 
 /*
@@ -225,6 +228,35 @@ lkpi_realloc(void *ptr, size_t size, struct malloc_type *type, int flags)
  */
 #ifndef kern_getenv
 #define kern_getenv	kgetenv
+#endif
+
+/*
+ * sched_relinquish - yield CPU.
+ */
+static __inline void
+sched_relinquish(struct thread *td __unused)
+{
+	lwkt_yield();
+}
+
+/*
+ * strchrnul - return pointer to terminator if not found.
+ */
+static __inline char *
+strchrnul(const char *s, int c)
+{
+	const char *p = s;
+
+	while (*p && *p != (char)c)
+		p++;
+	return ((char *)p);
+}
+
+/*
+ * bitcountl - number of set bits in unsigned long.
+ */
+#ifndef bitcountl
+#define bitcountl(x)	__builtin_popcountl((unsigned long)(x))
 #endif
 
 /*
