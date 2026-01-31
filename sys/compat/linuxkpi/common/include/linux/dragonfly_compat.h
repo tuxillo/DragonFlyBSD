@@ -285,6 +285,48 @@ thread_reap_barrier(void)
 }
 
 /*
+ * PCI helpers missing on DragonFly.
+ */
+static __inline uintptr_t
+pci_get_rid(device_t dev)
+{
+	return ((uintptr_t)device_get_unit(dev));
+}
+
+static __inline int
+pci_find_cap(device_t dev __unused, int cap __unused, int *capreg __unused)
+{
+	return (ENXIO);
+}
+
+static __inline device_t
+pci_find_class_from(uint8_t class __unused, uint8_t subclass __unused,
+    device_t dev __unused)
+{
+	return (NULL);
+}
+
+static __inline device_t
+pci_find_base_class_from(uint8_t class __unused, device_t dev __unused)
+{
+	return (NULL);
+}
+
+static __inline device_t
+pci_find_pcie_root_port(device_t dev __unused)
+{
+	return (NULL);
+}
+
+static __inline struct resource *
+pci_reserve_map(device_t parent __unused, device_t dev, int type, int rid,
+    rman_res_t start __unused, rman_res_t end __unused, u_long count __unused,
+    u_int align __unused, u_int flags __unused)
+{
+	return (bus_alloc_resource_any(dev, type, &rid, RF_SHAREABLE));
+}
+
+/*
  * Scheduler state helpers.
  * DragonFly does not expose FreeBSD's scheduler stopped flag.
  */

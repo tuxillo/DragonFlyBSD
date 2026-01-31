@@ -802,11 +802,19 @@ ida_remove(struct ida *ida, int id)
 	idr_remove(&ida->idr, id);
 }
 
+#ifdef __DragonFly__
+void
+lkpi_ida_init(struct ida *ida)
+{
+	idr_init(&ida->idr);
+}
+#else
 void
 ida_init(struct ida *ida)
 {
 	idr_init(&ida->idr);
 }
+#endif
 
 void
 ida_destroy(struct ida *ida)
