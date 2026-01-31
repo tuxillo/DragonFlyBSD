@@ -46,6 +46,7 @@
 #include <sys/thread.h>
 #include <sys/thread2.h>
 #include <sys/bus.h>
+#include <bus/pci/pcivar.h>
 #include <sys/vnode.h>
 #include <sys/errno.h>
 #include <sys/bitstring.h>
