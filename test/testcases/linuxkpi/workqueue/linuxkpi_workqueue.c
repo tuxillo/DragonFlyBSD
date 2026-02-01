@@ -295,6 +295,12 @@ static int test_sustained_work(void)
 		errors++;
 	}
 
+	/* Cancel any remaining work items to ensure they're detached from taskqueue */
+	for (i = 0; i < 100; i++) {
+		cancel_work(&works[i]);
+	}
+	tbridge_printf("INFO: Cancelled all work items\n");
+	
 	tbridge_printf("INFO: About to call destroy_workqueue()...\n");
 	destroy_workqueue(wq);
 	tbridge_printf("INFO: destroy_workqueue() returned\n");
@@ -321,8 +327,7 @@ linuxkpi_workqueue_run(void *arg __unused)
 	total_errors += test_schedule_work();
 	total_errors += test_multiple_work();
 	total_errors += test_cancel_work();
-	/* TEMPORARILY DISABLED: test_sustained_work() causing double-free panic */
-	/* total_errors += test_sustained_work(); */
+	total_errors += test_sustained_work();
 
 	tbridge_printf("\n========================================\n");
 	if (total_errors == 0) {
