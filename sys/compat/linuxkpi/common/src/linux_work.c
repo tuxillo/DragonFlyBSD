@@ -828,13 +828,6 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	/* Free all taskqueues */
 	for (i = 0; i < wq->num_queues; i++) {
 		taskqueue_free(wq->taskqueues[i]);
-		/*
-		 * ASSERT: Verify all taskqueue threads have exited.
-		 * tq_tcount should be 0 after taskqueue_free returns.
-		 * If > 0, threads are still running and may access task
-		 * structures after we free them.
-		 */
-		KKASSERT(wq->taskqueues[i]->tq_tcount == 0);
 	}
 
 	/* ASSERT: Verify draining flag is still set (catches re-use) */
