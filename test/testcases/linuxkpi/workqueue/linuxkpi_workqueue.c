@@ -223,8 +223,9 @@ static int test_multiple_work(void)
 
 	/*
 	 * Use drain_workqueue() to ensure all 5 work items complete.
-	 * With max_active=4, the 5th item is still queued when
-	 * flush_workqueue() returns, causing a race condition.
+	 * With max_active=4, the 5th item may still be queued when
+	 * flush_workqueue() would return, causing a race condition.
+	 * drain_workqueue() waits for all pending and active work.
 	 */
 	drain_workqueue(wq);
 
@@ -272,7 +273,7 @@ static int test_sustained_work(void)
 	struct work_struct *works;
 	int i;
 	int errors = 0;
-	const int num_items = 10;
+	const int num_items = 100;
 
 	tbridge_printf("\nTest 7: Sustained work processing (%d items)...\n", num_items);
 
