@@ -89,9 +89,11 @@ int	taskqueue_cancel_simple(struct task *task);
 int	taskqueue_cancel_timeout(struct taskqueue *queue,
 	    struct timeout_task *timeout_task, u_int *pendp);
 void	taskqueue_drain(struct taskqueue *queue, struct task *task);
+void	taskqueue_drain_all(struct taskqueue *queue);
 void	taskqueue_drain_simple(struct task *task);
 void	taskqueue_drain_timeout(struct taskqueue *queue,
 	    struct timeout_task *timeout_task);
+int	taskqueue_poll_is_busy(struct taskqueue *queue, struct task *task);
 struct	taskqueue *taskqueue_find(const char *name);
 void	taskqueue_free(struct taskqueue *queue);
 void	taskqueue_block(struct taskqueue *queue);

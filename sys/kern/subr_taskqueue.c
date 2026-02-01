@@ -515,6 +515,60 @@ taskqueue_drain(struct taskqueue *queue, struct task *task)
 }
 
 /*
+ * Drain all pending tasks from the taskqueue.
+ * This waits until both the pending queue is empty AND
+ * any currently executing task has completed.
+ */
+void
+taskqueue_drain_all(struct taskqueue *queue)
+{
+	struct task *task;
+
+	TQ_LOCK(queue);
+
+	/*
+	 * Wait while there are tasks in the queue or a task is running.
+	 * We loop because new tasks may be enqueued while we wait.
+	 */
+	while ((task = STAILQ_FIRST(&queue->tq_queue)) != NULL ||
+	    queue->tq_running != NULL) {
+		if (task != NULL) {
+			/*
+			 * Wait for this specific task to complete.
+			 * It will wake us when done.
+			 */
+			while (task->ta_pending != 0 || task == queue->tq_running)
+				TQ_SLEEP(queue, task, "tqdall");
+		} else if (queue->tq_running != NULL) {
+			/*
+			 * Queue is empty but a task is still running.
+			 * Wait for it to complete.
+			 */
+			task = queue->tq_running;
+			while (task == queue->tq_running)
+				TQ_SLEEP(queue, task, "tqdall");
+		}
+	}
+
+	TQ_UNLOCK(queue);
+}
+
+/*
+ * Return true if a task is pending or currently executing.
+ */
+int
+taskqueue_poll_is_busy(struct taskqueue *queue, struct task *task)
+{
+	int busy;
+
+	TQ_LOCK(queue);
+	busy = task->ta_pending > 0 || task == queue->tq_running;
+	TQ_UNLOCK(queue);
+
+	return (busy);
+}
+
+/*
  * Wait for the task to drain and return
  */
 void

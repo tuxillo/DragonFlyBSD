@@ -615,20 +615,10 @@ refcount_acquire_if_not_zero(volatile u_int *countp)
 #endif
 
 /*
- * taskqueue_poll_is_busy - FreeBSD function to check if task is executing.
- * DragonFly doesn't have this. Provide a stub that returns false.
- * XXX: This may cause incorrect behavior in code that relies on this.
+ * taskqueue_poll_is_busy and taskqueue_drain_all are now implemented in
+ * sys/kern/subr_taskqueue.c and declared in sys/sys/taskqueue.h.
+ * No stubs needed here.
  */
-#ifndef taskqueue_poll_is_busy
-struct task;
-struct taskqueue;
-static __inline int
-taskqueue_poll_is_busy(struct taskqueue *tq __unused, struct task *t __unused)
-{
-    /* DragonFly doesn't have this API - return "not busy" */
-    return (0);
-}
-#endif
 
 /*
  * SMP compatibility - include our sys/smp.h for CPU_FOREACH etc.
@@ -736,22 +726,9 @@ mallocarray(size_t nmemb, size_t size, struct malloc_type *type, int flags)
  */
 
 /*
- * taskqueue_drain_all - DragonFly doesn't have this function.
- * Provide a simple stub that drains one by one (less efficient but works).
+ * taskqueue_drain_all is now implemented in sys/kern/subr_taskqueue.c
+ * and declared in sys/sys/taskqueue.h. No stub needed here.
  */
-#ifndef taskqueue_drain_all
-static __inline void
-taskqueue_drain_all(struct taskqueue *tq)
-{
-	/* 
-	 * DragonFly doesn't have taskqueue_drain_all.
-	 * This is a no-op stub - callers should use taskqueue_drain()
-	 * for specific tasks, or taskqueue_free() will drain on destroy.
-	 */
-	taskqueue_block(tq);
-	taskqueue_unblock(tq);
-}
-#endif
 
 /* Missing sys/kdb.h - DragonFly has different debugger interface */
 #ifndef _SYS_KDB_H_
