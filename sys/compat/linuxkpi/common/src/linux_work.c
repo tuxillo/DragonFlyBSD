@@ -182,15 +182,45 @@ linux_queue_work_on(int cpu, struct workqueue_struct *wq,
 	};
 	struct taskqueue *tq;
 	int queue_index;
+	bool retval = false;
 
+	/*
+	 * Quick check without lock. If draining, return early.
+	 * This is an optimization to avoid lock contention.
+	 */
 	if (atomic_read(&wq->draining) != 0)
 		return (!work_pending(work));
+
+	/*
+	 * Take exec_mtx to synchronize with destroy_workqueue.
+	 * This protects access to wq->taskqueues.
+	 */
+	WQ_EXEC_LOCK(wq);
+
+	/* Re-check draining while holding lock */
+	if (atomic_read(&wq->draining) != 0) {
+		WQ_EXEC_UNLOCK(wq);
+		return (!work_pending(work));
+	}
 
 	switch (linux_update_state(&work->state, states)) {
 	case WORK_ST_EXEC:
 	case WORK_ST_CANCEL:
-		if (linux_work_exec_unblock(work) != 0)
+		/*
+		 * Work is currently executing. Need to unblock it first.
+		 * Release lock to avoid deadlock with linux_work_exec_unblock.
+		 */
+		WQ_EXEC_UNLOCK(wq);
+		if (linux_work_exec_unblock(work) != 0) {
 			return (true);
+		}
+		/* Fall through to queue the work */
+		WQ_EXEC_LOCK(wq);
+		/* Re-check draining after re-acquiring lock */
+		if (atomic_read(&wq->draining) != 0) {
+			WQ_EXEC_UNLOCK(wq);
+			return (!work_pending(work));
+		}
 		/* FALLTHROUGH */
 	case WORK_ST_IDLE:
 		work->work_queue = wq;
@@ -198,10 +228,15 @@ linux_queue_work_on(int cpu, struct workqueue_struct *wq,
 		work->queue_index = queue_index;
 		tq = linux_get_taskqueue(wq, queue_index);
 		taskqueue_enqueue(tq, &work->work_task);
-		return (true);
+		retval = true;
+		break;
 	default:
-		return (false);		/* already on a queue */
+		retval = false;		/* already on a queue */
+		break;
 	}
+
+	WQ_EXEC_UNLOCK(wq);
+	return (retval);
 }
 
 /*
@@ -786,17 +821,29 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 {
 	int i;
 
+	/*
+	 * Take exec_mtx first to synchronize with queue_work.
+	 * This ensures no new work is being queued while we drain.
+	 */
+	WQ_EXEC_LOCK(wq);
 	atomic_inc(&wq->draining);
+	WQ_EXEC_UNLOCK(wq);
 
 	/* Drain all taskqueues first */
 	for (i = 0; i < wq->num_queues; i++) {
 		taskqueue_drain_all(wq->taskqueues[i]);
 	}
 
+	/*
+	 * Take exec_mtx again to ensure all queue_work operations
+	 * have completed before freeing taskqueues.
+	 */
+	WQ_EXEC_LOCK(wq);
 	/* Free all taskqueues */
 	for (i = 0; i < wq->num_queues; i++) {
 		taskqueue_free(wq->taskqueues[i]);
 	}
+	WQ_EXEC_UNLOCK(wq);
 
 	mtx_destroy(&wq->exec_mtx);
 	kfree(wq->taskqueues);
