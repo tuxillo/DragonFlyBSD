@@ -328,27 +328,17 @@ out:
 void
 linux_work_fn(void *context, int pending)
 {
-	/* State table for starting execution */
-	static const uint8_t start_states[WORK_ST_MAX] __aligned(8) = {
+	static const uint8_t states[WORK_ST_MAX] __aligned(8) = {
 		[WORK_ST_IDLE] = WORK_ST_IDLE,		/* NOP */
 		[WORK_ST_TIMER] = WORK_ST_EXEC,		/* delayed work w/o timeout */
 		[WORK_ST_TASK] = WORK_ST_EXEC,		/* call callback */
-		[WORK_ST_EXEC] = WORK_ST_EXEC,		/* already executing */
-		[WORK_ST_CANCEL] = WORK_ST_EXEC,	/* failed to cancel */
-	};
-	/* State table for completing execution */
-	static const uint8_t complete_states[WORK_ST_MAX] __aligned(8) = {
-		[WORK_ST_IDLE] = WORK_ST_IDLE,		/* NOP */
-		[WORK_ST_TIMER] = WORK_ST_TIMER,		/* shouldn't happen */
-		[WORK_ST_TASK] = WORK_ST_TASK,		/* shouldn't happen */
 		[WORK_ST_EXEC] = WORK_ST_IDLE,		/* complete callback */
-		[WORK_ST_CANCEL] = WORK_ST_CANCEL,	/* shouldn't happen */
+		[WORK_ST_CANCEL] = WORK_ST_EXEC,	/* failed to cancel */
 	};
 	struct work_struct *work;
 	struct workqueue_struct *wq;
 	struct work_exec exec;
 	struct task_struct *task;
-	uint8_t prev_state;
 
 	task = current;
 
@@ -362,47 +352,37 @@ linux_work_fn(void *context, int pending)
 	/* insert executor into list */
 	WQ_EXEC_LOCK(wq);
 	TAILQ_INSERT_TAIL(&wq->exec_head, &exec, entry);
-	
-	/* Transition to EXEC state */
-	prev_state = linux_update_state(&work->state, start_states);
-	
-	switch (prev_state) {
-	case WORK_ST_TIMER:
-	case WORK_ST_TASK:
-	case WORK_ST_CANCEL:
-		WQ_EXEC_UNLOCK(wq);
-
-		/* set current work structure */
-		task->work = work;
-
-		/* call work function */
-		work->func(work);
-
-		/* set current work structure */
-		task->work = NULL;
-
-		/* Memory barrier to ensure callback effects are visible */
-		smp_mb();
-
-		WQ_EXEC_LOCK(wq);
-		
-		/* Transition to IDLE state immediately while holding lock */
-		linux_update_state(&work->state, complete_states);
-		
-		/* check if unblocked (for re-queue) */
-		if (exec.target != work) {
-			/* Someone tried to cancel/re-queue, loop back */
-			exec.target = work;
+	while (1) {
+		switch (linux_update_state(&work->state, states)) {
+		case WORK_ST_TIMER:
+		case WORK_ST_TASK:
+		case WORK_ST_CANCEL:
 			WQ_EXEC_UNLOCK(wq);
-			/* Re-queue will be handled by queue_work */
+
+			/* set current work structure */
+			task->work = work;
+
+			/* call work function */
+			work->func(work);
+
+			/* set current work structure */
+			task->work = NULL;
+
+			/* Memory barrier to ensure callback completion is visible */
+			smp_mb();
+
+			WQ_EXEC_LOCK(wq);
+			/* check if unblocked */
+			if (exec.target != work) {
+				/* reapply block */
+				exec.target = work;
+				break;
+			}
+			/* FALLTHROUGH */
+		default:
 			goto done;
 		}
-		break;
-	default:
-		/* IDLE or already EXEC - nothing to do */
-		break;
 	}
-
 done:
 	/* remove executor from list */
 	TAILQ_REMOVE(&wq->exec_head, &exec, entry);
