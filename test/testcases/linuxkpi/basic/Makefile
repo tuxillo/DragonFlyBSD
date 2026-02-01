@@ -11,6 +11,7 @@ SRCS=	linuxkpi_basic.c \
 # Add LinuxKPI includes AFTER bsd.kmod.mk (CFLAGS is reset inside it)
 CFLAGS+=	-Idragonfly/compat/linuxkpi/common/include
 CFLAGS+=	-Idragonfly/compat/linuxkpi/dummy/include
+CFLAGS+=	-Idragonfly/../test/dfregress
 CFLAGS+=	-include dragonfly/compat/linuxkpi/common/include/linux/kconfig.h
 
 # LinuxKPI and DragonFly headers have conflicting macros
