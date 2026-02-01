@@ -53,11 +53,11 @@ static void test_work_fn(struct work_struct *work)
 	work_counter++;
 }
 
-/* Work function with delay to test actual async processing */
+/* Work function with tiny delay to test actual async processing */
 static void test_work_delay_fn(struct work_struct *work)
 {
-	/* Small delay to simulate real work */
-	DELAY(1000);  /* 1 microsecond */
+	/* Very small delay to simulate real work without hanging */
+	DELAY(10);  /* 10 microseconds */
 	work_done++;
 }
 
