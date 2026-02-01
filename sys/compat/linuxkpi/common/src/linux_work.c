@@ -185,8 +185,14 @@ linux_queue_work_on(int cpu, struct workqueue_struct *wq,
 	struct taskqueue *tq;
 	int queue_index;
 
-	if (atomic_read(&wq->draining) != 0)
+	/*
+	 * DEBUG: Log if queue_work is called during draining.
+	 * This shouldn't happen in normal operation but helps debug races.
+	 */
+	if (atomic_read(&wq->draining) != 0) {
+		printk("WARNING: queue_work called on draining workqueue %p\n", wq);
 		return (!work_pending(work));
+	}
 
 	switch (linux_update_state(&work->state, states)) {
 	case WORK_ST_EXEC:
@@ -795,10 +801,20 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 		taskqueue_drain_all(wq->taskqueues[i]);
 	}
 
+	/*
+	 * ASSERT: After drain_all, all work callbacks completed.
+	 * However, taskqueue threads may still be exiting. The
+	 * taskqueue_free() call below will wait for them via
+	 * taskqueue_terminate().
+	 */
+
 	/* Free all taskqueues */
 	for (i = 0; i < wq->num_queues; i++) {
 		taskqueue_free(wq->taskqueues[i]);
 	}
+
+	/* ASSERT: Verify draining flag is still set (catches re-use) */
+	KKASSERT(atomic_read(&wq->draining) != 0);
 
 	mtx_destroy(&wq->exec_mtx);
 	kfree(wq->taskqueues);
