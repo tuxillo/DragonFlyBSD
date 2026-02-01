@@ -192,7 +192,7 @@ static int test_schedule_work(void)
 /* Test 5: Multiple work items */
 static int test_multiple_work(void)
 {
-	struct work_struct works[5];
+	struct work_struct *works;
 	struct workqueue_struct *wq;
 	int i;
 	int errors = 0;
@@ -206,6 +206,13 @@ static int test_multiple_work(void)
 	}
 
 	atomic_set(&work_counter, 0);
+
+	works = kmalloc(sizeof(*works) * 5, GFP_KERNEL);
+	if (works == NULL) {
+		tbridge_printf("FAIL: kmalloc() failed for work items\n");
+		destroy_workqueue(wq);
+		return 1;
+	}
 
 	for (i = 0; i < 5; i++) {
 		INIT_WORK(&works[i], test_work_fn);
@@ -225,6 +232,7 @@ static int test_multiple_work(void)
 	}
 
 	destroy_workqueue(wq);
+	kfree(works);
 
 	return errors;
 }
