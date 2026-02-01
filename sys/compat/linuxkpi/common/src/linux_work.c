@@ -362,11 +362,22 @@ linux_work_fn(void *context, int pending)
 			/* set current work structure */
 			task->work = work;
 
+			/*
+			 * ASSERT: State should be EXEC when callback starts
+			 */
+			KKASSERT(atomic_read(&work->state) == WORK_ST_EXEC);
+
 			/* call work function */
 			work->func(work);
 
 			/* set current work structure */
 			task->work = NULL;
+
+			/*
+			 * ASSERT: State should still be EXEC after callback returns
+			 * before we update it to IDLE
+			 */
+			KKASSERT(atomic_read(&work->state) == WORK_ST_EXEC);
 
 			/* Memory barrier to ensure callback completion is visible */
 			smp_mb();
@@ -817,6 +828,13 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	/* Free all taskqueues */
 	for (i = 0; i < wq->num_queues; i++) {
 		taskqueue_free(wq->taskqueues[i]);
+		/*
+		 * ASSERT: Verify all taskqueue threads have exited.
+		 * tq_tcount should be 0 after taskqueue_free returns.
+		 * If > 0, threads are still running and may access task
+		 * structures after we free them.
+		 */
+		KKASSERT(wq->taskqueues[i]->tq_tcount == 0);
 	}
 
 	/* ASSERT: Verify draining flag is still set (catches re-use) */

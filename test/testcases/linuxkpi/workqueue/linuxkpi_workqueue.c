@@ -269,6 +269,19 @@ static int test_multiple_work(void)
 	 */
 	tsleep(curthread, 0, "wqdelay", hz / 10);
 	
+	/*
+	 * ASSERT: Verify all work items are in IDLE state before freeing.
+	 * If any work is not IDLE, it's a race - taskqueue may still be
+	 * accessing the work_struct.
+	 */
+	for (i = 0; i < num_items; i++) {
+		int state = atomic_read(&works[i].state);
+		if (state != 0) {  /* WORK_ST_IDLE = 0 */
+			tbridge_printf("ASSERT FAIL: works[%d].state = %d (expected 0/IDLE)\n", i, state);
+			KKASSERT(state == 0);
+		}
+	}
+	
 	kfree(works);
 
 	return errors;
