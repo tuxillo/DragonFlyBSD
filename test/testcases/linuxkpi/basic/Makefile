@@ -1,8 +1,3 @@
-# Force include kconfig.h before anything else (must be before bsd.kmod.mk)
-CFLAGS+=	-Idragonfly/compat/linuxkpi/common/include
-CFLAGS+=	-Idragonfly/compat/linuxkpi/dummy/include
-CFLAGS+=	-include dragonfly/compat/linuxkpi/common/include/linux/kconfig.h
-
 KMOD=	linuxkpi_basic
 SRCS=	linuxkpi_basic.c \
 	device_if.h \
@@ -10,4 +5,10 @@ SRCS=	linuxkpi_basic.c \
 	pci_if.h \
 	pcib_if.h
 
+# Note: CFLAGS is reset by bsd.kmod.mk, so we must add AFTER it
 .include <bsd.kmod.mk>
+
+# Add LinuxKPI includes AFTER bsd.kmod.mk (CFLAGS is reset inside it)
+CFLAGS+=	-Idragonfly/compat/linuxkpi/common/include
+CFLAGS+=	-Idragonfly/compat/linuxkpi/dummy/include
+CFLAGS+=	-include dragonfly/compat/linuxkpi/common/include/linux/kconfig.h
