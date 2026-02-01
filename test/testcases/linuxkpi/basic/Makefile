@@ -12,3 +12,7 @@ SRCS=	linuxkpi_basic.c \
 CFLAGS+=	-Idragonfly/compat/linuxkpi/common/include
 CFLAGS+=	-Idragonfly/compat/linuxkpi/dummy/include
 CFLAGS+=	-include dragonfly/compat/linuxkpi/common/include/linux/kconfig.h
+
+# Suppress macro conflicts between LinuxKPI and DragonFly headers
+CFLAGS+=	-Wno-error=macro-redefined
+CFLAGS+=	-Wno-error=discarded-qualifiers
