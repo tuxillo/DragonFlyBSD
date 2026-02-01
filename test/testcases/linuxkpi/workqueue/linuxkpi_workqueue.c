@@ -257,15 +257,22 @@ static int test_cancel_work(void)
 static int test_sustained_work(void)
 {
 	struct workqueue_struct *wq;
-	struct work_struct works[100];
+	struct work_struct *works;
 	int i;
 	int errors = 0;
 
 	tbridge_printf("\nTest 7: Sustained work processing (100 items)...\n");
 
+	works = kmalloc(sizeof(struct work_struct) * 100, GFP_KERNEL);
+	if (works == NULL) {
+		tbridge_printf("FAIL: kmalloc() failed\n");
+		return 1;
+	}
+
 	wq = alloc_workqueue("test_sustained", 0, 4);
 	if (wq == NULL) {
 		tbridge_printf("FAIL: alloc_workqueue() failed\n");
+		kfree(works);
 		return 1;
 	}
 
@@ -289,6 +296,7 @@ static int test_sustained_work(void)
 	}
 
 	destroy_workqueue(wq);
+	kfree(works);
 
 	return errors;
 }
