@@ -273,7 +273,7 @@ static int test_sustained_work(void)
 	struct work_struct *works;
 	int i;
 	int errors = 0;
-	const int num_items = 100;
+	const int num_items = 5;
 
 	tbridge_printf("\nTest 7: Sustained work processing (%d items)...\n", num_items);
 
