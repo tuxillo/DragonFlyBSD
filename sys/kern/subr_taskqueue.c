@@ -165,6 +165,21 @@ taskqueue_free(struct taskqueue *queue)
 	kfree(queue, M_TASKQUEUE);
 }
 
+/*
+ * Return the number of threads associated with this taskqueue.
+ * Returns 0 if the taskqueue has no threads or all threads have exited.
+ */
+int
+taskqueue_thread_count(struct taskqueue *queue)
+{
+	int count;
+
+	TQ_LOCK(queue);
+	count = queue->tq_tcount;
+	TQ_UNLOCK(queue);
+	return count;
+}
+
 struct taskqueue *
 taskqueue_find(const char *name)
 {

@@ -98,6 +98,7 @@ struct	taskqueue *taskqueue_find(const char *name);
 void	taskqueue_free(struct taskqueue *queue);
 void	taskqueue_block(struct taskqueue *queue);
 void	taskqueue_unblock(struct taskqueue *queue);
+int	taskqueue_thread_count(struct taskqueue *queue);
 
 #define TASK_INITIALIZER(priority, func, context)	\
 	{ .ta_queue = NULL,				\
