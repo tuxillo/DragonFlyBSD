@@ -500,8 +500,11 @@ static int test_per_cpu_distribution(void)
 	}
 
 	tbridge_printf("INFO: Queued %d work items\n", work_items);
+	tbridge_printf("INFO: About to call drain_workqueue()...\n");
 
 	drain_workqueue(wq);
+
+	tbridge_printf("INFO: drain_workqueue() returned\n");
 
 	if (atomic_read(&work_counter) == work_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", work_items);
