@@ -1,7 +1,10 @@
 KMOD=	linuxkpi_basic
 SRCS=	linuxkpi_basic.c \
 	device_if.h \
-	bus_if.h
+	bus_if.h \
+	pci_if.h \
+	pci_iov_if.h \
+	pcib_if.h
 
 .include <bsd.kmod.mk>
 
