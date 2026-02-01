@@ -47,11 +47,26 @@
 /* Test counters - atomic to avoid race conditions */
 static atomic_t work_counter = ATOMIC_INIT(0);
 static atomic_t work_done = ATOMIC_INIT(0);
+static atomic_t requeue_count = ATOMIC_INIT(0);
+
+/* Forward declaration for requeue test */
+static struct work_struct requeue_work;
+static struct workqueue_struct *requeue_wq;
 
 /* Simple work function */
 static void test_work_fn(struct work_struct *work)
 {
 	atomic_inc(&work_counter);
+}
+
+/* Work function that re-queues itself (chained work) */
+static void test_requeue_fn(struct work_struct *work)
+{
+	int count = atomic_inc_return(&requeue_count);
+	if (count < 5) {
+		/* Re-queue the work for another run */
+		queue_work(requeue_wq, work);
+	}
 }
 
 /* Work function - just count without delay to avoid blocking */
@@ -341,6 +356,45 @@ static int test_sustained_work(void)
 	return errors;
 }
 
+/* Test 8: Work re-queueing (work that queues more work) */
+static int test_requeue_work(void)
+{
+	int errors = 0;
+
+	tbridge_printf("\nTest 8: Work re-queueing (chained work)...\n");
+
+	atomic_set(&requeue_count, 0);
+
+	requeue_wq = alloc_workqueue("test_requeue", 0, 1);
+	if (requeue_wq == NULL) {
+		tbridge_printf("FAIL: alloc_workqueue() failed\n");
+		return 1;
+	}
+
+	INIT_WORK(&requeue_work, test_requeue_fn);
+
+	/* Queue initial work */
+	queue_work(requeue_wq, &requeue_work);
+	tbridge_printf("INFO: Queued initial work\n");
+
+	/* Flush - should complete all 5 iterations */
+	flush_work(&requeue_work);
+
+	if (atomic_read(&requeue_count) == 5) {
+		tbridge_printf("PASS: Work re-queued correctly (%d iterations)\n", 
+			atomic_read(&requeue_count));
+	} else {
+		tbridge_printf("FAIL: Expected 5 iterations, got %d\n", 
+			atomic_read(&requeue_count));
+		errors++;
+	}
+
+	destroy_workqueue(requeue_wq);
+	tbridge_printf("PASS: Work re-queueing test completed\n");
+
+	return errors;
+}
+
 /* Main test runner */
 static void
 linuxkpi_workqueue_run(void *arg __unused)
@@ -359,6 +413,7 @@ linuxkpi_workqueue_run(void *arg __unused)
 	total_errors += test_multiple_work();
 	total_errors += test_cancel_work();
 	total_errors += test_sustained_work();
+	total_errors += test_requeue_work();
 
 	tbridge_printf("\n========================================\n");
 	if (total_errors == 0) {
