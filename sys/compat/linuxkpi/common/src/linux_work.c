@@ -30,6 +30,8 @@
 #include <linux/dragonfly_compat.h>
 #endif
 
+#include <sys/systm.h>
+
 #include <linux/workqueue.h>
 #include <linux/wait.h>
 #include <linux/compat.h>
