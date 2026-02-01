@@ -475,8 +475,8 @@ static int test_per_cpu_distribution(void)
 
 	tbridge_printf("\nTest 10: Per-CPU distribution (%d CPUs, %d items)...\n", num_cpus, work_items);
 
-	/* Initialize per-CPU counters */
-	for (i = 0; i < MAXCPU; i++) {
+	/* Initialize per-CPU counters (only up to ncpus, not MAXCPU) */
+	for (i = 0; i < num_cpus && i < MAXCPU; i++) {
 		atomic_set(&per_cpu_count[i], 0);
 	}
 	atomic_set(&work_counter, 0);
