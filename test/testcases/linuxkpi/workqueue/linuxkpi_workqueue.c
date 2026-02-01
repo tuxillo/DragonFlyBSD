@@ -177,7 +177,7 @@ static int test_multiple_work_small(void)
 	}
 
 	destroy_workqueue(wq);
-	tsleep(curthread, 0, "wqdelay", hz / 4);
+	tsleep(curthread, 0, "wqdelay", hz);
 	kfree(works);
 
 	return errors;
@@ -226,7 +226,7 @@ static int test_multiple_work_medium(void)
 	}
 
 	destroy_workqueue(wq);
-	tsleep(curthread, 0, "wqdelay", hz / 4);
+	tsleep(curthread, 0, "wqdelay", hz);
 	kfree(works);
 
 	return errors;
