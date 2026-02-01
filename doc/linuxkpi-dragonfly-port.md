@@ -608,3 +608,280 @@ drm-kmod requires **199 unique Linux headers**. Key categories:
    - Load required DRM modules and confirm GPU probe.
 3. **Functional smoke test**
    - Validate console/X11/Wayland and basic GPU activity.
+
+---
+
+## Phase 3: LinuxKPI Stub Implementation (CRITICAL FOR GPU/DRM)
+
+### Overview
+
+Analysis of the DragonFly LinuxKPI compatibility layer has revealed **150+ stub implementations** that break functionality required for GPU/DRM support. These stubs were created to allow compilation but cause runtime failures, crashes, or silent data corruption.
+
+**Key Finding:** FreeBSD's LinuxKPI implementation is **fundamentally correct** and works for drm-kmod. DragonFly's port has broken compatibility stubs in `dragonfly_compat.h` and related files that must be replaced with proper implementations following FreeBSD's approach.
+
+### Critical Stub Analysis
+
+#### CRITICAL Priority (System Crashes or DRM Non-Functional)
+
+| # | Stub | Location | Issue | Impact |
+|---|------|----------|-------|--------|
+| 1 | `taskqueue_drain_all()` | `dragonfly_compat.h:742-754` | **No-op stub**: Only calls `taskqueue_block/unblock()`, does NOT drain tasks | Workqueue flush/drain operations don't wait for completion, causing race conditions and use-after-free when work continues after structures are freed |
+| 2 | `taskqueue_poll_is_busy()` | `dragonfly_compat.h:622-630` | **Returns 0**: Always reports "not busy" | `flush_work()`, `work_busy()` return incorrect results, work items appear complete when still executing |
+| 3 | `linuxdev_ops` | `linux_compat.c:1521-1531` | **All ops = NULL**: Device operations structure has NULL function pointers | DRM device open/close/ioctl/mmap operations will fail; DRM drivers cannot access hardware |
+| 4 | `GFP_NOWAIT` handler | `linux_shmemfs.c:51` | **Calls panic()**: Unimplemented GFP flag causes system crash | System will crash if any driver uses `GFP_NOWAIT` flag |
+| 5 | `vm_radix_*` (10+ funcs) | `vm/vm_radix.h:49-136` | **All return 0/NULL**: Radix tree operations are stubs | GPU page tracking via radix tree completely broken; pages can be lost or corrupted |
+| 6 | `sf_buf_kva()` | `sys/sf_buf.h:108-112` | **Returns 0**: No kernel virtual address mapping | DMA operations using sendfile buffers access wrong memory address; data corruption |
+| 7 | `vm_reserv_*` (10+ funcs) | `vm/vm_reserv.h:46-123` | **Return ENOMEM or 0**: VM reservation stubs | GPU memory reservations fail silently or report failure; memory allocation unreliable |
+
+**Current Impact:** The `taskqueue_drain_all()` and `taskqueue_poll_is_busy()` stubs are **already causing test failures** in the workqueue test suite. Work items are not properly waited for, causing race conditions and premature test completion.
+
+#### HIGH Priority (Major Functional Failures)
+
+| # | Stub | Location | Issue | Impact |
+|---|------|----------|-------|--------|
+| 8 | `cap_rights_limit()` | `sys/capsicum.h:197-202` | **Returns 0**: Capability restrictions not enforced | **Security**: Sandboxing bypassed; not critical for GPU but affects system security |
+| 9 | `cap_enter()` | `sys/capsicum.h:205-210` | **No-op**: Capability mode not entered | **Security**: Same as above |
+| 10 | `uma_zcreate/alloc/free()` | `vm/uma.h:109-152` | **Fallback to malloc/free**: No UMA zone caching | Performance degradation; UMA benefits (CPU cache affinity, reduced fragmentation) lost |
+| 11 | `pcpu_alloc/malloc()` | `sys/pcpu.h:102-128` | **Returns NULL**: Per-CPU data allocation fails | Per-CPU counters and data structures cannot be allocated; performance impact |
+| 12 | `vga_get/put()` | `linux/vgaarb.h:107-167` | **Return 0/no-op**: VGA arbitration stubs | Multi-GPU systems may conflict over VGA resources; single GPU unaffected |
+| 13 | `stack_save()` | `sys/stack.h:51-56` | **Sets depth=0**: Stack traces empty | Debugging impossible when stack traces show no frames |
+| 14 | `pci_iov_init_t` | `dragonfly_compat.h:2067-2069` | **Type only**: SR-IOV (GPU virtualization) not supported | GPU virtualization for VMs won't work; passthrough unaffected |
+| 15 | `pctrie_*` | `dragonfly_compat.h:2108-2167` | **Stubs**: PCIe DMA tracking disabled | DMA operations lack tracking; may work but without verification |
+
+### Root Cause Comparison: FreeBSD vs DragonFly
+
+#### Taskqueue Drain Implementation
+
+**FreeBSD** (`/sys/kern/subr_taskqueue.c:623-634`):
+```c
+void
+taskqueue_drain_all(struct taskqueue *queue)
+{
+    if (!queue->tq_spin)
+        WITNESS_WARN(WARN_GIANTOK | WARN_SLEEPOK, NULL, __func__);
+
+    TQ_LOCK(queue);
+    (void)taskqueue_drain_tq_queue(queue);   // Drains pending queue
+    (void)taskqueue_drain_tq_active(queue);  // Drains active tasks
+    TQ_UNLOCK(queue);
+}
+```
+
+**DragonFly** (`dragonfly_compat.h:742-754`):
+```c
+static __inline void
+taskqueue_drain_all(struct taskqueue *tq)
+{
+    /* 
+     * DragonFly doesn't have taskqueue_drain_all.
+     * This is a no-op stub - callers should use taskqueue_drain()
+     * for specific tasks, or taskqueue_free() will drain on destroy.
+     */
+    taskqueue_block(tq);
+    taskqueue_unblock(tq);
+}
+```
+
+**Analysis:** FreeBSD's implementation properly drains both the pending task queue AND active (executing) tasks. DragonFly's stub only blocks/unblocks the taskqueue without draining anything.
+
+#### Taskqueue Poll Is Busy Implementation
+
+**FreeBSD** (`/sys/kern/subr_taskqueue.c:541-551`):
+```c
+int
+taskqueue_poll_is_busy(struct taskqueue *queue, struct task *task)
+{
+    int retval;
+
+    TQ_LOCK(queue);
+    retval = task->ta_pending > 0 || task_get_busy(queue, task) != NULL;
+    TQ_UNLOCK(queue);
+
+    return (retval);
+}
+```
+
+**DragonFly** (`dragonfly_compat.h:618-631`):
+```c
+static __inline int
+taskqueue_poll_is_busy(struct taskqueue *tq __unused, struct task *t __unused)
+{
+    /* DragonFly doesn't have this API - return "not busy" */
+    return (0);
+}
+```
+
+**Analysis:** FreeBSD checks if task is pending in queue OR currently executing. DragonFly always returns "not busy", causing incorrect state reporting.
+
+### Implementation Plan (Following FreeBSD)
+
+#### Phase 3A: Fix CRITICAL Taskqueue Stubs (HIGHEST PRIORITY)
+
+**Goal:** Implement proper `taskqueue_drain_all()` and `taskqueue_poll_is_busy()` for DragonFly.
+
+**Approach:**
+1. **Study FreeBSD implementation** in `/sys/kern/subr_taskqueue.c`
+2. **Implement in DragonFly kernel** (`sys/kern/subr_taskqueue.c`):
+   - Add `taskqueue_drain_all()` that drains both queue and active tasks
+   - Add `taskqueue_poll_is_busy()` that checks pending and active status
+3. **Remove stubs** from `dragonfly_compat.h`
+4. **Test** with workqueue test suite (should pass with 100+ items)
+
+**Key Implementation Details from FreeBSD:**
+- `taskqueue_drain_tq_queue()`: Drains tasks from pending queue
+- `taskqueue_drain_tq_active()`: Waits for and drains currently executing tasks
+- `task_get_busy()`: Checks if task is currently executing on a thread
+
+**Files to Modify:**
+- `sys/kern/subr_taskqueue.c` - Add real implementations
+- `sys/sys/taskqueue.h` - Add function declarations
+- `sys/compat/linuxkpi/common/include/linux/dragonfly_compat.h` - Remove stubs
+
+**Success Criteria:**
+- Workqueue tests pass with 100+ concurrent work items
+- `flush_workqueue()` and `drain_workqueue()` properly wait for completion
+- No race conditions in work re-queuing scenarios
+
+#### Phase 3B: Fix Device Operations (DRM Critical)
+
+**Goal:** Implement proper `linuxdev_ops` for DRM device access.
+
+**Approach:**
+1. **Study FreeBSD's linux_compat.c** device operations implementation
+2. **Implement DragonFly equivalents:**
+   - `linux_dev_open()` - Map to DragonFly device open
+   - `linux_dev_close()` - Map to DragonFly device close
+   - `linux_dev_ioctl()` - Map to DragonFly ioctl with Linux compatibility
+   - `linux_dev_mmap()` - Map to DragonFly mmap
+   - `linux_dev_read/write()` - If needed by DRM
+3. **Map Linux device model** to DragonFly's device structure
+
+**Files to Modify:**
+- `sys/compat/linuxkpi/common/src/linux_compat.c` - Implement device ops
+
+**Success Criteria:**
+- DRM device nodes can be opened/closed
+- DRM ioctls work correctly
+- GPU device can be accessed by userspace
+
+#### Phase 3C: Fix VM and Memory Stubs (HIGH PRIORITY)
+
+**Goal:** Implement `vm_radix_*`, `vm_reserv_*`, and `sf_buf_kva()` properly.
+
+**Approach:**
+1. **For vm_radix:** Study FreeBSD's VM radix tree implementation; either:
+   - Port FreeBSD's implementation to DragonFly, OR
+   - Use DragonFly's existing radix tree (if available) with LinuxKPI wrapper
+2. **For vm_reserv:** Study FreeBSD's reservation system; implement DragonFly version
+3. **For sf_buf_kva:** Fix to return proper kernel virtual address
+
+**Alternative for vm_radix/vm_reserv:**
+If DragonFly doesn't have equivalent functionality, DRM drivers might work with fallback implementations that use basic malloc/free with tracking.
+
+**Files to Modify:**
+- `sys/compat/linuxkpi/common/include/vm/vm_radix.h`
+- `sys/compat/linuxkpi/common/include/vm/vm_reserv.h`
+- `sys/compat/linuxkpi/common/include/sys/sf_buf.h`
+
+#### Phase 3D: Fix Remaining HIGH Priority Stubs
+
+**Goal:** Fix UMA, per-CPU, VGA arbitration, and stack tracing stubs.
+
+**Priority Order:**
+1. **sf_buf_kva()** - Critical for DMA (do with Phase 3C)
+2. **uma_zcreate/alloc/free** - Performance optimization (can use malloc fallback for now)
+3. **pcpu_alloc** - Performance optimization (can use regular allocation for now)
+4. **vga_get/put** - Only needed for multi-GPU systems
+5. **stack_save** - Debug feature only
+
+**Approach:** Implement following FreeBSD patterns where applicable, or document that fallback behavior is acceptable for GPU/DRM use case.
+
+### Testing and Validation
+
+#### Phase 3A Testing (Taskqueue)
+```bash
+# Build kernel with new taskqueue implementations
+cd /usr/src
+make -j$(sysctl -n hw.ncpu) buildkernel KERNCONF=X86_64_GENERIC
+
+# Run workqueue tests
+cd /usr/src/test/testcases
+dfregress linuxkpi/workqueue/workqueue.run
+
+# Verify all tests pass:
+# - Test 5: Multiple work items (5 items, max_active=4)
+# - Test 7: Sustained work (100 items)
+```
+
+#### Phase 3B Testing (Device Ops)
+```bash
+# After drm-kmod build attempt
+# Load DRM module and verify device node created
+kldload /path/to/drm.ko
+ls -la /dev/drm*
+# Should show /dev/drm/card0 or similar
+```
+
+### Success Metrics
+
+| Phase | Success Criteria |
+|-------|------------------|
+| 3A | Workqueue tests pass with 100+ items; no race conditions |
+| 3B | DRM device node created; open/close/ioctl work |
+| 3C | GPU memory allocation works; DMA operations succeed |
+| 3D | Multi-GPU arbitration works (if tested) |
+
+### Risk Assessment
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Taskqueue implementation complexity | MEDIUM | FreeBSD implementation is proven; follow closely |
+| Device operations mapping differences | MEDIUM | DragonFly device model differs from FreeBSD; may need adaptation |
+| VM subsystem differences | MEDIUM | DragonFly VM differs from FreeBSD; radix/reserv may need alternative approach |
+| Performance degradation with stubs | LOW | Can use fallbacks initially; optimize later |
+
+### File Inventory for Implementation
+
+**Files requiring new implementations:**
+1. `sys/kern/subr_taskqueue.c` - Add `taskqueue_drain_all()` and `taskqueue_poll_is_busy()`
+2. `sys/sys/taskqueue.h` - Add declarations
+3. `sys/compat/linuxkpi/common/src/linux_compat.c` - Fix `linuxdev_ops`
+4. `sys/compat/linuxkpi/common/include/linux/dragonfly_compat.h` - Remove taskqueue stubs
+
+**Files requiring investigation:**
+5. `sys/compat/linuxkpi/common/include/vm/vm_radix.h` - Implement or provide fallback
+6. `sys/compat/linuxkpi/common/include/vm/vm_reserv.h` - Implement or provide fallback
+7. `sys/compat/linuxkpi/common/include/sys/sf_buf.h` - Fix `sf_buf_kva()`
+
+**Files with acceptable stubs (for GPU use case):**
+- `sys/compat/linuxkpi/common/include/sys/capsicum.h` - Security feature, not needed for GPU
+- `sys/compat/linuxkpi/common/include/vm/uma.h` - Performance optimization only
+- `sys/compat/linuxkpi/common/include/sys/pcpu.h` - Performance optimization only
+- `sys/compat/linuxkpi/common/include/linux/vgaarb.h` - Only for multi-GPU
+- `sys/compat/linuxkpi/common/include/sys/stack.h` - Debug feature only
+
+---
+
+## Current Implementation Status (as of 2026-02-01)
+
+### Completed
+- ✓ LinuxKPI core imported and building
+- ✓ Non-GPU code removed (12,530+ lines)
+- ✓ Basic taskqueue and workqueue infrastructure in place
+- ✓ Eventfd support added (required for syncobj)
+
+### In Progress
+- ⏳ Critical stub analysis completed; implementation pending
+- ⏳ Taskqueue drain implementation (Phase 3A)
+
+### Blocked/Pending
+- ⏸ Device operations implementation (Phase 3B) - depends on Phase 3A for testing
+- ⏸ VM radix/reserv implementation (Phase 3C) - investigate if DRM actually needs these
+- ⏸ DRM-KMOD build attempt - blocked until Phase 3A complete
+
+### Next Steps
+1. **Implement `taskqueue_drain_all()`** following FreeBSD's approach
+2. **Implement `taskqueue_poll_is_busy()`** following FreeBSD's approach
+3. **Remove stubs** from `dragonfly_compat.h`
+4. **Test** workqueue tests with high load (100+ items)
+5. **Validate** with drm-kmod build once taskqueue works
