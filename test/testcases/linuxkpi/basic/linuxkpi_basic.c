@@ -30,16 +30,19 @@
  * SUCH DAMAGE.
  */
 
+/* LinuxKPI kconfig.h MUST be included first to set up environment */
+#include <dragonfly/compat/linuxkpi/common/include/linux/kconfig.h>
+
 #include <sys/systm.h>
 #include <sys/kernel.h>
 #include <sys/module.h>
 #include <sys/tbridge.h>
 
-/* LinuxKPI headers via dragonfly symlink */
-#include <dragonfly/compat/linuxkpi/common/include/linux/slab.h>
-#include <dragonfly/compat/linuxkpi/common/include/linux/workqueue.h>
-#include <dragonfly/compat/linuxkpi/common/include/linux/irq_work.h>
-#include <dragonfly/compat/linuxkpi/common/include/linux/gfp.h>
+/* LinuxKPI headers */
+#include <linux/slab.h>
+#include <linux/workqueue.h>
+#include <linux/irq_work.h>
+#include <linux/gfp.h>
 
 #include <dfregress.h>
 
