@@ -429,7 +429,6 @@ taskqueue_run(struct taskqueue *queue, int lock_held)
 		task->ta_func(task->ta_context, pending);
 		queue->tq_running = NULL;
 		wakeup(task);
-		wakeup(queue);  /* Wake drain waiters */
 		TQ_LOCK(queue);
 	}
 	if (lock_held == 0)
@@ -527,22 +526,27 @@ taskqueue_drain_all(struct taskqueue *queue)
 
 	TQ_LOCK(queue);
 
+	/*
+	 * Wait while there are tasks in the queue or a task is running.
+	 * We loop because new tasks may be enqueued while we wait.
+	 */
 	while ((task = STAILQ_FIRST(&queue->tq_queue)) != NULL ||
 	    queue->tq_running != NULL) {
 		if (task != NULL) {
 			/*
-			 * Wait for first pending task to complete.
-			 * Note: we wait on the queue, not the task, because
-			 * we need to handle the case where new tasks are
-			 * enqueued while we wait.
+			 * Wait for this specific task to complete.
+			 * It will wake us when done.
 			 */
-			TQ_SLEEP(queue, queue, "tqdall");
-		} else {
+			while (task->ta_pending != 0 || task == queue->tq_running)
+				TQ_SLEEP(queue, task, "tqdall");
+		} else if (queue->tq_running != NULL) {
 			/*
-			 * Queue is empty but a task is running.
+			 * Queue is empty but a task is still running.
 			 * Wait for it to complete.
 			 */
-			TQ_SLEEP(queue, queue, "tqdall");
+			task = queue->tq_running;
+			while (task == queue->tq_running)
+				TQ_SLEEP(queue, task, "tqdall");
 		}
 	}
 
