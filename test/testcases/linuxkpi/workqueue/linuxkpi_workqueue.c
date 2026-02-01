@@ -295,8 +295,11 @@ static int test_sustained_work(void)
 		errors++;
 	}
 
+	tbridge_printf("INFO: About to call destroy_workqueue()...\n");
 	destroy_workqueue(wq);
+	tbridge_printf("INFO: destroy_workqueue() returned\n");
 	kfree(works);
+	tbridge_printf("INFO: kfree() returned, test_sustained_work done\n");
 
 	return errors;
 }
