@@ -16,3 +16,4 @@ CFLAGS+=	-include dragonfly/compat/linuxkpi/common/include/linux/kconfig.h
 # LinuxKPI and DragonFly headers have conflicting macros
 # Disable -Werror to allow compilation despite warnings
 CWARNFLAGS=	-Wall
+WERROR=		
