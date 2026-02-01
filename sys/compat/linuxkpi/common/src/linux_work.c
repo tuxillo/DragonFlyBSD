@@ -765,6 +765,7 @@ linux_create_workqueue_common(const char *name, int cpus)
 /*
  * Flush all work items on all per-CPU taskqueues.
  * This iterates over all queues and drains each one.
+ * Memory barrier ensures visibility of work completion across CPUs.
  */
 void
 linux_flush_workqueue(struct workqueue_struct *wq)
@@ -774,6 +775,9 @@ linux_flush_workqueue(struct workqueue_struct *wq)
 	for (i = 0; i < wq->num_queues; i++) {
 		taskqueue_drain_all(wq->taskqueues[i]);
 	}
+
+	/* Memory barrier to ensure all work completion is visible */
+	atomic_mb();
 }
 
 void
