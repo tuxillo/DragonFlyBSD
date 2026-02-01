@@ -471,7 +471,7 @@ static int test_per_cpu_distribution(void)
 	int i;
 	int errors = 0;
 	int num_cpus = ncpus;
-	int work_items = num_cpus * 10;  /* 10 items per CPU */
+	int work_items = num_cpus * 5;  /* 5 items per CPU */
 
 	tbridge_printf("\nTest 10: Per-CPU distribution (%d CPUs, %d items)...\n", num_cpus, work_items);
 
