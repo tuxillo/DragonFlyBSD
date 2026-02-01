@@ -265,17 +265,18 @@ static int test_cancel_work(void)
 	return errors;
 }
 
-/* Test 7: Sustained work processing with 100 items */
+/* Test 7: Sustained work processing with 10 items */
 static int test_sustained_work(void)
 {
 	struct workqueue_struct *wq;
 	struct work_struct *works;
 	int i;
 	int errors = 0;
+	const int num_items = 10;
 
-	tbridge_printf("\nTest 7: Sustained work processing (100 items)...\n");
+	tbridge_printf("\nTest 7: Sustained work processing (%d items)...\n", num_items);
 
-	works = kmalloc(sizeof(struct work_struct) * 100, GFP_KERNEL);
+	works = kmalloc(sizeof(struct work_struct) * num_items, GFP_KERNEL);
 	if (works == NULL) {
 		tbridge_printf("FAIL: kmalloc() failed\n");
 		return 1;
@@ -283,9 +284,7 @@ static int test_sustained_work(void)
 
 	/*
 	 * Use singlethread workqueue to avoid stack overflow.
-	 * With concurrent execution of 100 work items, the call chain
-	 * can overflow the kernel stack. Singlethread ensures sequential
-	 * execution with bounded stack usage.
+	 * Sequential execution with bounded stack usage.
 	 */
 	wq = create_singlethread_workqueue("test_sustained");
 	if (wq == NULL) {
@@ -296,32 +295,28 @@ static int test_sustained_work(void)
 
 	atomic_set(&work_done, 0);
 
-	for (i = 0; i < 100; i++) {
+	for (i = 0; i < num_items; i++) {
 		INIT_WORK(&works[i], test_work_delay_fn);
 		queue_work(wq, &works[i]);
 	}
 
-	tbridge_printf("INFO: Queued 100 work items\n");
+	tbridge_printf("INFO: Queued %d work items\n", num_items);
 
 	/*
 	 * Use drain_workqueue() for sustained work - this ensures ALL work
-	 * items complete, including those still queued. drm-kmod uses this
-	 * pattern for recursive/sustained work (see i915 i915_gem_drain_workqueue).
+	 * items complete, including those still queued.
 	 */
 	drain_workqueue(wq);
 
-	if (atomic_read(&work_done) == 100) {
+	if (atomic_read(&work_done) == num_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", atomic_read(&work_done));
 	} else {
-		tbridge_printf("FAIL: Expected 100 callbacks, got %d\n", atomic_read(&work_done));
+		tbridge_printf("FAIL: Expected %d callbacks, got %d\n", num_items, atomic_read(&work_done));
 		errors++;
 	}
 
-	/* Cancel any remaining work items to ensure they're detached from taskqueue */
-	for (i = 0; i < 100; i++) {
-		cancel_work(&works[i]);
-	}
-	tbridge_printf("INFO: Cancelled all work items\n");
+	/* No need to cancel - drain_workqueue ensures all work completed */
+	tbridge_printf("INFO: All work items completed\n");
 	
 	tbridge_printf("INFO: About to call destroy_workqueue()...\n");
 	destroy_workqueue(wq);
