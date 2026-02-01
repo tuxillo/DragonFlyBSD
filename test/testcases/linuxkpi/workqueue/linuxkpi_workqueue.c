@@ -275,12 +275,9 @@ static int test_sustained_work(void)
 		queue_work(wq, &works[i]);
 	}
 
-	tbridge_printf("INFO: Queued 100 work items with 100us delay each\n");
+	tbridge_printf("INFO: Queued 100 work items\n");
 
-	/* Short pause to let some work start processing */
-	DELAY(1000);
-
-	/* Now flush to ensure all complete */
+	/* Flush to ensure all complete */
 	flush_workqueue(wq);
 
 	if (work_done == 100) {
