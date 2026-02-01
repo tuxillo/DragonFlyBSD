@@ -237,6 +237,13 @@ static int test_multiple_work(void)
 	}
 
 	destroy_workqueue(wq);
+	
+	/*
+	 * Small delay to ensure any pending taskqueue cleanup completes
+	 * before we free the work items.
+	 */
+	tsleep(NULL, 0, "wqdelay", hz / 10);
+	
 	kfree(works);
 
 	return errors;
@@ -322,6 +329,13 @@ static int test_sustained_work(void)
 	tbridge_printf("INFO: About to call destroy_workqueue()...\n");
 	destroy_workqueue(wq);
 	tbridge_printf("INFO: destroy_workqueue() returned\n");
+	
+	/*
+	 * Small delay to ensure any pending taskqueue cleanup completes
+	 * before we free the work items.
+	 */
+	tsleep(NULL, 0, "wqdelay", hz / 10);
+	
 	kfree(works);
 	tbridge_printf("INFO: kfree() returned, test_sustained_work done\n");
 
