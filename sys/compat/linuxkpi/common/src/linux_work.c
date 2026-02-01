@@ -786,13 +786,6 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 {
 	int i;
 
-	/*
-	 * Set draining flag. This prevents new work from being queued.
-	 * We don't need to hold exec_mtx here because:
-	 * 1. The draining flag is atomic
-	 * 2. taskqueue_drain_all will wait for existing work to complete
-	 * 3. Lock ordering: taskqueue lock must be taken before exec_mtx
-	 */
 	atomic_inc(&wq->draining);
 
 	/* Drain all taskqueues first */
@@ -800,11 +793,7 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 		taskqueue_drain_all(wq->taskqueues[i]);
 	}
 
-	/*
-	 * Now that all taskqueues are drained, no work is executing
-	 * and no new work can be queued (draining flag is set).
-	 * Safe to free taskqueues.
-	 */
+	/* Free all taskqueues */
 	for (i = 0; i < wq->num_queues; i++) {
 		taskqueue_free(wq->taskqueues[i]);
 	}
