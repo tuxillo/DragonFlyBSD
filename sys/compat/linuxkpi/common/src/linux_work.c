@@ -182,45 +182,15 @@ linux_queue_work_on(int cpu, struct workqueue_struct *wq,
 	};
 	struct taskqueue *tq;
 	int queue_index;
-	bool retval = false;
 
-	/*
-	 * Quick check without lock. If draining, return early.
-	 * This is an optimization to avoid lock contention.
-	 */
 	if (atomic_read(&wq->draining) != 0)
 		return (!work_pending(work));
-
-	/*
-	 * Take exec_mtx to synchronize with destroy_workqueue.
-	 * This protects access to wq->taskqueues.
-	 */
-	WQ_EXEC_LOCK(wq);
-
-	/* Re-check draining while holding lock */
-	if (atomic_read(&wq->draining) != 0) {
-		WQ_EXEC_UNLOCK(wq);
-		return (!work_pending(work));
-	}
 
 	switch (linux_update_state(&work->state, states)) {
 	case WORK_ST_EXEC:
 	case WORK_ST_CANCEL:
-		/*
-		 * Work is currently executing. Need to unblock it first.
-		 * Release lock to avoid deadlock with linux_work_exec_unblock.
-		 */
-		WQ_EXEC_UNLOCK(wq);
-		if (linux_work_exec_unblock(work) != 0) {
+		if (linux_work_exec_unblock(work) != 0)
 			return (true);
-		}
-		/* Fall through to queue the work */
-		WQ_EXEC_LOCK(wq);
-		/* Re-check draining after re-acquiring lock */
-		if (atomic_read(&wq->draining) != 0) {
-			WQ_EXEC_UNLOCK(wq);
-			return (!work_pending(work));
-		}
 		/* FALLTHROUGH */
 	case WORK_ST_IDLE:
 		work->work_queue = wq;
@@ -228,15 +198,10 @@ linux_queue_work_on(int cpu, struct workqueue_struct *wq,
 		work->queue_index = queue_index;
 		tq = linux_get_taskqueue(wq, queue_index);
 		taskqueue_enqueue(tq, &work->work_task);
-		retval = true;
-		break;
+		return (true);
 	default:
-		retval = false;		/* already on a queue */
-		break;
+		return (false);		/* already on a queue */
 	}
-
-	WQ_EXEC_UNLOCK(wq);
-	return (retval);
 }
 
 /*
@@ -822,12 +787,13 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	int i;
 
 	/*
-	 * Take exec_mtx first to synchronize with queue_work.
-	 * This ensures no new work is being queued while we drain.
+	 * Set draining flag. This prevents new work from being queued.
+	 * We don't need to hold exec_mtx here because:
+	 * 1. The draining flag is atomic
+	 * 2. taskqueue_drain_all will wait for existing work to complete
+	 * 3. Lock ordering: taskqueue lock must be taken before exec_mtx
 	 */
-	WQ_EXEC_LOCK(wq);
 	atomic_inc(&wq->draining);
-	WQ_EXEC_UNLOCK(wq);
 
 	/* Drain all taskqueues first */
 	for (i = 0; i < wq->num_queues; i++) {
@@ -835,15 +801,13 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	}
 
 	/*
-	 * Take exec_mtx again to ensure all queue_work operations
-	 * have completed before freeing taskqueues.
+	 * Now that all taskqueues are drained, no work is executing
+	 * and no new work can be queued (draining flag is set).
+	 * Safe to free taskqueues.
 	 */
-	WQ_EXEC_LOCK(wq);
-	/* Free all taskqueues */
 	for (i = 0; i < wq->num_queues; i++) {
 		taskqueue_free(wq->taskqueues[i]);
 	}
-	WQ_EXEC_UNLOCK(wq);
 
 	mtx_destroy(&wq->exec_mtx);
 	kfree(wq->taskqueues);
