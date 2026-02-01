@@ -30,8 +30,7 @@
  * SUCH DAMAGE.
  */
 
-/* LinuxKPI kconfig.h MUST be included first to set up environment */
-#include <dragonfly/compat/linuxkpi/common/include/linux/kconfig.h>
+/* kconfig.h is force-included by compiler flags */
 
 #include <sys/systm.h>
 #include <sys/kernel.h>

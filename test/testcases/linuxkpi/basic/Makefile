@@ -1,3 +1,8 @@
+# Force include kconfig.h before anything else (must be before bsd.kmod.mk)
+CFLAGS+=	-Idragonfly/compat/linuxkpi/common/include
+CFLAGS+=	-Idragonfly/compat/linuxkpi/dummy/include
+CFLAGS+=	-include dragonfly/compat/linuxkpi/common/include/linux/kconfig.h
+
 KMOD=	linuxkpi_basic
 SRCS=	linuxkpi_basic.c \
 	device_if.h \
@@ -6,8 +11,3 @@ SRCS=	linuxkpi_basic.c \
 	pcib_if.h
 
 .include <bsd.kmod.mk>
-
-# Add LinuxKPI include paths (must be after bsd.kmod.mk)
-CFLAGS+=	-Idragonfly/compat/linuxkpi/common/include
-CFLAGS+=	-Idragonfly/compat/linuxkpi/dummy/include
-# Note: kconfig.h is included FIRST in the .c file, not here
