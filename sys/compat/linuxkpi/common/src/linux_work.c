@@ -375,6 +375,11 @@ linux_work_fn(void *context, int pending)
 				exec.target = work;
 				break;
 			}
+			/*
+			 * Callback completed and work was not re-queued.
+			 * Transition state from EXEC to IDLE before exiting.
+			 */
+			linux_update_state(&work->state, states);
 			/* FALLTHROUGH */
 		default:
 			goto done;
