@@ -395,6 +395,63 @@ static int test_requeue_work(void)
 	return errors;
 }
 
+/* Test 9: Multiple concurrent workqueues */
+static int test_concurrent_workqueues(void)
+{
+	struct workqueue_struct *wq1, *wq2, *wq3;
+	struct work_struct work1, work2, work3;
+	int errors = 0;
+
+	tbridge_printf("\nTest 9: Multiple concurrent workqueues...\n");
+
+	/* Create 3 workqueues */
+	wq1 = alloc_workqueue("test_wq1", 0, 2);
+	wq2 = alloc_workqueue("test_wq2", 0, 2);
+	wq3 = alloc_workqueue("test_wq3", 0, 2);
+
+	if (wq1 == NULL || wq2 == NULL || wq3 == NULL) {
+		tbridge_printf("FAIL: alloc_workqueue() failed\n");
+		if (wq1) destroy_workqueue(wq1);
+		if (wq2) destroy_workqueue(wq2);
+		if (wq3) destroy_workqueue(wq3);
+		return 1;
+	}
+
+	atomic_set(&work_counter, 0);
+
+	/* Queue work on all 3 workqueues */
+	INIT_WORK(&work1, test_work_fn);
+	INIT_WORK(&work2, test_work_fn);
+	INIT_WORK(&work3, test_work_fn);
+
+	queue_work(wq1, &work1);
+	queue_work(wq2, &work2);
+	queue_work(wq3, &work3);
+
+	tbridge_printf("INFO: Queued work on 3 workqueues\n");
+
+	/* Flush all work */
+	flush_work(&work1);
+	flush_work(&work2);
+	flush_work(&work3);
+
+	if (atomic_read(&work_counter) == 3) {
+		tbridge_printf("PASS: All work completed on 3 workqueues (count=%d)\n", 
+			atomic_read(&work_counter));
+	} else {
+		tbridge_printf("FAIL: Expected 3 callbacks, got %d\n", 
+			atomic_read(&work_counter));
+		errors++;
+	}
+
+	destroy_workqueue(wq1);
+	destroy_workqueue(wq2);
+	destroy_workqueue(wq3);
+	tbridge_printf("PASS: All workqueues destroyed\n");
+
+	return errors;
+}
+
 /* Main test runner */
 static void
 linuxkpi_workqueue_run(void *arg __unused)
@@ -414,6 +471,7 @@ linuxkpi_workqueue_run(void *arg __unused)
 	total_errors += test_cancel_work();
 	total_errors += test_sustained_work();
 	total_errors += test_requeue_work();
+	total_errors += test_concurrent_workqueues();
 
 	tbridge_printf("\n========================================\n");
 	if (total_errors == 0) {
