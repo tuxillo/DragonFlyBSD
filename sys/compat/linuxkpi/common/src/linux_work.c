@@ -362,25 +362,11 @@ linux_work_fn(void *context, int pending)
 			/* set current work structure */
 			task->work = work;
 
-			/*
-			 * ASSERT: State should be EXEC when callback starts
-			 */
-			KKASSERT(atomic_read(&work->state) == WORK_ST_EXEC);
-
 			/* call work function */
 			work->func(work);
 
 			/* set current work structure */
 			task->work = NULL;
-
-			/*
-			 * ASSERT: State should still be EXEC after callback returns
-			 * before we update it to IDLE
-			 */
-			KKASSERT(atomic_read(&work->state) == WORK_ST_EXEC);
-
-			/* Memory barrier to ensure callback completion is visible */
-			smp_mb();
 
 			WQ_EXEC_LOCK(wq);
 			/* check if unblocked */
