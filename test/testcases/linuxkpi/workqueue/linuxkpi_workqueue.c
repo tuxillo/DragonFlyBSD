@@ -277,7 +277,7 @@ static int test_sustained_work(void)
 		return 1;
 	}
 
-	wq = alloc_workqueue("test_sustained", 0, 4);
+	wq = alloc_workqueue("test_sustained", WQ_UNBOUND, 0);
 	if (wq == NULL) {
 		tbridge_printf("FAIL: alloc_workqueue() failed\n");
 		kfree(works);
@@ -293,8 +293,12 @@ static int test_sustained_work(void)
 
 	tbridge_printf("INFO: Queued 100 work items\n");
 
-	/* Flush to ensure all complete */
-	flush_workqueue(wq);
+	/*
+	 * Use drain_workqueue() for sustained work - this ensures ALL work
+	 * items complete, including those still queued. drm-kmod uses this
+	 * pattern for recursive/sustained work (see i915 i915_gem_drain_workqueue).
+	 */
+	drain_workqueue(wq);
 
 	if (atomic_read(&work_done) == 100) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", atomic_read(&work_done));
