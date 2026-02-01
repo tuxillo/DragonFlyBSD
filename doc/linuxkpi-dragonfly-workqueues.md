@@ -1167,21 +1167,64 @@ After implementation:
 
 ### B.11 Implementation Phases
 
-| Phase | Description | Files | Priority |
-|-------|-------------|-------|----------|
-| B.11.1 | Update data structures | workqueue.h | HIGH |
-| B.11.2 | Implement helper functions | linux_work.c | HIGH |
-| B.11.3 | Rewrite workqueue creation/destruction | linux_work.c | HIGH |
-| B.11.4 | Update queue_work functions | linux_work.c | HIGH |
-| B.11.5 | Update flush/drain functions | linux_work.c | HIGH |
-| B.11.6 | Update cancel functions | linux_work.c | HIGH |
-| B.11.7 | Update header macros | workqueue.h | HIGH |
-| B.11.8 | Update system workqueue init | linux_work.c | HIGH |
-| B.11.9 | Build and test | - | HIGH |
+| Phase | Description | Files | Status |
+|-------|-------------|-------|--------|
+| B.11.1 | Update data structures | workqueue.h | ✅ DONE |
+| B.11.2 | Implement helper functions | linux_work.c | ✅ DONE |
+| B.11.3 | Rewrite workqueue creation/destruction | linux_work.c | ✅ DONE |
+| B.11.4 | Update queue_work functions | linux_work.c | ✅ DONE |
+| B.11.5 | Update flush/drain functions | linux_work.c | ✅ DONE |
+| B.11.6 | Update cancel functions | linux_work.c | ✅ DONE |
+| B.11.7 | Update header macros | workqueue.h | ✅ DONE |
+| B.11.8 | Update system workqueue init | linux_work.c | ✅ DONE |
+| B.11.9 | Build and test | - | PENDING |
 
 ---
 
-### B.12 Success Criteria
+### B.12 Implementation Summary (2026-02-01)
+
+#### Problem Solved
+DragonFly's taskqueue tracks only ONE running task via `tq_running`, but LinuxKPI creates multi-worker taskqueues. This broke `taskqueue_drain_all()` and `taskqueue_poll_is_busy()` used by `flush_workqueue()`, `drain_workqueue()`, `flush_work()`, and `work_busy()`.
+
+#### Solution Implemented
+Transformed LinuxKPI workqueue from **1 taskqueue × N workers** to **N taskqueues × 1 worker each** (per-CPU model).
+
+#### Key Changes
+
+**Data Structures (workqueue.h):**
+1. `struct workqueue_struct`: Changed `taskqueue` pointer → `taskqueues` array + `num_queues` + `flags`
+2. `struct work_struct`: Added `queue_index` field to track which queue holds the work
+3. `INIT_WORK` macro: Initializes `queue_index` to -1
+
+**New Functions (linux_work.c):**
+1. `linux_select_queue(wq, cpu)`: Selects appropriate queue index (CPU-based or round-robin)
+2. `linux_get_taskqueue(wq, index)`: Returns taskqueue pointer from array with bounds check
+3. `linux_flush_workqueue(wq)`: Iterates all per-CPU queues and drains each
+
+**Updated Functions (linux_work.c):**
+- `linux_create_workqueue_common()` - Creates N single-worker taskqueues
+- `linux_destroy_workqueue()` - Frees all per-CPU queues
+- `linux_queue_work_on()` - Selects queue, stores index
+- `linux_queue_delayed_work_on()` - Selects queue, stores index
+- `linux_delayed_work_enqueue()` - Uses stored queue_index
+- `linux_flush_work()` - Uses stored queue_index
+- `linux_flush_delayed_work()` - Uses stored queue_index
+- `linux_work_busy()` - Uses stored queue_index
+- `linux_cancel_work()` - Uses stored queue_index
+- `linux_cancel_work_sync()` - Uses stored queue_index
+- `linux_cancel_delayed_work()` - Uses stored queue_index
+- `linux_cancel_delayed_work_sync_int()` - Uses stored queue_index
+- `linux_work_init()` - Creates separate `system_unbound_wq` with single queue
+- `linux_work_uninit()` - Destroys all three system workqueues
+
+**Updated Macros (workqueue.h):**
+- `flush_workqueue()` → calls `linux_flush_workqueue()`
+- `drain_workqueue()` → calls `linux_flush_workqueue()`
+- `flush_scheduled_work()` → calls `linux_flush_workqueue(system_wq)`
+
+---
+
+### B.13 Success Criteria
 
 - [ ] Kernel builds without errors
 - [ ] System boots without panics

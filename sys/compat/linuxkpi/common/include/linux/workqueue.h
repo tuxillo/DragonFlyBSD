@@ -54,10 +54,12 @@ struct work_exec {
 };
 
 struct workqueue_struct {
-	struct taskqueue *taskqueue;
+	int num_queues;			/* Number of per-CPU taskqueues */
+	struct taskqueue **taskqueues;	/* Array of per-CPU taskqueues */
 	struct mtx exec_mtx;
 	TAILQ_HEAD(, work_exec) exec_head;
 	atomic_t draining;
+	unsigned int flags;		/* WQ_UNBOUND, WQ_HIGHPRI, etc. */
 };
 
 #define	WQ_EXEC_LOCK(wq) mtx_lock(&(wq)->exec_mtx)
@@ -66,6 +68,7 @@ struct workqueue_struct {
 struct work_struct {
 	struct task work_task;
 	struct workqueue_struct *work_queue;
+	int queue_index;		/* Index into workqueue's taskqueues array, -1 if not queued */
 	work_func_t func;
 	atomic_t state;
 };
@@ -113,6 +116,7 @@ to_delayed_work(struct work_struct *work)
 do {									\
 	(work)->func = (fn);						\
 	(work)->work_queue = NULL;					\
+	(work)->queue_index = -1;					\
 	atomic_set(&(work)->state, 0);					\
 	TASK_INIT(&(work)->work_task, 0, linux_work_fn, (work));	\
 } while (0)
@@ -133,7 +137,7 @@ do {									\
 	INIT_DELAYED_WORK(dwork, fn)
 
 #define	flush_scheduled_work() \
-	taskqueue_drain_all(system_wq->taskqueue)
+	linux_flush_workqueue(system_wq)
 
 #define	queue_work(wq, work) \
 	linux_queue_work_on(WORK_CPU_UNBOUND, wq, work)
@@ -169,11 +173,11 @@ do {									\
 	linux_create_workqueue_common(name, max_active)
 
 #define	flush_workqueue(wq) \
-	taskqueue_drain_all((wq)->taskqueue)
+	linux_flush_workqueue(wq)
 
 #define	drain_workqueue(wq) do {		\
 	atomic_inc(&(wq)->draining);		\
-	taskqueue_drain_all((wq)->taskqueue);	\
+	linux_flush_workqueue(wq);		\
 	atomic_dec(&(wq)->draining);		\
 } while (0)
 
@@ -243,6 +247,7 @@ extern void linux_work_fn(void *, int);
 extern void linux_delayed_work_fn(void *, int);
 extern struct workqueue_struct *linux_create_workqueue_common(const char *, int);
 extern void linux_destroy_workqueue(struct workqueue_struct *);
+extern void linux_flush_workqueue(struct workqueue_struct *);
 extern bool linux_queue_work_on(int cpu, struct workqueue_struct *, struct work_struct *);
 extern bool linux_queue_delayed_work_on(int cpu, struct workqueue_struct *,
     struct delayed_work *, unsigned long delay);

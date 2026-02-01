@@ -56,6 +56,7 @@ enum {
  */
 static struct workqueue_struct *linux_system_short_wq;
 static struct workqueue_struct *linux_system_long_wq;
+static struct workqueue_struct *linux_system_unbound_wq;
 
 struct workqueue_struct *system_wq;
 struct workqueue_struct *system_long_wq;
@@ -84,6 +85,37 @@ linux_update_state(atomic_t *v, const uint8_t *pstate)
 		c = old;
 
 	return (c);
+}
+
+/*
+ * Select which taskqueue to use for a work item.
+ * For single-queue workqueues (ordered/singlethread), always use queue 0.
+ * For multi-queue workqueues, distribute work across queues based on:
+ *   - The specified CPU if valid
+ *   - The current CPU otherwise (for WORK_CPU_UNBOUND)
+ */
+static inline int
+linux_select_queue(struct workqueue_struct *wq, int cpu)
+{
+	if (wq->num_queues == 1)
+		return (0);
+
+	if (cpu == WORK_CPU_UNBOUND || cpu < 0 || cpu >= wq->num_queues)
+		return (mycpuid % wq->num_queues);
+
+	return (cpu);
+}
+
+/*
+ * Get taskqueue by index from the workqueue's array.
+ */
+static inline struct taskqueue *
+linux_get_taskqueue(struct workqueue_struct *wq, int queue_index)
+{
+	KASSERT(queue_index >= 0 && queue_index < wq->num_queues,
+	    ("linux_get_taskqueue: invalid queue index %d (num_queues=%d)",
+	    queue_index, wq->num_queues));
+	return (wq->taskqueues[queue_index]);
 }
 
 /*
@@ -123,7 +155,11 @@ linux_delayed_work_enqueue(struct delayed_work *dwork)
 {
 	struct taskqueue *tq;
 
-	tq = dwork->work.work_queue->taskqueue;
+	/*
+	 * Use the queue_index that was set when the delayed work was
+	 * originally scheduled.
+	 */
+	tq = linux_get_taskqueue(dwork->work.work_queue, dwork->work.queue_index);
 	taskqueue_enqueue(tq, &dwork->work.work_task);
 }
 
@@ -133,7 +169,7 @@ linux_delayed_work_enqueue(struct delayed_work *dwork)
  * [re-]queued. Else the work is already pending for completion.
  */
 bool
-linux_queue_work_on(int cpu __unused, struct workqueue_struct *wq,
+linux_queue_work_on(int cpu, struct workqueue_struct *wq,
     struct work_struct *work)
 {
 	static const uint8_t states[WORK_ST_MAX] __aligned(8) = {
@@ -143,6 +179,8 @@ linux_queue_work_on(int cpu __unused, struct workqueue_struct *wq,
 		[WORK_ST_EXEC] = WORK_ST_TASK,		/* queue task another time */
 		[WORK_ST_CANCEL] = WORK_ST_TASK,	/* start queuing task again */
 	};
+	struct taskqueue *tq;
+	int queue_index;
 
 	if (atomic_read(&wq->draining) != 0)
 		return (!work_pending(work));
@@ -155,7 +193,10 @@ linux_queue_work_on(int cpu __unused, struct workqueue_struct *wq,
 		/* FALLTHROUGH */
 	case WORK_ST_IDLE:
 		work->work_queue = wq;
-		taskqueue_enqueue(wq->taskqueue, &work->work_task);
+		queue_index = linux_select_queue(wq, cpu);
+		work->queue_index = queue_index;
+		tq = linux_get_taskqueue(wq, queue_index);
+		taskqueue_enqueue(tq, &work->work_task);
 		return (true);
 	default:
 		return (false);		/* already on a queue */
@@ -226,6 +267,7 @@ linux_queue_delayed_work_on(int cpu, struct workqueue_struct *wq,
 		[WORK_ST_EXEC] = WORK_ST_TIMER,		/* start timeout */
 		[WORK_ST_CANCEL] = WORK_ST_TIMER,	/* start timeout */
 	};
+	int queue_index;
 	bool res;
 
 	if (atomic_read(&wq->draining) != 0)
@@ -250,6 +292,8 @@ linux_queue_delayed_work_on(int cpu, struct workqueue_struct *wq,
 		/* FALLTHROUGH */
 	case WORK_ST_IDLE:
 		dwork->work.work_queue = wq;
+		queue_index = linux_select_queue(wq, cpu);
+		dwork->work.queue_index = queue_index;
 		dwork->timer.expires = jiffies + delay;
 
 		if (delay == 0) {
@@ -395,7 +439,7 @@ linux_cancel_work(struct work_struct *work)
 
 	switch (linux_update_state(&work->state, states)) {
 	case WORK_ST_TASK:
-		tq = work->work_queue->taskqueue;
+		tq = linux_get_taskqueue(work->work_queue, work->queue_index);
 		if (taskqueue_cancel(tq, &work->work_task, NULL) == 0)
 			return (true);
 		/* FALLTHROUGH */
@@ -430,12 +474,12 @@ retry:
 	case WORK_ST_TIMER:
 		return (retval);
 	case WORK_ST_EXEC:
-		tq = work->work_queue->taskqueue;
+		tq = linux_get_taskqueue(work->work_queue, work->queue_index);
 		if (taskqueue_cancel(tq, &work->work_task, NULL) != 0)
 			taskqueue_drain(tq, &work->work_task);
 		goto retry;	/* work may have restarted itself */
 	default:
-		tq = work->work_queue->taskqueue;
+		tq = linux_get_taskqueue(work->work_queue, work->queue_index);
 		if (taskqueue_cancel(tq, &work->work_task, NULL) != 0)
 			taskqueue_drain(tq, &work->work_task);
 		retval = true;
@@ -496,7 +540,8 @@ linux_cancel_delayed_work(struct delayed_work *dwork)
 		}
 		/* FALLTHROUGH */
 	case WORK_ST_TASK:
-		tq = dwork->work.work_queue->taskqueue;
+		tq = linux_get_taskqueue(dwork->work.work_queue,
+		    dwork->work.queue_index);
 		if (taskqueue_cancel(tq, &dwork->work.work_task, NULL) == 0) {
 			atomic_cmpxchg(&dwork->work.state,
 			    WORK_ST_CANCEL, WORK_ST_IDLE);
@@ -542,7 +587,8 @@ linux_cancel_delayed_work_sync_int(struct delayed_work *dwork)
 	case WORK_ST_CANCEL:
 		cancelled = (callout_stop(&dwork->timer.callout) == 1);
 
-		tq = dwork->work.work_queue->taskqueue;
+		tq = linux_get_taskqueue(dwork->work.work_queue,
+		    dwork->work.queue_index);
 		ret = taskqueue_cancel(tq, &dwork->work.work_task, NULL);
 		mtx_unlock(&dwork->timer.mtx);
 
@@ -550,7 +596,8 @@ linux_cancel_delayed_work_sync_int(struct delayed_work *dwork)
 		taskqueue_drain(tq, &dwork->work.work_task);
 		return (cancelled || (ret != 0));
 	default:
-		tq = dwork->work.work_queue->taskqueue;
+		tq = linux_get_taskqueue(dwork->work.work_queue,
+		    dwork->work.queue_index);
 		ret = taskqueue_cancel(tq, &dwork->work.work_task, NULL);
 		mtx_unlock(&dwork->timer.mtx);
 		if (ret != 0)
@@ -588,7 +635,7 @@ linux_flush_work(struct work_struct *work)
 	case WORK_ST_IDLE:
 		return (false);
 	default:
-		tq = work->work_queue->taskqueue;
+		tq = linux_get_taskqueue(work->work_queue, work->queue_index);
 		retval = taskqueue_poll_is_busy(tq, &work->work_task);
 		taskqueue_drain(tq, &work->work_task);
 		return (retval);
@@ -617,7 +664,8 @@ linux_flush_delayed_work(struct delayed_work *dwork)
 			linux_delayed_work_enqueue(dwork);
 		/* FALLTHROUGH */
 	default:
-		tq = dwork->work.work_queue->taskqueue;
+		tq = linux_get_taskqueue(dwork->work.work_queue,
+		    dwork->work.queue_index);
 		retval = taskqueue_poll_is_busy(tq, &dwork->work.work_task);
 		taskqueue_drain(tq, &dwork->work.work_task);
 		return (retval);
@@ -653,7 +701,7 @@ linux_work_busy(struct work_struct *work)
 	case WORK_ST_IDLE:
 		return (false);
 	case WORK_ST_EXEC:
-		tq = work->work_queue->taskqueue;
+		tq = linux_get_taskqueue(work->work_queue, work->queue_index);
 		return (taskqueue_poll_is_busy(tq, &work->work_task));
 	default:
 		return (true);
@@ -664,35 +712,89 @@ struct workqueue_struct *
 linux_create_workqueue_common(const char *name, int cpus)
 {
 	struct workqueue_struct *wq;
+	int i, num_queues;
+	char tq_name[64];
 
 	/*
-	 * If zero CPUs are specified use the default number of CPUs:
+	 * Determine number of queues:
+	 * - cpus == 1: ordered/single-threaded workqueue, use 1 queue
+	 * - cpus == 0 or cpus > 1: per-CPU queues for parallelism
+	 *
+	 * We create N single-worker taskqueues instead of 1 multi-worker
+	 * taskqueue. This works around DragonFly's taskqueue limitation
+	 * where tq_running only tracks ONE running task, breaking
+	 * taskqueue_drain_all() and taskqueue_poll_is_busy() with
+	 * multi-worker queues.
 	 */
-	if (cpus == 0)
-		cpus = linux_default_wq_cpus;
+	if (cpus == 1) {
+		num_queues = 1;
+	} else {
+		/* Per-CPU queues */
+		num_queues = ncpus;
+	}
 
 	wq = kmalloc(sizeof(*wq), M_WAITOK | M_ZERO);
-	wq->taskqueue = taskqueue_create(name, M_WAITOK,
-	    taskqueue_thread_enqueue, &wq->taskqueue);
+	wq->num_queues = num_queues;
+	wq->taskqueues = kmalloc(sizeof(struct taskqueue *) * num_queues,
+	    M_WAITOK | M_ZERO);
+	wq->flags = 0;
 	atomic_set(&wq->draining, 0);
-#ifdef __DragonFly__
-	taskqueue_start_threads(&wq->taskqueue, cpus, PWAIT, -1, "%s", name);
-#else
-	taskqueue_start_threads(&wq->taskqueue, cpus, PWAIT, "%s", name);
-#endif
 	TAILQ_INIT(&wq->exec_head);
 	mtx_init(&wq->exec_mtx, "linux_wq_exec", NULL, MTX_DEF);
 
+	for (i = 0; i < num_queues; i++) {
+		if (num_queues > 1)
+			ksnprintf(tq_name, sizeof(tq_name), "%s/%d", name, i);
+		else
+			ksnprintf(tq_name, sizeof(tq_name), "%s", name);
+
+		wq->taskqueues[i] = taskqueue_create(tq_name, M_WAITOK,
+		    taskqueue_thread_enqueue, &wq->taskqueues[i]);
+#ifdef __DragonFly__
+		taskqueue_start_threads(&wq->taskqueues[i], 1, PWAIT, -1,
+		    "%s", tq_name);
+#else
+		taskqueue_start_threads(&wq->taskqueues[i], 1, PWAIT,
+		    "%s", tq_name);
+#endif
+	}
+
 	return (wq);
+}
+
+/*
+ * Flush all work items on all per-CPU taskqueues.
+ * This iterates over all queues and drains each one.
+ */
+void
+linux_flush_workqueue(struct workqueue_struct *wq)
+{
+	int i;
+
+	for (i = 0; i < wq->num_queues; i++) {
+		taskqueue_drain_all(wq->taskqueues[i]);
+	}
 }
 
 void
 linux_destroy_workqueue(struct workqueue_struct *wq)
 {
+	int i;
+
 	atomic_inc(&wq->draining);
-	drain_workqueue(wq);
-	taskqueue_free(wq->taskqueue);
+
+	/* Drain all taskqueues first */
+	for (i = 0; i < wq->num_queues; i++) {
+		taskqueue_drain_all(wq->taskqueues[i]);
+	}
+
+	/* Free all taskqueues */
+	for (i = 0; i < wq->num_queues; i++) {
+		taskqueue_free(wq->taskqueues[i]);
+	}
+
 	mtx_destroy(&wq->exec_mtx);
+	kfree(wq->taskqueues);
 	kfree(wq);
 }
 
@@ -725,14 +827,23 @@ linux_work_init(void *arg)
 	/* set default number of CPUs */
 	linux_default_wq_cpus = max_wq_cpus;
 
+	/*
+	 * Create system workqueues:
+	 * - system_wq/system_short_wq: per-CPU queues for parallelism
+	 * - system_long_wq: per-CPU queues for long-running work
+	 * - system_unbound_wq: single queue (unbound work can run anywhere)
+	 * - system_highpri_wq: same as system_wq for now
+	 * - system_power_efficient_wq: alias to system_wq
+	 */
 	linux_system_short_wq = alloc_workqueue("linuxkpi_short_wq", 0, max_wq_cpus);
 	linux_system_long_wq = alloc_workqueue("linuxkpi_long_wq", 0, max_wq_cpus);
+	linux_system_unbound_wq = alloc_workqueue("linuxkpi_unbound_wq", WQ_UNBOUND, 1);
 
 	/* populate the workqueue pointers */
 	system_long_wq = linux_system_long_wq;
 	system_wq = linux_system_short_wq;
 	system_power_efficient_wq = linux_system_short_wq;
-	system_unbound_wq = linux_system_short_wq;
+	system_unbound_wq = linux_system_unbound_wq;
 	system_highpri_wq = linux_system_short_wq;
 }
 SYSINIT(linux_work_init, SI_SUB_TASKQ, SI_ORDER_THIRD, linux_work_init, NULL);
@@ -742,6 +853,7 @@ linux_work_uninit(void *arg)
 {
 	destroy_workqueue(linux_system_short_wq);
 	destroy_workqueue(linux_system_long_wq);
+	destroy_workqueue(linux_system_unbound_wq);
 
 	/* clear workqueue pointers */
 	system_long_wq = NULL;
