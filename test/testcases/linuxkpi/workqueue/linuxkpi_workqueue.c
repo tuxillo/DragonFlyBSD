@@ -48,6 +48,7 @@
 static atomic_t work_counter = ATOMIC_INIT(0);
 static atomic_t work_done = ATOMIC_INIT(0);
 static atomic_t requeue_count = ATOMIC_INIT(0);
+static atomic_t per_cpu_count[MAXCPU];
 
 /* Forward declaration for requeue test */
 static struct work_struct requeue_work;
@@ -73,6 +74,16 @@ static void test_requeue_fn(struct work_struct *work)
 static void test_work_delay_fn(struct work_struct *work)
 {
 	atomic_inc(&work_done);
+}
+
+/* Work function that tracks which CPU it ran on */
+static void test_cpu_track_fn(struct work_struct *work)
+{
+	int cpuid = mycpuid;
+	if (cpuid >= 0 && cpuid < MAXCPU) {
+		atomic_inc(&per_cpu_count[cpuid]);
+	}
+	atomic_inc(&work_counter);
 }
 
 /* Test 1: alloc_workqueue and destroy_workqueue */
@@ -452,6 +463,70 @@ static int test_concurrent_workqueues(void)
 	return errors;
 }
 
+/* Test 10: Per-CPU distribution verification */
+static int test_per_cpu_distribution(void)
+{
+	struct work_struct *works;
+	struct workqueue_struct *wq;
+	int i;
+	int errors = 0;
+	int num_cpus = ncpus;
+	int work_items = num_cpus * 10;  /* 10 items per CPU */
+
+	tbridge_printf("\nTest 10: Per-CPU distribution (%d CPUs, %d items)...\n", num_cpus, work_items);
+
+	/* Initialize per-CPU counters */
+	for (i = 0; i < MAXCPU; i++) {
+		atomic_set(&per_cpu_count[i], 0);
+	}
+	atomic_set(&work_counter, 0);
+
+	wq = alloc_workqueue("test_percpu", 0, 0);  /* Per-CPU workqueue */
+	if (wq == NULL) {
+		tbridge_printf("FAIL: alloc_workqueue() failed\n");
+		return 1;
+	}
+
+	works = kmalloc(sizeof(*works) * work_items, GFP_KERNEL);
+	if (works == NULL) {
+		tbridge_printf("FAIL: kmalloc() failed for work items\n");
+		destroy_workqueue(wq);
+		return 1;
+	}
+
+	for (i = 0; i < work_items; i++) {
+		INIT_WORK(&works[i], test_cpu_track_fn);
+		queue_work(wq, &works[i]);
+	}
+
+	tbridge_printf("INFO: Queued %d work items\n", work_items);
+
+	drain_workqueue(wq);
+
+	if (atomic_read(&work_counter) == work_items) {
+		tbridge_printf("PASS: All %d work callbacks executed\n", work_items);
+		
+		/* Show distribution across CPUs */
+		tbridge_printf("INFO: Per-CPU execution counts:\n");
+		for (i = 0; i < num_cpus && i < MAXCPU; i++) {
+			int count = atomic_read(&per_cpu_count[i]);
+			if (count > 0) {
+				tbridge_printf("  CPU %d: %d items\n", i, count);
+			}
+		}
+	} else {
+		tbridge_printf("FAIL: Expected %d callbacks, got %d\n", 
+			work_items, atomic_read(&work_counter));
+		errors++;
+	}
+
+	destroy_workqueue(wq);
+	tsleep(curthread, 0, "wqdelay", hz / 10);
+	kfree(works);
+
+	return errors;
+}
+
 /* Main test runner */
 static void
 linuxkpi_workqueue_run(void *arg __unused)
@@ -472,6 +547,7 @@ linuxkpi_workqueue_run(void *arg __unused)
 	total_errors += test_sustained_work();
 	total_errors += test_requeue_work();
 	total_errors += test_concurrent_workqueues();
+	total_errors += test_per_cpu_distribution();
 
 	tbridge_printf("\n========================================\n");
 	if (total_errors == 0) {
