@@ -40,23 +40,24 @@
 /* LinuxKPI headers */
 #include <linux/workqueue.h>
 #include <linux/gfp.h>
+#include <linux/atomic.h>
 
 #include <dfregress.h>
 
-/* Test counters */
-static int work_counter = 0;
-static int work_done = 0;
+/* Test counters - atomic to avoid race conditions */
+static atomic_t work_counter = ATOMIC_INIT(0);
+static atomic_t work_done = ATOMIC_INIT(0);
 
 /* Simple work function */
 static void test_work_fn(struct work_struct *work)
 {
-	work_counter++;
+	atomic_inc(&work_counter);
 }
 
 /* Work function - just count without delay to avoid blocking */
 static void test_work_delay_fn(struct work_struct *work)
 {
-	work_done++;
+	atomic_inc(&work_done);
 }
 
 /* Test 1: alloc_workqueue and destroy_workqueue */
@@ -106,7 +107,7 @@ static int test_queue_work(void)
 		return 1;
 	}
 
-	work_counter = 0;
+	atomic_set(&work_counter, 0);
 	INIT_WORK(&work, test_work_fn);
 
 	if (queue_work(wq, &work)) {
@@ -117,10 +118,10 @@ static int test_queue_work(void)
 
 	flush_work(&work);
 
-	if (work_counter == 1) {
-		tbridge_printf("PASS: work callback executed (count=%d)\n", work_counter);
+	if (atomic_read(&work_counter) == 1) {
+		tbridge_printf("PASS: work callback executed (count=%d)\n", atomic_read(&work_counter));
 	} else {
-		tbridge_printf("FAIL: work callback not executed (count=%d)\n", work_counter);
+		tbridge_printf("FAIL: work callback not executed (count=%d)\n", atomic_read(&work_counter));
 		errors++;
 	}
 
@@ -138,7 +139,7 @@ static int test_system_wq(void)
 
 	tbridge_printf("\nTest 3: queue_work() on system_wq...\n");
 
-	work_counter = 0;
+	atomic_set(&work_counter, 0);
 	INIT_WORK(&work, test_work_fn);
 
 	if (queue_work(system_wq, &work)) {
@@ -149,10 +150,10 @@ static int test_system_wq(void)
 
 	flush_work(&work);
 
-	if (work_counter == 1) {
-		tbridge_printf("PASS: work callback executed (count=%d)\n", work_counter);
+	if (atomic_read(&work_counter) == 1) {
+		tbridge_printf("PASS: work callback executed (count=%d)\n", atomic_read(&work_counter));
 	} else {
-		tbridge_printf("FAIL: work callback not executed (count=%d)\n", work_counter);
+		tbridge_printf("FAIL: work callback not executed (count=%d)\n", atomic_read(&work_counter));
 		errors++;
 	}
 
@@ -167,7 +168,7 @@ static int test_schedule_work(void)
 
 	tbridge_printf("\nTest 4: schedule_work() convenience function...\n");
 
-	work_counter = 0;
+	atomic_set(&work_counter, 0);
 	INIT_WORK(&work, test_work_fn);
 
 	if (schedule_work(&work)) {
@@ -178,10 +179,10 @@ static int test_schedule_work(void)
 
 	flush_work(&work);
 
-	if (work_counter == 1) {
-		tbridge_printf("PASS: work callback executed (count=%d)\n", work_counter);
+	if (atomic_read(&work_counter) == 1) {
+		tbridge_printf("PASS: work callback executed (count=%d)\n", atomic_read(&work_counter));
 	} else {
-		tbridge_printf("FAIL: work callback not executed (count=%d)\n", work_counter);
+		tbridge_printf("FAIL: work callback not executed (count=%d)\n", atomic_read(&work_counter));
 		errors++;
 	}
 
@@ -204,7 +205,7 @@ static int test_multiple_work(void)
 		return 1;
 	}
 
-	work_counter = 0;
+	atomic_set(&work_counter, 0);
 
 	for (i = 0; i < 5; i++) {
 		INIT_WORK(&works[i], test_work_fn);
@@ -216,10 +217,10 @@ static int test_multiple_work(void)
 	/* Flush all work */
 	flush_workqueue(wq);
 
-	if (work_counter == 5) {
-		tbridge_printf("PASS: All %d work callbacks executed\n", work_counter);
+	if (atomic_read(&work_counter) == 5) {
+		tbridge_printf("PASS: All %d work callbacks executed\n", atomic_read(&work_counter));
 	} else {
-		tbridge_printf("FAIL: Expected 5 callbacks, got %d\n", work_counter);
+		tbridge_printf("FAIL: Expected 5 callbacks, got %d\n", atomic_read(&work_counter));
 		errors++;
 	}
 
@@ -236,7 +237,7 @@ static int test_cancel_work(void)
 
 	tbridge_printf("\nTest 6: cancel_work_sync()...\n");
 
-	work_counter = 0;
+	atomic_set(&work_counter, 0);
 	INIT_WORK(&work, test_work_fn);
 
 	/* Queue work */
@@ -268,7 +269,7 @@ static int test_sustained_work(void)
 		return 1;
 	}
 
-	work_done = 0;
+	atomic_set(&work_done, 0);
 
 	for (i = 0; i < 100; i++) {
 		INIT_WORK(&works[i], test_work_delay_fn);
@@ -280,10 +281,10 @@ static int test_sustained_work(void)
 	/* Flush to ensure all complete */
 	flush_workqueue(wq);
 
-	if (work_done == 100) {
-		tbridge_printf("PASS: All %d work callbacks executed\n", work_done);
+	if (atomic_read(&work_done) == 100) {
+		tbridge_printf("PASS: All %d work callbacks executed\n", atomic_read(&work_done));
 	} else {
-		tbridge_printf("FAIL: Expected 100 callbacks, got %d\n", work_done);
+		tbridge_printf("FAIL: Expected 100 callbacks, got %d\n", atomic_read(&work_done));
 		errors++;
 	}
 
