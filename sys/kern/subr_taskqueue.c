@@ -442,9 +442,18 @@ taskqueue_run(struct taskqueue *queue, int lock_held)
 
 		TQ_UNLOCK(queue);
 		task->ta_func(task->ta_context, pending);
+
+		/*
+		 * Re-acquire lock before clearing tq_running and waking
+		 * waiters.  This ensures atomicity: when drain code sees
+		 * tq_running == NULL under the lock, the worker thread
+		 * is truly done accessing the task structure.  This fixes
+		 * a race where drain_all() could return while the worker
+		 * was still between "tq_running = NULL" and "wakeup(task)".
+		 */
+		TQ_LOCK(queue);
 		queue->tq_running = NULL;
 		wakeup(task);
-		TQ_LOCK(queue);
 	}
 	if (lock_held == 0)
 		TQ_UNLOCK(queue);

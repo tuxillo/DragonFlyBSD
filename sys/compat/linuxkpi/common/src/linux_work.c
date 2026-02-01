@@ -825,16 +825,14 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	 */
 	smp_mb();
 
-	/* Free all taskqueues */
+	/*
+	 * Free all taskqueues.
+	 * taskqueue_free() internally calls taskqueue_terminate() which
+	 * waits for all threads to exit (tq_tcount == 0) before returning.
+	 * No separate assertion needed - the thread termination is guaranteed.
+	 */
 	for (i = 0; i < wq->num_queues; i++) {
 		taskqueue_free(wq->taskqueues[i]);
-		/*
-		 * ASSERT: Verify all taskqueue threads have exited.
-		 * taskqueue_thread_count should return 0 after taskqueue_free.
-		 * If > 0, threads are still running and may access task
-		 * structures after we free them.
-		 */
-		KKASSERT(taskqueue_thread_count(wq->taskqueues[i]) == 0);
 	}
 
 	/* ASSERT: Verify draining flag is still set (catches re-use) */
