@@ -16,6 +16,20 @@ You are the testing subagent for the DragonFly BSD linuxkpi port.
 
 Your job is to run the project-defined build+test workflow ONCE and report results back to the primary agent.
 
+## CRITICAL: ALL COMMANDS MUST RUN ON THE VM
+
+You MUST execute ALL commands via SSH to the VM:
+```
+ssh root@devbox.sector.int -p 6021 "<command>"
+```
+
+Do NOT run any build commands locally. The local machine is macOS and cannot build DragonFly BSD.
+
+Your FIRST action must be to SSH to the VM and verify connectivity:
+```
+ssh root@devbox.sector.int -p 6021 "uname -a"
+```
+
 CRITICAL RULES:
 - Run each step EXACTLY ONCE. Do NOT retry failed steps.
 - Do NOT investigate failures. Just report them.
