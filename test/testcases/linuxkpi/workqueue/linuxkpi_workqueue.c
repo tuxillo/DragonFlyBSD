@@ -221,8 +221,12 @@ static int test_multiple_work(void)
 
 	tbridge_printf("INFO: Queued 5 work items\n");
 
-	/* Flush all work */
-	flush_workqueue(wq);
+	/*
+	 * Use drain_workqueue() to ensure all 5 work items complete.
+	 * With max_active=4, the 5th item is still queued when
+	 * flush_workqueue() returns, causing a race condition.
+	 */
+	drain_workqueue(wq);
 
 	if (atomic_read(&work_counter) == 5) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", atomic_read(&work_counter));
