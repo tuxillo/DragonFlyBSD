@@ -277,9 +277,15 @@ static int test_sustained_work(void)
 		return 1;
 	}
 
-	wq = alloc_workqueue("test_sustained", WQ_UNBOUND, 0);
+	/*
+	 * Use singlethread workqueue to avoid stack overflow.
+	 * With concurrent execution of 100 work items, the call chain
+	 * can overflow the kernel stack. Singlethread ensures sequential
+	 * execution with bounded stack usage.
+	 */
+	wq = create_singlethread_workqueue("test_sustained");
 	if (wq == NULL) {
-		tbridge_printf("FAIL: alloc_workqueue() failed\n");
+		tbridge_printf("FAIL: create_singlethread_workqueue() failed\n");
 		kfree(works);
 		return 1;
 	}
