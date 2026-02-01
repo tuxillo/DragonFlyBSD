@@ -36,6 +36,7 @@
 #include <linux/spinlock.h>
 #include <linux/rcupdate.h>
 #include <linux/irq_work.h>
+#include <asm/barrier.h>
 
 #include <sys/kernel.h>
 
@@ -777,7 +778,7 @@ linux_flush_workqueue(struct workqueue_struct *wq)
 	}
 
 	/* Memory barrier to ensure all work completion is visible */
-	atomic_mb();
+	smp_mb();
 }
 
 void
