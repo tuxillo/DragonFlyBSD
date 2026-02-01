@@ -189,15 +189,16 @@ static int test_schedule_work(void)
 	return errors;
 }
 
-/* Test 5: Multiple work items */
+/* Test 5: Multiple work items (50 items) */
 static int test_multiple_work(void)
 {
 	struct work_struct *works;
 	struct workqueue_struct *wq;
 	int i;
 	int errors = 0;
+	const int num_items = 50;
 
-	tbridge_printf("\nTest 5: Multiple work items...\n");
+	tbridge_printf("\nTest 5: Multiple work items (%d items)...\n", num_items);
 
 	wq = alloc_workqueue("test_multi", 0, 4);
 	if (wq == NULL) {
@@ -207,32 +208,30 @@ static int test_multiple_work(void)
 
 	atomic_set(&work_counter, 0);
 
-	works = kmalloc(sizeof(*works) * 5, GFP_KERNEL);
+	works = kmalloc(sizeof(*works) * num_items, GFP_KERNEL);
 	if (works == NULL) {
 		tbridge_printf("FAIL: kmalloc() failed for work items\n");
 		destroy_workqueue(wq);
 		return 1;
 	}
 
-	for (i = 0; i < 5; i++) {
+	for (i = 0; i < num_items; i++) {
 		INIT_WORK(&works[i], test_work_fn);
 		queue_work(wq, &works[i]);
 	}
 
-	tbridge_printf("INFO: Queued 5 work items\n");
+	tbridge_printf("INFO: Queued %d work items\n", num_items);
 
 	/*
-	 * Use drain_workqueue() to ensure all 5 work items complete.
-	 * With max_active=4, the 5th item may still be queued when
-	 * flush_workqueue() would return, causing a race condition.
+	 * Use drain_workqueue() to ensure all work items complete.
 	 * drain_workqueue() waits for all pending and active work.
 	 */
 	drain_workqueue(wq);
 
-	if (atomic_read(&work_counter) == 5) {
+	if (atomic_read(&work_counter) == num_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", atomic_read(&work_counter));
 	} else {
-		tbridge_printf("FAIL: Expected 5 callbacks, got %d\n", atomic_read(&work_counter));
+		tbridge_printf("FAIL: Expected %d callbacks, got %d\n", num_items, atomic_read(&work_counter));
 		errors++;
 	}
 
@@ -280,7 +279,7 @@ static int test_sustained_work(void)
 	struct work_struct *works;
 	int i;
 	int errors = 0;
-	const int num_items = 5;
+	const int num_items = 20;
 
 	tbridge_printf("\nTest 7: Sustained work processing (%d items)...\n", num_items);
 
