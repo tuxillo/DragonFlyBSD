@@ -35,7 +35,7 @@
 #include <linux/llist.h>
 #include <linux/workqueue.h>
 
-#define	LKPI_IRQ_WORK_STD_TQ	system_wq->taskqueue
+#define	LKPI_IRQ_WORK_STD_TQ	system_wq->taskqueues[0]
 #define	LKPI_IRQ_WORK_FAST_TQ	linux_irq_work_tq
 
 #ifdef LKPI_IRQ_WORK_USE_FAST_TQ
