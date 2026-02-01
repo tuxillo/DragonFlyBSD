@@ -530,6 +530,57 @@ static int test_per_cpu_distribution(void)
 	return errors;
 }
 
+/* Test 11: Stress test - 1000 work items */
+static int test_stress_many_items(void)
+{
+	struct work_struct *works;
+	struct workqueue_struct *wq;
+	int i;
+	int errors = 0;
+	const int num_items = 1000;
+
+	tbridge_printf("\nTest 11: Stress test (%d work items)...\n", num_items);
+
+	wq = alloc_workqueue("test_stress", 0, 0);  /* Per-CPU workqueue */
+	if (wq == NULL) {
+		tbridge_printf("FAIL: alloc_workqueue() failed\n");
+		return 1;
+	}
+
+	atomic_set(&work_counter, 0);
+
+	works = kmalloc(sizeof(*works) * num_items, GFP_KERNEL);
+	if (works == NULL) {
+		tbridge_printf("FAIL: kmalloc() failed\n");
+		destroy_workqueue(wq);
+		return 1;
+	}
+
+	/* Queue all 1000 items */
+	for (i = 0; i < num_items; i++) {
+		INIT_WORK(&works[i], test_work_fn);
+		queue_work(wq, &works[i]);
+	}
+
+	tbridge_printf("INFO: Queued %d work items\n", num_items);
+
+	drain_workqueue(wq);
+
+	if (atomic_read(&work_counter) == num_items) {
+		tbridge_printf("PASS: All %d work callbacks executed\n", num_items);
+	} else {
+		tbridge_printf("FAIL: Expected %d callbacks, got %d\n", 
+			num_items, atomic_read(&work_counter));
+		errors++;
+	}
+
+	destroy_workqueue(wq);
+	tsleep(curthread, 0, "wqdelay", hz / 10);
+	kfree(works);
+
+	return errors;
+}
+
 /* Main test runner */
 static void
 linuxkpi_workqueue_run(void *arg __unused)
@@ -551,6 +602,7 @@ linuxkpi_workqueue_run(void *arg __unused)
 	total_errors += test_requeue_work();
 	total_errors += test_concurrent_workqueues();
 	total_errors += test_per_cpu_distribution();
+	total_errors += test_stress_many_items();
 
 	tbridge_printf("\n========================================\n");
 	if (total_errors == 0) {
