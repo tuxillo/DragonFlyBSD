@@ -1474,6 +1474,17 @@ _kfree(void *ptr, struct malloc_type *type)
      */
     z = (SLZone *)((uintptr_t)ptr & ZoneMask);
     kup = btokup(z);
+    /*
+     * DEBUG: Print diagnostic info before assertions that may fail.
+     * This helps diagnose memory corruption issues.
+     */
+    if (*kup >= 0 || z->z_Magic != ZALLOC_SLAB_MAGIC) {
+	int *orig_kup = btokup(ptr);
+	kprintf("DEBUG _kfree: ptr=%p, *btokup(ptr)=%d, z=%p, *btokup(z)=%d, z_Magic=0x%08x (expected 0x%08x)\n",
+	    ptr, *orig_kup, z, *kup, z->z_Magic, ZALLOC_SLAB_MAGIC);
+	kprintf("DEBUG _kfree: ZoneMask=0x%lx, ZoneSize=%d, ZoneLimit=%d\n",
+	    (unsigned long)ZoneMask, ZoneSize, ZoneLimit);
+    }
     KKASSERT(*kup < 0);
     KKASSERT(z->z_Magic == ZALLOC_SLAB_MAGIC);
 

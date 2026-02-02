@@ -576,6 +576,7 @@ static int test_stress_many_items(void)
 	int errors = 0;
 	const int num_items = 1000;
 	uint32_t sentinel;
+	size_t alloc_size, usable_size_before, usable_size_after;
 
 	kprintf("TEST11: test_stress_many_items() START\n");
 	tbridge_printf("\nTest 11: Stress test (%d work items)...\n", num_items);
@@ -588,14 +589,23 @@ static int test_stress_many_items(void)
 
 	atomic_set(&work_counter, 0);
 
-	works = kmalloc(sizeof(*works) * num_items, GFP_KERNEL);
+	alloc_size = sizeof(*works) * num_items;
+	works = kmalloc(alloc_size, GFP_KERNEL);
 	if (works == NULL) {
 		tbridge_printf("FAIL: kmalloc() failed\n");
 		destroy_workqueue(wq);
 		return 1;
 	}
 
+	/* Check allocation immediately after kmalloc */
+	usable_size_before = kmalloc_usable_size(works);
 	kprintf("TEST11: works=%p, wq=%p, num_items=%d\n", works, wq, num_items);
+	kprintf("TEST11: alloc_size=%zu, usable_size=%zu (should be >= alloc_size)\n",
+	    alloc_size, usable_size_before);
+
+	if (usable_size_before < alloc_size) {
+		kprintf("TEST11: ERROR! usable_size < alloc_size, allocation may be corrupt\n");
+	}
 
 	/* Queue all 1000 items */
 	for (i = 0; i < num_items; i++) {
@@ -615,6 +625,14 @@ static int test_stress_many_items(void)
 		errors++;
 	}
 
+	/* Check allocation before destroy_workqueue */
+	usable_size_after = kmalloc_usable_size(works);
+	kprintf("TEST11: usable_size after drain=%zu (was %zu)\n",
+	    usable_size_after, usable_size_before);
+	if (usable_size_after != usable_size_before) {
+		kprintf("TEST11: ERROR! usable_size changed, memory metadata corrupted!\n");
+	}
+
 	/* Set sentinel in first work item to detect memory corruption */
 	sentinel = 0xDEAD0011;
 	works[0].state.counter = sentinel;
@@ -622,6 +640,15 @@ static int test_stress_many_items(void)
 
 	destroy_workqueue(wq);
 	kprintf("TEST11: destroy_workqueue() done\n");
+
+	/* Check usable_size after destroy_workqueue - this is the critical check */
+	usable_size_after = kmalloc_usable_size(works);
+	kprintf("TEST11: usable_size after destroy=%zu (was %zu)\n",
+	    usable_size_after, usable_size_before);
+	if (usable_size_after != usable_size_before) {
+		kprintf("TEST11: CRITICAL! usable_size changed after destroy_workqueue!\n");
+		kprintf("TEST11: Memory metadata was corrupted during workqueue destruction.\n");
+	}
 
 	/* Verify sentinel is still intact - if not, memory was corrupted */
 	if (works[0].state.counter != sentinel) {
