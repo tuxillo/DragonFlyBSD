@@ -823,7 +823,9 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	 */
 	WQ_EXEC_LOCK(wq);
 	while (!TAILQ_EMPTY(&wq->exec_head)) {
-		msleep(&wq->exec_head, &wq->exec_mtx, 0, "wqdestroy", 0);
+		WQ_EXEC_UNLOCK(wq);
+		tsleep(&wq->exec_head, 0, "wqdestroy", 1);
+		WQ_EXEC_LOCK(wq);
 	}
 	WQ_EXEC_UNLOCK(wq);
 
