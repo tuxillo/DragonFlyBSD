@@ -10,7 +10,7 @@ The tests use the DragonFly `tbridge` (test bridge) framework and are run via `d
 
 ```bash
 cd /usr/src/test/testcases
-dfregress linuxkpi/workqueue/linuxkpi_workqueue.ko
+dfregress -r linuxkpi_workqueue.run
 ```
 
 ---
@@ -23,6 +23,16 @@ The workqueue subsystem is heavily used by DRM drivers. In drm-kmod:
 - `schedule_delayed_work`: 52 uses
 - `flush_work`: 52 uses
 - `INIT_DELAYED_WORK`: 45 uses
+
+### Test Organization
+
+Tests are split into individual kernel modules for isolation. Each test is in its
+own directory (`wq_testNN_name/`) containing:
+- `wq_testNN.c` - Test source
+- `Makefile` - Build configuration
+
+This allows identifying exactly which test causes a crash (the loaded module name
+appears in panic messages).
 
 ### Implemented Tests
 
@@ -227,18 +237,28 @@ Tests that delayed work actually fires after timeout:
 
 ---
 
-#### Test 16: Self-requeueing delayed work
+#### Test 16: Self-requeueing delayed work (amdgpu pattern)
 **Status:** Implemented
 
-Tests delayed work that re-queues itself (periodic task):
-- Callback calls `queue_delayed_work()` on itself
-- Repeats N times then stops
+Tests delayed work that re-queues itself using `schedule_delayed_work()`:
+- Callback calls `schedule_delayed_work()` on itself (queues to system_wq)
+- Repeats 5 times then stops
 - Verify all iterations executed
 
 **drm-kmod relevance:** **Critical pattern.** Used by:
-- i915 `retire_work_handler` - periodic cleanup
+- amdgpu VCN/UVD/VCE/JPEG idle work handlers
 - amdgpu `vf2pf_work` - periodic VF-to-PF communication
-- Many other periodic maintenance tasks
+- radeon dynpm idle work
+
+Real example from `amdgpu_vcn.c`:
+```c
+static void amdgpu_vcn_idle_work_handler(struct work_struct *work) {
+    if (fences_pending)
+        schedule_delayed_work(&adev->vcn.idle_work, VCN_IDLE_TIMEOUT);
+    else
+        power_gate_vcn();
+}
+```
 
 ---
 
@@ -398,6 +418,326 @@ Stress test for race conditions:
 
 ---
 
+#### Test 29: cancel_delayed_work_sync return value (amdgpu ring pattern)
+**Status:** Implemented
+
+Tests that `cancel_delayed_work_sync()` returns the correct value:
+- Returns `true` if work was pending and cancelled
+- Returns `false` if work was not pending (already ran or never queued)
+
+Tests the amdgpu `ring_begin_use()` pattern:
+```c
+void amdgpu_uvd_ring_begin_use(struct amdgpu_ring *ring) {
+    set_clocks = !cancel_delayed_work_sync(&adev->uvd.idle_work);
+    if (set_clocks) {
+        // Work wasn't pending, need to power up
+        amdgpu_device_ip_set_powergating_state(..., AMD_PG_STATE_UNGATE);
+    }
+}
+```
+
+**drm-kmod relevance:** The return value is semantically important for
+power management race avoidance.
+
+---
+
+#### Test 30: queue_delayed_work with delay=0 (hotplug pattern)
+**Status:** Implemented
+
+Tests immediate delayed work execution:
+- `schedule_delayed_work(&dwork, 0)` means "queue for immediate execution"
+- Work runs ASAP on workqueue thread, not synchronously
+- Tests rapid-fire hotplug-style events
+
+Real example from `amdgpu_irq.c`:
+```c
+static irqreturn_t amdgpu_irq_handler(int irq, void *arg) {
+    schedule_delayed_work(&adev->hotplug_work, 0);  // delay=0!
+    return IRQ_HANDLED;
+}
+```
+
+**drm-kmod relevance:** Common pattern for hotplug handlers.
+
+---
+
+#### Test 31: Custom workqueue self-requeue (i915 pattern)
+**Status:** Implemented
+
+Tests delayed work that re-queues itself using `queue_delayed_work()` with
+a custom workqueue (differs from test 16 which uses `system_wq`):
+- Uses `WQ_UNBOUND` custom workqueue (like `i915->unordered_wq`)
+- Uses `queue_delayed_work()` instead of `schedule_delayed_work()`
+- Tests i915's "queue first, work later" pattern for reduced latency
+
+Real example from `intel_gt_requests.c`:
+```c
+static void retire_work_handler(struct work_struct *work) {
+    // Queue first, then work (interesting pattern!)
+    queue_delayed_work(gt->i915->unordered_wq, &gt->requests.retire_work, HZ);
+    retire_requests(gt);
+}
+```
+
+**drm-kmod relevance:** i915 heartbeat, retire work, buffer pool cleanup.
+
+---
+
+## i915-Specific Patterns (Future Tests)
+
+The following patterns are used by i915 but not yet covered by tests.
+These are prioritized by how critical they are for i915 functionality.
+
+### High Priority (Blocks i915 functionality)
+
+#### Test 32: INIT_DELAYED_WORK_ONSTACK
+**Status:** Not implemented
+
+Tests stack-allocated delayed work:
+```c
+INIT_DELAYED_WORK_ONSTACK(&w->work, intel_wedge_me);
+queue_delayed_work(gt->i915->unordered_wq, &w->work, timeout);
+// ... do stuff ...
+cancel_delayed_work_sync(&w->work);
+destroy_delayed_work_on_stack(&w->work);
+```
+
+**drm-kmod relevance:** GPU wedging timeout in `intel_reset.c`.
+
+---
+
+#### Test 33: mod_delayed_work on executing work
+**Status:** Not implemented
+
+Tests `mod_delayed_work()` called on work that is currently executing:
+```c
+// Heartbeat reschedules itself while potentially still running
+mod_delayed_work(system_highpri_wq, &engine->heartbeat.work, delay + 1);
+```
+
+Test 17 covers basic `mod_delayed_work` but NOT this specific edge case.
+
+**drm-kmod relevance:** Engine heartbeat mechanism in `intel_engine_heartbeat.c`.
+
+---
+
+#### Test 36: cancel_delayed_work (non-sync) conditional cleanup
+**Status:** Not implemented
+
+Tests using `cancel_delayed_work()` (non-sync) return value for conditional cleanup:
+```c
+void intel_engine_park_heartbeat(struct intel_engine_cs *engine) {
+    if (cancel_delayed_work(&engine->heartbeat.work))
+        i915_request_put(fetch_and_zero(&engine->heartbeat.systole));
+}
+```
+
+Only releases resource if work was actually cancelled (was pending).
+
+**drm-kmod relevance:** Resource cleanup in heartbeat parking.
+
+---
+
+#### Test 42: cancel_delayed_work_sync loop pattern
+**Status:** Not implemented
+
+Tests looping until `cancel_delayed_work_sync()` returns false:
+```c
+void intel_gt_flush_buffer_pool(struct intel_gt *gt) {
+    do {
+        while (pool_free_older_than(pool, 0))
+            ;
+    } while (cancel_delayed_work_sync(&pool->work));
+}
+```
+
+Needed when work reschedules itself and you need to ensure it's fully stopped.
+
+**drm-kmod relevance:** Buffer pool cleanup in `intel_gt_buffer_pool.c`.
+
+---
+
+### Medium Priority (Important for stability)
+
+#### Test 34: queue_rcu_work
+**Status:** Not implemented
+
+Tests RCU-delayed work queueing:
+```c
+queue_rcu_work(ve->context.engine->i915->unordered_wq, &ve->rcu);
+```
+
+**drm-kmod relevance:** Virtual engine cleanup in execlists.
+
+---
+
+#### Test 35: Iterative drain with RCU barrier
+**Status:** Not implemented
+
+Tests the GEM shutdown pattern:
+```c
+void i915_gem_drain_workqueue(struct drm_i915_private *i915) {
+    for (i = 0; i < 3; i++) {
+        flush_workqueue(i915->wq);
+        rcu_barrier();
+        i915_gem_drain_freed_objects(i915);
+    }
+    drain_workqueue(i915->wq);
+}
+```
+
+**drm-kmod relevance:** GEM shutdown, catches recursive RCU-delayed work.
+
+---
+
+#### Test 37: Conditional sync vs non-sync cancel
+**Status:** Not implemented
+
+Tests choosing between sync/non-sync cancel based on lock state:
+```c
+if (mutex_is_locked(&guc_to_gt(guc)->reset.mutex) ||
+    test_bit(I915_RESET_BACKOFF, &guc_to_gt(guc)->reset.flags))
+    cancel_delayed_work(&guc->timestamp.work);  // Non-sync to avoid deadlock
+else
+    cancel_delayed_work_sync(&guc->timestamp.work);  // Sync when safe
+```
+
+**drm-kmod relevance:** Avoiding deadlocks during GPU reset.
+
+---
+
+#### Test 41: flush_delayed_work vs flush_work distinction
+**Status:** Not implemented
+
+Tests that `flush_delayed_work()` waits for both timer AND work execution,
+while `flush_work()` only waits for work execution:
+```c
+flush_work(&engine->retire_work);
+flush_delayed_work(&engine->wakeref.work);
+```
+
+**drm-kmod relevance:** Proper synchronization semantics.
+
+---
+
+### Lower Priority (Optimization/edge cases)
+
+#### Test 38: WQ_HIGHPRI | WQ_UNBOUND combined flags
+**Status:** Not implemented
+
+Tests combined workqueue flags:
+```c
+i915->display.wq.flip = alloc_workqueue("i915_flip",
+    WQ_HIGHPRI | WQ_UNBOUND, WQ_UNBOUND_MAX_ACTIVE);
+```
+
+Tests 24/25 test these flags separately but not in combination.
+
+**drm-kmod relevance:** Low-latency page flips.
+
+---
+
+#### Test 39: Gated work queueing
+**Status:** Not implemented
+
+Tests checking a condition before queueing:
+```c
+static bool mod_delayed_detection_work(...) {
+    lockdep_assert_held(&i915->irq_lock);
+    if (!detection_work_enabled(i915))
+        return false;
+    return mod_delayed_work(i915->unordered_wq, work, delay);
+}
+```
+
+**drm-kmod relevance:** Preventing work submission during suspend.
+
+---
+
+#### Test 40: Work queuing from IRQ context
+**Status:** Not implemented
+
+Tests queueing to `system_unbound_wq` from IRQ/softirq context:
+```c
+// In fence callback (potentially IRQ context):
+if (ref->flags & I915_ACTIVE_RETIRE_SLEEPS) {
+    queue_work(system_unbound_wq, &ref->work);
+    return;
+}
+```
+
+**drm-kmod relevance:** Deferred work from fence callbacks.
+
+---
+
+#### Test 43: Multiple workqueue flush sequence
+**Status:** Not implemented
+
+Tests correct ordering when flushing multiple workqueues:
+```c
+void intel_display_driver_remove(struct drm_i915_private *i915) {
+    flush_workqueue(i915->display.wq.flip);
+    flush_workqueue(i915->display.wq.modeset);
+    // ... later ...
+    flush_workqueue(i915->unordered_wq);
+}
+```
+
+**drm-kmod relevance:** Proper shutdown sequencing.
+
+---
+
+#### Test 44: Reference-counted work
+**Status:** Not implemented
+
+Tests work that holds a reference to prevent use-after-free:
+```c
+drm_connector_get(&connector->base);
+queue_work(i915->unordered_wq, &hdcp->prop_work);
+// Work function must call drm_connector_put()
+```
+
+**drm-kmod relevance:** HDCP work, prevents use-after-free.
+
+---
+
+## i915 Workqueue Summary
+
+i915 creates these workqueues:
+- `i915->wq` - `alloc_ordered_workqueue("i915", 0)` - main ordered workqueue
+- `i915->display.hotplug.dp_wq` - `alloc_ordered_workqueue("i915-dp", 0)` - DP hotplug
+- `i915->unordered_wq` - `alloc_workqueue("i915-unordered", 0, 0)` - unordered work
+- `i915->display.wq.modeset` - `alloc_ordered_workqueue("i915_modeset", 0)` - modeset
+- `i915->display.wq.flip` - `alloc_workqueue("i915_flip", WQ_HIGHPRI | WQ_UNBOUND, ...)` - page flips
+
+i915 uses these system workqueues:
+- `system_highpri_wq` - heartbeat, GuC timestamp ping, GuC log flush
+- `system_unbound_wq` - i915_active, i915_sw_fence_work, GuC submission, PXP, display power
+
+---
+
+## Known LinuxKPI Issues
+
+### Issue: Self-requeueing delayed work fails (Test 16)
+
+**Symptom:** `schedule_delayed_work()` called from within a delayed work callback
+doesn't work - the requeue is silently lost.
+
+**Root cause:** In `linux_work_fn()`, after the work callback completes, it
+unconditionally calls `linux_update_state()` which transitions
+`WORK_ST_TIMER -> WORK_ST_EXEC -> WORK_ST_IDLE`. This clobbers the timer that
+was just scheduled from within the callback.
+
+**Impact:** Any delayed work that tries to requeue itself with a non-zero delay
+will fail. This breaks:
+- amdgpu VCN/UVD/VCE/JPEG idle work handlers
+- i915 heartbeat
+- Any periodic maintenance work
+
+**Status:** Needs fix in `sys/compat/linuxkpi/common/src/linux_work.c`
+
+---
+
 ## Future Test Modules
 
 ### RCU Tests (`linuxkpi/rcu/`)
@@ -425,12 +765,21 @@ Test `mutex_lock()`, `spin_lock()`, `wait_event()`, `complete()`, etc.
 ## Running Tests
 
 ```bash
-# Build and run single test
+# Build all workqueue tests
+cd /usr/src/test/testcases/linuxkpi/workqueue
+for d in wq_test*/; do (cd "$d" && make); done
+
+# Run all workqueue tests
 cd /usr/src/test/testcases
-dfregress linuxkpi/workqueue/linuxkpi_workqueue.ko
+dfregress -r linuxkpi_workqueue.run
+
+# Run a single test manually
+kldload linuxkpi/workqueue/wq_test16_delayed_requeue/wq_test16.ko
+dmesg | tail -20
+kldunload wq_test16
 
 # View test output
-cat /var/run/dfregress/linuxkpi_workqueue.out
+cat /var/run/dfregress/wq_test16.out
 ```
 
 ## References

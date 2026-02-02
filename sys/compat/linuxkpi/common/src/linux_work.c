@@ -337,7 +337,7 @@ linux_work_fn(void *context, int pending)
 {
 	static const uint8_t states[WORK_ST_MAX] __aligned(8) = {
 		[WORK_ST_IDLE] = WORK_ST_IDLE,		/* NOP */
-		[WORK_ST_TIMER] = WORK_ST_EXEC,		/* delayed work w/o timeout */
+		[WORK_ST_TIMER] = WORK_ST_TIMER,	/* NOP - callback requeued with delay */
 		[WORK_ST_TASK] = WORK_ST_EXEC,		/* call callback */
 		[WORK_ST_EXEC] = WORK_ST_IDLE,		/* complete callback */
 		[WORK_ST_CANCEL] = WORK_ST_EXEC,	/* failed to cancel */
