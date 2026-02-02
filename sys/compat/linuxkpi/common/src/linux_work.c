@@ -388,6 +388,11 @@ linux_work_fn(void *context, int pending)
 done:
 	/* remove executor from list */
 	TAILQ_REMOVE(&wq->exec_head, &exec, entry);
+	/*
+	 * Wake up destroy_workqueue() if it's waiting for all
+	 * executors to finish before freeing memory.
+	 */
+	wakeup(&wq->exec_head);
 	WQ_EXEC_UNLOCK(wq);
 }
 
@@ -810,10 +815,19 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	}
 
 	/*
-	 * IMPORTANT: Full memory barrier after drain_all returns.
-	 * This ensures all work callback state updates are visible
-	 * before we free the workqueue memory.
+	 * Wait for all executors to finish.
+	 * Even after taskqueue_drain_all() returns (tq_running == NULL),
+	 * linux_work_fn() may still be in its cleanup path accessing wq
+	 * (specifically the exec_head and exec_mtx). Wait until exec_head
+	 * is empty to ensure all workers have fully completed.
 	 */
+	WQ_EXEC_LOCK(wq);
+	while (!TAILQ_EMPTY(&wq->exec_head)) {
+		msleep(&wq->exec_head, &wq->exec_mtx, 0, "wqdestroy", 0);
+	}
+	WQ_EXEC_UNLOCK(wq);
+
+	/* Memory barrier after all executors have finished */
 	smp_mb();
 
 	/*
