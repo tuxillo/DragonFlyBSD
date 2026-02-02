@@ -55,6 +55,13 @@ enum {
 };
 
 /*
+ * Magic number to detect double-free or use-after-free of workqueue.
+ * Set when workqueue is created, cleared before freeing.
+ */
+#define	WQ_MAGIC_LIVE		0x57514C56	/* "WQLV" - WorkQueue LiVe */
+#define	WQ_MAGIC_DEAD		0x57514444	/* "WQDD" - WorkQueue DeaD */
+
+/*
  * Define global workqueues
  */
 static struct workqueue_struct *linux_system_short_wq;
@@ -802,13 +809,6 @@ linux_flush_workqueue(struct workqueue_struct *wq)
 	/* Memory barrier to ensure all work completion is visible */
 	smp_mb();
 }
-
-/*
- * Magic number to detect double-free or use-after-free of workqueue.
- * Set when workqueue is created, cleared before freeing.
- */
-#define	WQ_MAGIC_LIVE		0x57514C56	/* "WQLV" - WorkQueue LiVe */
-#define	WQ_MAGIC_DEAD		0x57514444	/* "WQDD" - WorkQueue DeaD */
 
 void
 linux_destroy_workqueue(struct workqueue_struct *wq)
