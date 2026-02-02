@@ -125,8 +125,8 @@ static void test_delayed_self_requeue_fn(struct work_struct *work)
 {
 	int count = atomic_inc_return(&delayed_self_requeue_count);
 	if (count < 5) {
-		/* Re-queue with short delay */
-		schedule_delayed_work(&delayed_requeue_dwork, hz / 20);
+		/* Re-queue with short delay - use the correct workqueue! */
+		queue_delayed_work(delayed_requeue_wq, &delayed_requeue_dwork, hz / 20);
 	}
 }
 
@@ -650,6 +650,9 @@ static int test_basic_delayed_work(void)
 		errors++;
 	}
 
+	/* Ensure work is fully cancelled before stack variable goes out of scope */
+	cancel_delayed_work_sync(&dwork);
+
 	return errors;
 }
 
@@ -764,6 +767,8 @@ static int test_delayed_timeout_fires(void)
 		errors++;
 	}
 
+	/* Ensure work is fully cancelled before destroying workqueue */
+	cancel_delayed_work_sync(&dwork);
 	destroy_workqueue(wq);
 	return errors;
 }
@@ -808,6 +813,9 @@ static int test_delayed_self_requeue(void)
 		errors++;
 	}
 
+	/* Ensure all work is cancelled and drained before destroying */
+	cancel_delayed_work_sync(&delayed_requeue_dwork);
+	drain_workqueue(delayed_requeue_wq);
 	destroy_workqueue(delayed_requeue_wq);
 	return errors;
 }
@@ -886,6 +894,8 @@ static int test_mod_delayed_work(void)
 		errors++;
 	}
 
+	/* Ensure work is fully cancelled before destroying workqueue */
+	cancel_delayed_work_sync(&dwork);
 	destroy_workqueue(wq);
 	return errors;
 }
@@ -1378,6 +1388,9 @@ static int test_delayed_work_pending(void)
 			atomic_read(&delayed_work_counter));
 		errors++;
 	}
+
+	/* Ensure work is fully cancelled before stack variable goes out of scope */
+	cancel_delayed_work_sync(&dwork);
 
 	return errors;
 }
