@@ -337,7 +337,7 @@ linux_work_fn(void *context, int pending)
 {
 	static const uint8_t states[WORK_ST_MAX] __aligned(8) = {
 		[WORK_ST_IDLE] = WORK_ST_IDLE,		/* NOP */
-		[WORK_ST_TIMER] = WORK_ST_TIMER,	/* NOP - callback requeued with delay */
+		[WORK_ST_TIMER] = WORK_ST_EXEC,		/* delayed work w/o timeout */
 		[WORK_ST_TASK] = WORK_ST_EXEC,		/* call callback */
 		[WORK_ST_EXEC] = WORK_ST_IDLE,		/* complete callback */
 		[WORK_ST_CANCEL] = WORK_ST_EXEC,	/* failed to cancel */
@@ -346,6 +346,7 @@ linux_work_fn(void *context, int pending)
 	struct workqueue_struct *wq;
 	struct work_exec exec;
 	struct task_struct *task;
+	int state_after;
 
 	task = current;
 
@@ -383,10 +384,14 @@ linux_work_fn(void *context, int pending)
 				break;
 			}
 			/*
-			 * Callback completed and work was not re-queued.
-			 * Transition state from EXEC to IDLE before exiting.
+			 * Check if the callback re-queued the work.
+			 * If state is TIMER or TASK, the callback scheduled
+			 * new work and we must not disturb it.
+			 * Only transition to IDLE if still in EXEC state.
 			 */
-			linux_update_state(&work->state, states);
+			state_after = atomic_read(&work->state);
+			if (state_after == WORK_ST_EXEC)
+				linux_update_state(&work->state, states);
 			/* FALLTHROUGH */
 		default:
 			goto done;
