@@ -809,15 +809,27 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	/* Memory barrier to ensure draining flag is visible before we drain */
 	smp_mb();
 
-	/*
-	 * Drain all taskqueues.
-	 * taskqueue_drain_all() now waits for tq_busy_count == 0, which
-	 * ensures all workers have fully completed their callbacks and
-	 * returned to taskqueue_run() before we proceed.
-	 */
+	/* Drain all taskqueues first */
 	for (i = 0; i < wq->num_queues; i++) {
 		taskqueue_drain_all(wq->taskqueues[i]);
 	}
+
+	/*
+	 * Wait for all executors to finish.
+	 * Even after taskqueue_drain_all() returns, linux_work_fn() may
+	 * still be in its cleanup path accessing wq (specifically the
+	 * exec_head and exec_mtx). exec_head tracks workers currently
+	 * executing in linux_work_fn(). Wait until exec_head is empty
+	 * to ensure all workers have fully completed.
+	 *
+	 * Use mtxsleep() which atomically releases the mutex and sleeps,
+	 * then reacquires on wakeup. The timeout prevents missed wakeups.
+	 */
+	WQ_EXEC_LOCK(wq);
+	while (!TAILQ_EMPTY(&wq->exec_head)) {
+		mtxsleep(&wq->exec_head, &wq->exec_mtx, 0, "wq_destroy", hz / 10);
+	}
+	WQ_EXEC_UNLOCK(wq);
 
 	/* Memory barrier after all workers have finished */
 	smp_mb();
