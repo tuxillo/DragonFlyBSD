@@ -941,7 +941,6 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
      */
     if (size >= ZoneLimit || ((size & PAGE_MASK) == 0 && size > PAGE_SIZE*2)) {
 	int *kup;
-	size_t orig_size = size;
 
 	size = round_page(size);
 	chunk = kmem_slab_alloc(size, PAGE_SIZE, flags);
