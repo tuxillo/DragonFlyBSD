@@ -124,9 +124,17 @@ static void test_delayed_work_fn(struct work_struct *work)
 static void test_delayed_self_requeue_fn(struct work_struct *work)
 {
 	int count = atomic_inc_return(&delayed_self_requeue_count);
+	
+	tbridge_printf(">>> T16 callback: iteration=%d work_queue=%p queue_index=%d\n",
+		count, work->work_queue, work->queue_index);
+	
 	if (count < 5) {
 		/* Re-queue with short delay - use the correct workqueue! */
+		tbridge_printf(">>> T16 callback: re-queueing to wq=%p\n", delayed_requeue_wq);
 		queue_delayed_work(delayed_requeue_wq, &delayed_requeue_dwork, hz / 20);
+		tbridge_printf(">>> T16 callback: re-queue done\n");
+	} else {
+		tbridge_printf(">>> T16 callback: NOT re-queueing (count=%d)\n", count);
 	}
 }
 
@@ -777,8 +785,10 @@ static int test_delayed_timeout_fires(void)
 static int test_delayed_self_requeue(void)
 {
 	int errors = 0;
+	int cnt;
 
 	tbridge_printf("\nTest 16: Self-requeueing delayed work...\n");
+	tbridge_printf(">>> T16 ENTER\n");
 
 	atomic_set(&delayed_self_requeue_count, 0);
 
@@ -787,22 +797,37 @@ static int test_delayed_self_requeue(void)
 		tbridge_printf("FAIL: alloc_workqueue() failed\n");
 		return 1;
 	}
+	tbridge_printf(">>> T16: created workqueue %p\n", delayed_requeue_wq);
 
 	INIT_DELAYED_WORK(&delayed_requeue_dwork, test_delayed_self_requeue_fn);
+	tbridge_printf(">>> T16: initialized dwork, work_queue=%p queue_index=%d state=%d\n",
+		delayed_requeue_dwork.work.work_queue,
+		delayed_requeue_dwork.work.queue_index,
+		atomic_read(&delayed_requeue_dwork.work.state));
 
 	/* Queue initial delayed work with short delay */
+	tbridge_printf(">>> T16: initial queue to system_wq via schedule_delayed_work\n");
 	schedule_delayed_work(&delayed_requeue_dwork, hz / 20);
-	tbridge_printf("INFO: Queued initial delayed work\n");
+	tbridge_printf(">>> T16: after schedule, work_queue=%p queue_index=%d state=%d\n",
+		delayed_requeue_dwork.work.work_queue,
+		delayed_requeue_dwork.work.queue_index,
+		atomic_read(&delayed_requeue_dwork.work.state));
 
 	/* Wait for all iterations (5 * 50ms = ~250ms) */
 	/* Use a loop with flush to catch all re-queues */
+	tbridge_printf(">>> T16: entering wait loop\n");
 	while (atomic_read(&delayed_self_requeue_count) < 5) {
+		cnt = atomic_read(&delayed_self_requeue_count);
+		tbridge_printf(">>> T16 loop: count=%d, calling flush_delayed_work\n", cnt);
 		flush_delayed_work(&delayed_requeue_dwork);
+		tbridge_printf(">>> T16 loop: flush returned, count now=%d\n",
+			atomic_read(&delayed_self_requeue_count));
 		if (atomic_read(&delayed_self_requeue_count) >= 5)
 			break;
-		/* Small delay between flushes */
 		DELAY(10000);  /* 10ms */
 	}
+	tbridge_printf(">>> T16: exited wait loop, count=%d\n",
+		atomic_read(&delayed_self_requeue_count));
 
 	if (atomic_read(&delayed_self_requeue_count) == 5) {
 		tbridge_printf("PASS: Delayed work re-queued correctly (%d iterations)\n",
@@ -814,9 +839,23 @@ static int test_delayed_self_requeue(void)
 	}
 
 	/* Ensure all work is cancelled and drained before destroying */
+	tbridge_printf(">>> T16: calling cancel_delayed_work_sync, state=%d wq=%p idx=%d\n",
+		atomic_read(&delayed_requeue_dwork.work.state),
+		delayed_requeue_dwork.work.work_queue,
+		delayed_requeue_dwork.work.queue_index);
 	cancel_delayed_work_sync(&delayed_requeue_dwork);
+	tbridge_printf(">>> T16: cancel returned, state=%d\n",
+		atomic_read(&delayed_requeue_dwork.work.state));
+
+	tbridge_printf(">>> T16: calling drain_workqueue(%p)\n", delayed_requeue_wq);
 	drain_workqueue(delayed_requeue_wq);
+	tbridge_printf(">>> T16: drain returned\n");
+
+	tbridge_printf(">>> T16: calling destroy_workqueue(%p)\n", delayed_requeue_wq);
 	destroy_workqueue(delayed_requeue_wq);
+	tbridge_printf(">>> T16: destroy returned\n");
+
+	tbridge_printf(">>> T16 EXIT\n");
 	return errors;
 }
 
@@ -1598,6 +1637,7 @@ linuxkpi_workqueue_run(void *arg __unused)
 	tbridge_printf("\n========================================\n");
 	tbridge_printf("Total time: %ld ms\n", elapsed_ms(&start_time, &end_time));
 	tbridge_printf("Tests completed: 28\n");
+	tbridge_printf(">>> ALL TESTS DONE, calling tbridge_test_done\n");
 	if (total_errors == 0) {
 		tbridge_printf("ALL WORKQUEUE TESTS PASSED!\n");
 		tbridge_printf("========================================\n");
@@ -1607,6 +1647,7 @@ linuxkpi_workqueue_run(void *arg __unused)
 		tbridge_printf("========================================\n");
 		tbridge_test_done(RESULT_FAIL);
 	}
+	tbridge_printf(">>> Returned from tbridge_test_done, exiting test runner\n");
 	return;
 
 aborted:
