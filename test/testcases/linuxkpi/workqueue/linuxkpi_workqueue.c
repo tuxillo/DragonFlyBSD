@@ -79,6 +79,9 @@ static atomic_t stress_queue_success = ATOMIC_INIT(0);
 static atomic_t stress_cancel_success = ATOMIC_INIT(0);
 static atomic_t stress_executed = ATOMIC_INIT(0);
 
+/* Forward declarations */
+static long elapsed_ms(struct timeval *start, struct timeval *end);
+
 /* Simple work function */
 static void test_work_fn(struct work_struct *work)
 {
