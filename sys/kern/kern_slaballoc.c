@@ -941,6 +941,7 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
      */
     if (size >= ZoneLimit || ((size & PAGE_MASK) == 0 && size > PAGE_SIZE*2)) {
 	int *kup;
+	size_t orig_size = size;
 
 	size = round_page(size);
 	chunk = kmem_slab_alloc(size, PAGE_SIZE, flags);
@@ -952,6 +953,8 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
 	flags |= M_PASSIVE_ZERO;
 	kup = btokup(chunk);
 	*kup = size / PAGE_SIZE;
+	kprintf("DEBUG kmalloc OVERSIZED: orig_size=%zu, rounded_size=%zu, chunk=%p, *kup=%d (pages)\n",
+	    orig_size, size, chunk, *kup);
 	crit_enter();
 	goto done;
     }
@@ -1259,6 +1262,8 @@ kmalloc_usable_size(const void *ptr)
     kup = btokup(ptr);
     if (*kup > 0) {
 	size = *kup << PAGE_SHIFT;
+	kprintf("DEBUG kmalloc_usable_size: ptr=%p, *kup=%d (oversized), size=%lu\n",
+	    ptr, *kup, size);
 	return size;
     }
 
@@ -1267,6 +1272,13 @@ kmalloc_usable_size(const void *ptr)
      * ZoneSize aligned.
      */
     z = (SLZone *)((uintptr_t)ptr & ZoneMask);
+    /*
+     * DEBUG: Print diagnostic info before assertion that may fail.
+     */
+    if (z->z_Magic != ZALLOC_SLAB_MAGIC) {
+	kprintf("DEBUG kmalloc_usable_size: ptr=%p, *kup=%d (zone path), z=%p, z_Magic=0x%08x (expected 0x%08x)\n",
+	    ptr, *kup, z, z->z_Magic, ZALLOC_SLAB_MAGIC);
+    }
     KKASSERT(z->z_Magic == ZALLOC_SLAB_MAGIC);
 
     return (z->z_ChunkSize);
