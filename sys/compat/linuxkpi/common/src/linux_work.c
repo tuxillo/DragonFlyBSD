@@ -769,9 +769,6 @@ linux_create_workqueue_common(const char *name, int cpus)
 	TAILQ_INIT(&wq->exec_head);
 	mtx_init(&wq->exec_mtx, "linux_wq_exec", NULL, MTX_DEF);
 
-	kprintf("DEBUG: linux_create_workqueue_common('%s', %d) -> wq=%p, num_queues=%d\n",
-	    name, cpus, wq, num_queues);
-
 	for (i = 0; i < num_queues; i++) {
 		if (num_queues > 1)
 			ksnprintf(tq_name, sizeof(tq_name), "%s/%d", name, i);
@@ -814,10 +811,6 @@ void
 linux_destroy_workqueue(struct workqueue_struct *wq)
 {
 	int i;
-	int tq_tcount;
-
-	kprintf("DEBUG: linux_destroy_workqueue(%p) START, num_queues=%d\n",
-	    wq, wq->num_queues);
 
 	/* Check for double-free */
 	if (wq->magic == WQ_MAGIC_DEAD) {
@@ -834,12 +827,8 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	smp_mb();
 
 	/* Drain all taskqueues first */
-	kprintf("DEBUG: linux_destroy_workqueue(%p) draining taskqueues\n", wq);
 	for (i = 0; i < wq->num_queues; i++) {
-		kprintf("DEBUG:   taskqueue_drain_all(taskqueues[%d]=%p)\n",
-		    i, wq->taskqueues[i]);
 		taskqueue_drain_all(wq->taskqueues[i]);
-		kprintf("DEBUG:   taskqueue_drain_all(taskqueues[%d]) done\n", i);
 	}
 
 	/*
@@ -853,14 +842,11 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	 * Use mtxsleep() which atomically releases the mutex and sleeps,
 	 * then reacquires on wakeup. The timeout prevents missed wakeups.
 	 */
-	kprintf("DEBUG: linux_destroy_workqueue(%p) waiting for exec_head\n", wq);
 	WQ_EXEC_LOCK(wq);
 	while (!TAILQ_EMPTY(&wq->exec_head)) {
-		kprintf("DEBUG:   exec_head not empty, sleeping...\n");
 		mtxsleep(&wq->exec_head, &wq->exec_mtx, 0, "wq_destroy", hz / 10);
 	}
 	WQ_EXEC_UNLOCK(wq);
-	kprintf("DEBUG: linux_destroy_workqueue(%p) exec_head is empty\n", wq);
 
 	/* Memory barrier after all workers have finished */
 	smp_mb();
@@ -870,14 +856,8 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	 * taskqueue_free() internally calls taskqueue_terminate() which
 	 * waits for all threads to exit (tq_tcount == 0) before returning.
 	 */
-	kprintf("DEBUG: linux_destroy_workqueue(%p) freeing taskqueues\n", wq);
 	for (i = 0; i < wq->num_queues; i++) {
-		/* Verify thread count before freeing */
-		tq_tcount = taskqueue_thread_count(wq->taskqueues[i]);
-		kprintf("DEBUG:   taskqueue_free(taskqueues[%d]=%p) tq_tcount=%d\n",
-		    i, wq->taskqueues[i], tq_tcount);
 		taskqueue_free(wq->taskqueues[i]);
-		kprintf("DEBUG:   taskqueue_free(taskqueues[%d]) done\n", i);
 	}
 
 	/* ASSERT: Verify draining flag is still set (catches re-use) */
@@ -890,13 +870,9 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	wq->magic = WQ_MAGIC_DEAD;
 	smp_mb();
 
-	kprintf("DEBUG: linux_destroy_workqueue(%p) about to kfree(taskqueues=%p)\n",
-	    wq, wq->taskqueues);
 	mtx_destroy(&wq->exec_mtx);
 	kfree(wq->taskqueues);
-	kprintf("DEBUG: linux_destroy_workqueue(%p) about to kfree(wq)\n", wq);
 	kfree(wq);
-	kprintf("DEBUG: linux_destroy_workqueue() DONE\n");
 }
 
 void

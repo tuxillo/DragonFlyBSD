@@ -36,6 +36,7 @@
 #include <sys/kernel.h>
 #include <sys/module.h>
 #include <sys/tbridge.h>
+#include <sys/time.h>
 
 /* LinuxKPI headers */
 #include <linux/workqueue.h>
@@ -43,6 +44,9 @@
 #include <linux/atomic.h>
 
 #include <dfregress.h>
+
+/* Test abort flag - set by tb_abort callback */
+static atomic_t test_abort_flag = ATOMIC_INIT(0);
 
 /* Test counters - atomic to avoid race conditions */
 static atomic_t work_counter = ATOMIC_INIT(0);
@@ -223,9 +227,7 @@ static int test_multiple_work(void)
 	int i;
 	int errors = 0;
 	const int num_items = 50;
-	uint32_t sentinel;
 
-	kprintf("TEST5: test_multiple_work() START\n");
 	tbridge_printf("\nTest 5: Multiple work items (%d items)...\n", num_items);
 
 	wq = alloc_workqueue("test_multi", 0, 4);
@@ -243,16 +245,12 @@ static int test_multiple_work(void)
 		return 1;
 	}
 
-	kprintf("TEST5: works=%p, wq=%p\n", works, wq);
-
 	for (i = 0; i < num_items; i++) {
 		INIT_WORK(&works[i], test_work_fn);
 		queue_work(wq, &works[i]);
 	}
 
-	kprintf("TEST5: Queued %d items, calling drain_workqueue()\n", num_items);
 	drain_workqueue(wq);
-	kprintf("TEST5: drain_workqueue() done\n");
 
 	if (atomic_read(&work_counter) == num_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", atomic_read(&work_counter));
@@ -261,25 +259,8 @@ static int test_multiple_work(void)
 		errors++;
 	}
 
-	/* Set sentinel in first work item to detect memory corruption */
-	sentinel = 0xDEAD0005;
-	works[0].state.counter = sentinel;
-	kprintf("TEST5: Set sentinel=0x%x at works[0].state, calling destroy_workqueue()\n", sentinel);
-
 	destroy_workqueue(wq);
-	kprintf("TEST5: destroy_workqueue() done\n");
-
-	/* Verify sentinel is still intact - if not, memory was corrupted */
-	if (works[0].state.counter != sentinel) {
-		kprintf("TEST5: CORRUPTION! sentinel changed from 0x%x to 0x%x\n",
-		    sentinel, works[0].state.counter);
-	} else {
-		kprintf("TEST5: sentinel OK (0x%x)\n", works[0].state.counter);
-	}
-	
-	kprintf("TEST5: About to kfree(works=%p)\n", works);
 	kfree(works);
-	kprintf("TEST5: kfree() done\n");
 
 	return errors;
 }
@@ -316,9 +297,7 @@ static int test_sustained_work(void)
 	int i;
 	int errors = 0;
 	const int num_items = 20;
-	uint32_t sentinel;
 
-	kprintf("TEST7: test_sustained_work() START\n");
 	tbridge_printf("\nTest 7: Sustained work processing (%d items)...\n", num_items);
 
 	works = kmalloc(sizeof(struct work_struct) * num_items, GFP_KERNEL);
@@ -326,8 +305,6 @@ static int test_sustained_work(void)
 		tbridge_printf("FAIL: kmalloc() failed\n");
 		return 1;
 	}
-
-	kprintf("TEST7: works=%p, size=%zu\n", works, sizeof(struct work_struct) * num_items);
 
 	/*
 	 * Use singlethread workqueue to avoid stack overflow.
@@ -340,7 +317,6 @@ static int test_sustained_work(void)
 		return 1;
 	}
 
-	kprintf("TEST7: wq=%p\n", wq);
 	atomic_set(&work_done, 0);
 
 	for (i = 0; i < num_items; i++) {
@@ -348,14 +324,11 @@ static int test_sustained_work(void)
 		queue_work(wq, &works[i]);
 	}
 
-	kprintf("TEST7: Queued %d items, calling drain_workqueue()\n", num_items);
-
 	/*
 	 * Use drain_workqueue() for sustained work - this ensures ALL work
 	 * items complete, including those still queued.
 	 */
 	drain_workqueue(wq);
-	kprintf("TEST7: drain_workqueue() done\n");
 
 	if (atomic_read(&work_done) == num_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", atomic_read(&work_done));
@@ -364,25 +337,8 @@ static int test_sustained_work(void)
 		errors++;
 	}
 
-	/* Set sentinel in first work item to detect memory corruption */
-	sentinel = 0xDEAD0007;
-	works[0].state.counter = sentinel;
-	kprintf("TEST7: Set sentinel=0x%x at works[0].state, calling destroy_workqueue()\n", sentinel);
-
 	destroy_workqueue(wq);
-	kprintf("TEST7: destroy_workqueue() done\n");
-
-	/* Verify sentinel is still intact - if not, memory was corrupted */
-	if (works[0].state.counter != sentinel) {
-		kprintf("TEST7: CORRUPTION! sentinel changed from 0x%x to 0x%x\n",
-		    sentinel, works[0].state.counter);
-	} else {
-		kprintf("TEST7: sentinel OK (0x%x)\n", works[0].state.counter);
-	}
-
-	kprintf("TEST7: About to kfree(works=%p)\n", works);
 	kfree(works);
-	kprintf("TEST7: kfree() done\n");
 
 	return errors;
 }
@@ -492,9 +448,7 @@ static int test_per_cpu_distribution(void)
 	int errors = 0;
 	int num_cpus = ncpus;
 	int work_items = num_cpus * 5;  /* 5 items per CPU */
-	uint32_t sentinel;
 
-	kprintf("TEST10: test_per_cpu_distribution() START\n");
 	tbridge_printf("\nTest 10: Per-CPU distribution (%d CPUs, %d items)...\n", num_cpus, work_items);
 
 	/* Initialize per-CPU counters (only up to ncpus, not MAXCPU) */
@@ -516,16 +470,12 @@ static int test_per_cpu_distribution(void)
 		return 1;
 	}
 
-	kprintf("TEST10: works=%p, wq=%p, work_items=%d\n", works, wq, work_items);
-
 	for (i = 0; i < work_items; i++) {
 		INIT_WORK(&works[i], test_cpu_track_fn);
 		queue_work(wq, &works[i]);
 	}
 
-	kprintf("TEST10: Queued %d items, calling drain_workqueue()\n", work_items);
 	drain_workqueue(wq);
-	kprintf("TEST10: drain_workqueue() done\n");
 
 	if (atomic_read(&work_counter) == work_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", work_items);
@@ -544,25 +494,8 @@ static int test_per_cpu_distribution(void)
 		errors++;
 	}
 
-	/* Set sentinel in first work item to detect memory corruption */
-	sentinel = 0xDEAD0010;
-	works[0].state.counter = sentinel;
-	kprintf("TEST10: Set sentinel=0x%x at works[0].state, calling destroy_workqueue()\n", sentinel);
-
 	destroy_workqueue(wq);
-	kprintf("TEST10: destroy_workqueue() done\n");
-
-	/* Verify sentinel is still intact - if not, memory was corrupted */
-	if (works[0].state.counter != sentinel) {
-		kprintf("TEST10: CORRUPTION! sentinel changed from 0x%x to 0x%x\n",
-		    sentinel, works[0].state.counter);
-	} else {
-		kprintf("TEST10: sentinel OK (0x%x)\n", works[0].state.counter);
-	}
-
-	kprintf("TEST10: About to kfree(works=%p)\n", works);
 	kfree(works);
-	kprintf("TEST10: kfree() done\n");
 
 	return errors;
 }
@@ -575,11 +508,7 @@ static int test_stress_many_items(void)
 	int i;
 	int errors = 0;
 	const int num_items = 1000;
-	uint32_t sentinel;
-	size_t alloc_size, usable_size_before, usable_size_after;
 
-	kprintf("TEST11: test_stress_many_items() START\n");
-	kprintf("TEST11: sizeof(struct work_struct)=%zu\n", sizeof(struct work_struct));
 	tbridge_printf("\nTest 11: Stress test (%d work items)...\n", num_items);
 
 	wq = alloc_workqueue("test_stress", 0, 0);  /* Per-CPU workqueue */
@@ -590,22 +519,11 @@ static int test_stress_many_items(void)
 
 	atomic_set(&work_counter, 0);
 
-	alloc_size = sizeof(*works) * num_items;
-	works = kmalloc(alloc_size, GFP_KERNEL);
+	works = kmalloc(sizeof(*works) * num_items, GFP_KERNEL);
 	if (works == NULL) {
 		tbridge_printf("FAIL: kmalloc() failed\n");
 		destroy_workqueue(wq);
 		return 1;
-	}
-
-	/* Check allocation immediately after kmalloc */
-	usable_size_before = kmalloc_usable_size(works);
-	kprintf("TEST11: works=%p, wq=%p, num_items=%d\n", works, wq, num_items);
-	kprintf("TEST11: alloc_size=%zu, usable_size=%zu (should be >= alloc_size)\n",
-	    alloc_size, usable_size_before);
-
-	if (usable_size_before < alloc_size) {
-		kprintf("TEST11: ERROR! usable_size < alloc_size, allocation may be corrupt\n");
 	}
 
 	/* Queue all 1000 items */
@@ -614,9 +532,7 @@ static int test_stress_many_items(void)
 		queue_work(wq, &works[i]);
 	}
 
-	kprintf("TEST11: Queued %d items, calling drain_workqueue()\n", num_items);
 	drain_workqueue(wq);
-	kprintf("TEST11: drain_workqueue() done\n");
 
 	if (atomic_read(&work_counter) == num_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", num_items);
@@ -626,44 +542,18 @@ static int test_stress_many_items(void)
 		errors++;
 	}
 
-	/* Check allocation before destroy_workqueue */
-	usable_size_after = kmalloc_usable_size(works);
-	kprintf("TEST11: usable_size after drain=%zu (was %zu)\n",
-	    usable_size_after, usable_size_before);
-	if (usable_size_after != usable_size_before) {
-		kprintf("TEST11: ERROR! usable_size changed, memory metadata corrupted!\n");
-	}
-
-	/* Set sentinel in first work item to detect memory corruption */
-	sentinel = 0xDEAD0011;
-	works[0].state.counter = sentinel;
-	kprintf("TEST11: Set sentinel=0x%x at works[0].state, calling destroy_workqueue()\n", sentinel);
-
 	destroy_workqueue(wq);
-	kprintf("TEST11: destroy_workqueue() done\n");
-
-	/* Check usable_size after destroy_workqueue - this is the critical check */
-	usable_size_after = kmalloc_usable_size(works);
-	kprintf("TEST11: usable_size after destroy=%zu (was %zu)\n",
-	    usable_size_after, usable_size_before);
-	if (usable_size_after != usable_size_before) {
-		kprintf("TEST11: CRITICAL! usable_size changed after destroy_workqueue!\n");
-		kprintf("TEST11: Memory metadata was corrupted during workqueue destruction.\n");
-	}
-
-	/* Verify sentinel is still intact - if not, memory was corrupted */
-	if (works[0].state.counter != sentinel) {
-		kprintf("TEST11: CORRUPTION! sentinel changed from 0x%x to 0x%x\n",
-		    sentinel, works[0].state.counter);
-	} else {
-		kprintf("TEST11: sentinel OK (0x%x)\n", works[0].state.counter);
-	}
-
-	kprintf("TEST11: About to kfree(works=%p)\n", works);
 	kfree(works);
-	kprintf("TEST11: kfree() done\n");
 
 	return errors;
+}
+
+/* Helper to get elapsed time in milliseconds */
+static long
+elapsed_ms(struct timeval *start, struct timeval *end)
+{
+	return (end->tv_sec - start->tv_sec) * 1000 +
+	       (end->tv_usec - start->tv_usec) / 1000;
 }
 
 /* Main test runner */
@@ -671,6 +561,12 @@ static void
 linuxkpi_workqueue_run(void *arg __unused)
 {
 	int total_errors = 0;
+	struct timeval start_time, end_time;
+
+	/* Reset abort flag */
+	atomic_set(&test_abort_flag, 0);
+
+	microtime(&start_time);
 
 	tbridge_printf("========================================\n");
 	tbridge_printf("LinuxKPI Workqueue Functional Test\n");
@@ -678,18 +574,41 @@ linuxkpi_workqueue_run(void *arg __unused)
 	tbridge_printf("========================================\n\n");
 
 	total_errors += test_alloc_workqueue();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
 	total_errors += test_queue_work();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
 	total_errors += test_system_wq();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
 	total_errors += test_schedule_work();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
 	total_errors += test_multiple_work();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
 	total_errors += test_cancel_work();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
 	total_errors += test_sustained_work();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
 	total_errors += test_requeue_work();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
 	total_errors += test_concurrent_workqueues();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
 	total_errors += test_per_cpu_distribution();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
 	total_errors += test_stress_many_items();
 
+	microtime(&end_time);
+
 	tbridge_printf("\n========================================\n");
+	tbridge_printf("Total time: %ld ms\n", elapsed_ms(&start_time, &end_time));
 	if (total_errors == 0) {
 		tbridge_printf("ALL WORKQUEUE TESTS PASSED!\n");
 		tbridge_printf("========================================\n");
@@ -699,11 +618,30 @@ linuxkpi_workqueue_run(void *arg __unused)
 		tbridge_printf("========================================\n");
 		tbridge_test_done(RESULT_FAIL);
 	}
+	return;
+
+aborted:
+	microtime(&end_time);
+	tbridge_printf("\n========================================\n");
+	tbridge_printf("TEST ABORTED after %ld ms\n", elapsed_ms(&start_time, &end_time));
+	tbridge_printf("========================================\n");
+	tbridge_test_done(RESULT_TIMEOUT);
+}
+
+/*
+ * Abort callback - called when test times out.
+ * Sets the abort flag to signal the test runner to stop.
+ */
+static int
+linuxkpi_workqueue_abort(void)
+{
+	atomic_set(&test_abort_flag, 1);
+	return 0;
 }
 
 static struct tbridge_testcase linuxkpi_workqueue_case = {
 	.tb_run		= linuxkpi_workqueue_run,
-	.tb_abort	= NULL
+	.tb_abort	= linuxkpi_workqueue_abort
 };
 
 TBRIDGE_TESTCASE_MODULE(linuxkpi_workqueue, &linuxkpi_workqueue_case);

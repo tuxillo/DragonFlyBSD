@@ -953,8 +953,6 @@ _kmalloc(unsigned long size, struct malloc_type *type, int flags)
 	flags |= M_PASSIVE_ZERO;
 	kup = btokup(chunk);
 	*kup = size / PAGE_SIZE;
-	kprintf("DEBUG kmalloc OVERSIZED: orig_size=%zu, rounded_size=%zu, chunk=%p, *kup=%d (pages)\n",
-	    orig_size, size, chunk, *kup);
 	crit_enter();
 	goto done;
     }
@@ -1262,8 +1260,6 @@ kmalloc_usable_size(const void *ptr)
     kup = btokup(ptr);
     if (*kup > 0) {
 	size = *kup << PAGE_SHIFT;
-	kprintf("DEBUG kmalloc_usable_size: ptr=%p, *kup=%d (oversized), size=%lu\n",
-	    ptr, *kup, size);
 	return size;
     }
 
@@ -1272,13 +1268,6 @@ kmalloc_usable_size(const void *ptr)
      * ZoneSize aligned.
      */
     z = (SLZone *)((uintptr_t)ptr & ZoneMask);
-    /*
-     * DEBUG: Print diagnostic info before assertion that may fail.
-     */
-    if (z->z_Magic != ZALLOC_SLAB_MAGIC) {
-	kprintf("DEBUG kmalloc_usable_size: ptr=%p, *kup=%d (zone path), z=%p, z_Magic=0x%08x (expected 0x%08x)\n",
-	    ptr, *kup, z, z->z_Magic, ZALLOC_SLAB_MAGIC);
-    }
     KKASSERT(z->z_Magic == ZALLOC_SLAB_MAGIC);
 
     return (z->z_ChunkSize);
@@ -1490,13 +1479,6 @@ _kfree(void *ptr, struct malloc_type *type)
      * DEBUG: Print diagnostic info before assertions that may fail.
      * This helps diagnose memory corruption issues.
      */
-    if (*kup >= 0 || z->z_Magic != ZALLOC_SLAB_MAGIC) {
-	int *orig_kup = btokup(ptr);
-	kprintf("DEBUG _kfree: ptr=%p, *btokup(ptr)=%d, z=%p, *btokup(z)=%d, z_Magic=0x%08x (expected 0x%08x)\n",
-	    ptr, *orig_kup, z, *kup, z->z_Magic, ZALLOC_SLAB_MAGIC);
-	kprintf("DEBUG _kfree: ZoneMask=0x%lx, ZoneSize=%d, ZoneLimit=%d\n",
-	    (unsigned long)ZoneMask, ZoneSize, ZoneLimit);
-    }
     KKASSERT(*kup < 0);
     KKASSERT(z->z_Magic == ZALLOC_SLAB_MAGIC);
 

@@ -268,7 +268,14 @@ tbridge_dev_ioctl(struct dev_ioctl_args *ap)
 		if (error)
 			tbridge_test_done(RESULT_PREFAIL);
 
-		/* The following won't be called if the thread wasn't created */
+		/*
+		 * Wait for the test to complete.  Use tsleep_interlock()
+		 * to avoid a race between checking tbridge_result_ready
+		 * and calling tsleep().  Without the interlock, if the test
+		 * completes between the check and sleep, we would miss the
+		 * wakeup and wait for the full timeout.
+		 */
+		tsleep_interlock(&tbridge_result_ready, 0);
 		if (!tbridge_result_ready) {
 			r = tsleep(&tbridge_result_ready, 0, "tbridgeres",
 			    hz * testcase_get_timeout(tbridge_testcase));
