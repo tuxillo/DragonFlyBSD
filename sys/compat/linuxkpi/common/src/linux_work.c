@@ -809,34 +809,23 @@ linux_destroy_workqueue(struct workqueue_struct *wq)
 	/* Memory barrier to ensure draining flag is visible before we drain */
 	smp_mb();
 
-	/* Drain all taskqueues first */
+	/*
+	 * Drain all taskqueues.
+	 * taskqueue_drain_all() now waits for tq_busy_count == 0, which
+	 * ensures all workers have fully completed their callbacks and
+	 * returned to taskqueue_run() before we proceed.
+	 */
 	for (i = 0; i < wq->num_queues; i++) {
 		taskqueue_drain_all(wq->taskqueues[i]);
 	}
 
-	/*
-	 * Wait for all executors to finish.
-	 * Even after taskqueue_drain_all() returns (tq_running == NULL),
-	 * linux_work_fn() may still be in its cleanup path accessing wq
-	 * (specifically the exec_head and exec_mtx). Wait until exec_head
-	 * is empty to ensure all workers have fully completed.
-	 */
-	WQ_EXEC_LOCK(wq);
-	while (!TAILQ_EMPTY(&wq->exec_head)) {
-		WQ_EXEC_UNLOCK(wq);
-		tsleep(&wq->exec_head, 0, "wqdestroy", 1);
-		WQ_EXEC_LOCK(wq);
-	}
-	WQ_EXEC_UNLOCK(wq);
-
-	/* Memory barrier after all executors have finished */
+	/* Memory barrier after all workers have finished */
 	smp_mb();
 
 	/*
 	 * Free all taskqueues.
 	 * taskqueue_free() internally calls taskqueue_terminate() which
 	 * waits for all threads to exit (tq_tcount == 0) before returning.
-	 * No separate assertion needed - the thread termination is guaranteed.
 	 */
 	for (i = 0; i < wq->num_queues; i++) {
 		taskqueue_free(wq->taskqueues[i]);

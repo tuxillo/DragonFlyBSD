@@ -60,6 +60,7 @@ struct taskqueue {
 	int			tq_tcount;
 	int			tq_flags;
 	int			tq_callouts;
+	int			tq_busy_count;	/* number of workers in callback */
 };
 
 #define	TQ_FLAGS_ACTIVE		(1 << 0)
@@ -439,21 +440,23 @@ taskqueue_run(struct taskqueue *queue, int lock_held)
 		pending = task->ta_pending;
 		task->ta_pending = 0;
 		queue->tq_running = task;
+		queue->tq_busy_count++;
 
 		TQ_UNLOCK(queue);
 		task->ta_func(task->ta_context, pending);
 
 		/*
-		 * Re-acquire lock before clearing tq_running and waking
-		 * waiters.  This ensures atomicity: when drain code sees
-		 * tq_running == NULL under the lock, the worker thread
-		 * is truly done accessing the task structure.  This fixes
-		 * a race where drain_all() could return while the worker
-		 * was still between "tq_running = NULL" and "wakeup(task)".
+		 * Re-acquire lock before clearing tq_running/tq_busy_count
+		 * and waking waiters.  This ensures atomicity: when drain
+		 * code sees tq_busy_count == 0 under the lock, the worker
+		 * thread is truly done accessing the task structure and
+		 * any associated data.
 		 */
 		TQ_LOCK(queue);
 		queue->tq_running = NULL;
+		queue->tq_busy_count--;
 		wakeup(task);
+		wakeup(queue);	/* wake taskqueue_drain_all() */
 	}
 	if (lock_held == 0)
 		TQ_UNLOCK(queue);
@@ -541,37 +544,22 @@ taskqueue_drain(struct taskqueue *queue, struct task *task)
 /*
  * Drain all pending tasks from the taskqueue.
  * This waits until both the pending queue is empty AND
- * any currently executing task has completed.
+ * any currently executing task has completed (tq_busy_count == 0).
  */
 void
 taskqueue_drain_all(struct taskqueue *queue)
 {
-	struct task *task;
-
 	TQ_LOCK(queue);
 
 	/*
-	 * Wait while there are tasks in the queue or a task is running.
-	 * We loop because new tasks may be enqueued while we wait.
+	 * Wait while there are tasks in the queue or a worker is busy
+	 * executing a callback.  tq_busy_count is incremented before the
+	 * callback runs and decremented after it returns (under the lock),
+	 * so when we see tq_busy_count == 0 under the lock, the worker
+	 * has truly finished and is no longer accessing any task data.
 	 */
-	while ((task = STAILQ_FIRST(&queue->tq_queue)) != NULL ||
-	    queue->tq_running != NULL) {
-		if (task != NULL) {
-			/*
-			 * Wait for this specific task to complete.
-			 * It will wake us when done.
-			 */
-			while (task->ta_pending != 0 || task == queue->tq_running)
-				TQ_SLEEP(queue, task, "tqdall");
-		} else if (queue->tq_running != NULL) {
-			/*
-			 * Queue is empty but a task is still running.
-			 * Wait for it to complete.
-			 */
-			task = queue->tq_running;
-			while (task == queue->tq_running)
-				TQ_SLEEP(queue, task, "tqdall");
-		}
+	while (!STAILQ_EMPTY(&queue->tq_queue) || queue->tq_busy_count > 0) {
+		TQ_SLEEP(queue, queue, "tq_drain");
 	}
 
 	TQ_UNLOCK(queue);
