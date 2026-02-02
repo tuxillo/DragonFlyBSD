@@ -79,8 +79,8 @@ wq_test16_run(void)
 
 	INIT_DELAYED_WORK(&delayed_requeue_dwork, test_delayed_self_requeue_fn);
 
-	/* Queue initial delayed work with short delay */
-	schedule_delayed_work(&delayed_requeue_dwork, hz / 20);
+	/* Queue initial delayed work with short delay - use same wq as requeue! */
+	queue_delayed_work(delayed_requeue_wq, &delayed_requeue_dwork, hz / 20);
 
 	/* Wait for all iterations (5 * 50ms = ~250ms) */
 	/* Use a loop with flush to catch all re-queues */
