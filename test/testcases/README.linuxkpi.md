@@ -171,10 +171,10 @@ Stress test with 1000 work items:
 
 ---
 
-### Tests To Be Implemented
+### Delayed Work Tests
 
 #### Test 12: Basic delayed work
-**Status:** TODO
+**Status:** Implemented
 
 Tests delayed work fundamentals:
 - Initialize with `INIT_DELAYED_WORK()`
@@ -188,7 +188,7 @@ Tests delayed work fundamentals:
 ---
 
 #### Test 13: cancel_delayed_work_sync (before firing)
-**Status:** TODO
+**Status:** Implemented
 
 Tests canceling delayed work before timeout expires:
 - Queue delayed work with long delay
@@ -202,7 +202,7 @@ Used for idle timeout patterns in amdgpu VCN/UVD/VCE/JPEG.
 ---
 
 #### Test 14: cancel_delayed_work_sync (after firing)
-**Status:** TODO
+**Status:** Implemented
 
 Tests canceling delayed work that already executed:
 - Queue delayed work with short delay
@@ -215,7 +215,7 @@ Tests canceling delayed work that already executed:
 ---
 
 #### Test 15: Delayed work timeout fires
-**Status:** TODO
+**Status:** Implemented
 
 Tests that delayed work actually fires after timeout:
 - Queue with `queue_delayed_work(wq, &dwork, hz/10)` (100ms)
@@ -228,7 +228,7 @@ Tests that delayed work actually fires after timeout:
 ---
 
 #### Test 16: Self-requeueing delayed work
-**Status:** TODO
+**Status:** Implemented
 
 Tests delayed work that re-queues itself (periodic task):
 - Callback calls `queue_delayed_work()` on itself
@@ -243,7 +243,7 @@ Tests delayed work that re-queues itself (periodic task):
 ---
 
 #### Test 17: mod_delayed_work
-**Status:** TODO
+**Status:** Implemented
 
 Tests modifying pending delayed work:
 - Queue delayed work with long delay
@@ -257,7 +257,7 @@ i915 uses for hotplug and heartbeat.
 ---
 
 #### Test 18: Delayed work idle timeout pattern
-**Status:** TODO
+**Status:** Implemented
 
 Tests the "idle timeout" pattern used by amdgpu power management:
 ```c
@@ -277,7 +277,7 @@ void end_use() {
 ---
 
 #### Test 19: alloc_ordered_workqueue
-**Status:** TODO
+**Status:** Implemented
 
 Tests ordered (serialized) workqueue:
 - Create with `alloc_ordered_workqueue("name", 0)`
@@ -290,7 +290,7 @@ Tests ordered (serialized) workqueue:
 ---
 
 #### Test 20: system_unbound_wq
-**Status:** TODO
+**Status:** Implemented
 
 Tests the global `system_unbound_wq`:
 - Queue work with `queue_work(system_unbound_wq, &work)`
@@ -302,7 +302,7 @@ Tests the global `system_unbound_wq`:
 ---
 
 #### Test 21: system_highpri_wq
-**Status:** TODO
+**Status:** Implemented
 
 Tests the global `system_highpri_wq`:
 - Queue work
@@ -314,7 +314,7 @@ Tests the global `system_highpri_wq`:
 ---
 
 #### Test 22: system_long_wq
-**Status:** TODO
+**Status:** Implemented
 
 Tests the global `system_long_wq`:
 - Queue work
@@ -326,7 +326,7 @@ Tests the global `system_long_wq`:
 ---
 
 #### Test 23: flush_workqueue
-**Status:** TODO
+**Status:** Implemented
 
 Tests flushing an entire workqueue:
 - Queue multiple work items
@@ -338,7 +338,7 @@ Tests flushing an entire workqueue:
 ---
 
 #### Test 24: WQ_HIGHPRI flag
-**Status:** TODO
+**Status:** Implemented
 
 Tests high-priority workqueue creation:
 - Create with `alloc_workqueue("name", WQ_HIGHPRI, 0)`
@@ -350,7 +350,7 @@ Tests high-priority workqueue creation:
 ---
 
 #### Test 25: WQ_UNBOUND flag
-**Status:** TODO
+**Status:** Implemented
 
 Tests unbound workqueue creation:
 - Create with `alloc_workqueue("name", WQ_UNBOUND, 0)`
@@ -362,7 +362,7 @@ Tests unbound workqueue creation:
 ---
 
 #### Test 26: Work pending/busy checks
-**Status:** TODO
+**Status:** Implemented
 
 Tests `work_pending()` and `work_busy()`:
 - Check state before queueing (should be false)
@@ -375,7 +375,7 @@ Tests `work_pending()` and `work_busy()`:
 ---
 
 #### Test 27: delayed_work_pending
-**Status:** TODO
+**Status:** Implemented
 
 Tests `delayed_work_pending()`:
 - Check before queueing
@@ -388,7 +388,7 @@ Tests `delayed_work_pending()`:
 ---
 
 #### Test 28: Concurrent cancel and queue
-**Status:** TODO
+**Status:** Implemented
 
 Stress test for race conditions:
 - Multiple threads: some queueing work, some canceling

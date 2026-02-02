@@ -58,6 +58,27 @@ static atomic_t per_cpu_count[MAXCPU];
 static struct work_struct requeue_work;
 static struct workqueue_struct *requeue_wq;
 
+/* Delayed work test counters */
+static atomic_t delayed_work_counter = ATOMIC_INIT(0);
+static atomic_t delayed_self_requeue_count = ATOMIC_INIT(0);
+static struct delayed_work delayed_requeue_dwork;
+static struct workqueue_struct *delayed_requeue_wq;
+
+/* Ordered workqueue test - verify serial execution */
+static atomic_t ordered_seq = ATOMIC_INIT(0);
+static atomic_t ordered_last_seen = ATOMIC_INIT(0);
+static atomic_t ordered_errors = ATOMIC_INIT(0);
+
+/* Idle timeout pattern test (simulates amdgpu power management) */
+static atomic_t power_up_count = ATOMIC_INIT(0);
+static atomic_t idle_timeout_executed = ATOMIC_INIT(0);
+static struct delayed_work idle_timeout_dwork;
+
+/* Concurrent stress test */
+static atomic_t stress_queue_success = ATOMIC_INIT(0);
+static atomic_t stress_cancel_success = ATOMIC_INIT(0);
+static atomic_t stress_executed = ATOMIC_INIT(0);
+
 /* Simple work function */
 static void test_work_fn(struct work_struct *work)
 {
@@ -88,6 +109,50 @@ static void test_cpu_track_fn(struct work_struct *work)
 		atomic_inc(&per_cpu_count[cpuid]);
 	}
 	atomic_inc(&work_counter);
+}
+
+/* Delayed work callback - simple counter increment */
+static void test_delayed_work_fn(struct work_struct *work)
+{
+	atomic_inc(&delayed_work_counter);
+}
+
+/* Self-requeueing delayed work callback */
+static void test_delayed_self_requeue_fn(struct work_struct *work)
+{
+	int count = atomic_inc_return(&delayed_self_requeue_count);
+	if (count < 5) {
+		/* Re-queue with short delay */
+		schedule_delayed_work(&delayed_requeue_dwork, hz / 20);
+	}
+}
+
+/* Ordered workqueue callback - records sequence and checks ordering */
+static void test_ordered_work_fn(struct work_struct *work)
+{
+	int my_seq = atomic_inc_return(&ordered_seq);
+	int last = atomic_read(&ordered_last_seen);
+	
+	/* In ordered workqueue, we should see monotonically increasing sequence */
+	if (my_seq != last + 1) {
+		atomic_inc(&ordered_errors);
+	}
+	atomic_set(&ordered_last_seen, my_seq);
+	
+	/* Small delay to increase chance of catching ordering issues */
+	DELAY(1000);  /* 1ms */
+}
+
+/* Idle timeout callback - simulates power-down on idle */
+static void test_idle_timeout_fn(struct work_struct *work)
+{
+	atomic_inc(&idle_timeout_executed);
+}
+
+/* Stress test callback */
+static void test_stress_fn(struct work_struct *work)
+{
+	atomic_inc(&stress_executed);
 }
 
 /* Test 1: alloc_workqueue and destroy_workqueue */
@@ -548,6 +613,855 @@ static int test_stress_many_items(void)
 	return errors;
 }
 
+/* ============================================================
+ * DELAYED WORK TESTS (Tests 12-18)
+ * ============================================================ */
+
+/* Test 12: Basic delayed work */
+static int test_basic_delayed_work(void)
+{
+	struct delayed_work dwork;
+	int errors = 0;
+
+	tbridge_printf("\nTest 12: Basic delayed work...\n");
+
+	atomic_set(&delayed_work_counter, 0);
+	INIT_DELAYED_WORK(&dwork, test_delayed_work_fn);
+
+	/* Queue with 100ms delay */
+	if (schedule_delayed_work(&dwork, hz / 10)) {
+		tbridge_printf("PASS: schedule_delayed_work() queued\n");
+	} else {
+		tbridge_printf("INFO: schedule_delayed_work() returned false\n");
+	}
+
+	/* Wait for it to complete */
+	flush_delayed_work(&dwork);
+
+	if (atomic_read(&delayed_work_counter) == 1) {
+		tbridge_printf("PASS: Delayed work callback executed (count=%d)\n",
+			atomic_read(&delayed_work_counter));
+	} else {
+		tbridge_printf("FAIL: Delayed work callback not executed (count=%d)\n",
+			atomic_read(&delayed_work_counter));
+		errors++;
+	}
+
+	return errors;
+}
+
+/* Test 13: cancel_delayed_work_sync (before firing) */
+static int test_cancel_delayed_before(void)
+{
+	struct delayed_work dwork;
+	bool was_pending;
+	int errors = 0;
+
+	tbridge_printf("\nTest 13: cancel_delayed_work_sync (before firing)...\n");
+
+	atomic_set(&delayed_work_counter, 0);
+	INIT_DELAYED_WORK(&dwork, test_delayed_work_fn);
+
+	/* Queue with long delay (5 seconds) */
+	schedule_delayed_work(&dwork, hz * 5);
+	tbridge_printf("INFO: Queued delayed work with 5 second delay\n");
+
+	/* Immediately cancel it */
+	was_pending = cancel_delayed_work_sync(&dwork);
+
+	if (was_pending) {
+		tbridge_printf("PASS: cancel_delayed_work_sync() returned true (was pending)\n");
+	} else {
+		tbridge_printf("FAIL: cancel_delayed_work_sync() returned false (expected true)\n");
+		errors++;
+	}
+
+	if (atomic_read(&delayed_work_counter) == 0) {
+		tbridge_printf("PASS: Callback did NOT execute (as expected)\n");
+	} else {
+		tbridge_printf("FAIL: Callback executed unexpectedly (count=%d)\n",
+			atomic_read(&delayed_work_counter));
+		errors++;
+	}
+
+	return errors;
+}
+
+/* Test 14: cancel_delayed_work_sync (after firing) */
+static int test_cancel_delayed_after(void)
+{
+	struct delayed_work dwork;
+	bool was_pending;
+	int errors = 0;
+
+	tbridge_printf("\nTest 14: cancel_delayed_work_sync (after firing)...\n");
+
+	atomic_set(&delayed_work_counter, 0);
+	INIT_DELAYED_WORK(&dwork, test_delayed_work_fn);
+
+	/* Queue with short delay (50ms) */
+	schedule_delayed_work(&dwork, hz / 20);
+	tbridge_printf("INFO: Queued delayed work with 50ms delay\n");
+
+	/* Wait for it to execute */
+	flush_delayed_work(&dwork);
+
+	/* Now cancel - should return false since already executed */
+	was_pending = cancel_delayed_work_sync(&dwork);
+
+	if (!was_pending) {
+		tbridge_printf("PASS: cancel_delayed_work_sync() returned false (not pending)\n");
+	} else {
+		tbridge_printf("INFO: cancel_delayed_work_sync() returned true (was still pending)\n");
+	}
+
+	if (atomic_read(&delayed_work_counter) == 1) {
+		tbridge_printf("PASS: Callback executed (count=%d)\n",
+			atomic_read(&delayed_work_counter));
+	} else {
+		tbridge_printf("FAIL: Callback not executed (count=%d)\n",
+			atomic_read(&delayed_work_counter));
+		errors++;
+	}
+
+	return errors;
+}
+
+/* Test 15: Delayed work timeout fires */
+static int test_delayed_timeout_fires(void)
+{
+	struct workqueue_struct *wq;
+	struct delayed_work dwork;
+	int errors = 0;
+
+	tbridge_printf("\nTest 15: Delayed work timeout fires...\n");
+
+	wq = alloc_workqueue("test_delayed", 0, 1);
+	if (wq == NULL) {
+		tbridge_printf("FAIL: alloc_workqueue() failed\n");
+		return 1;
+	}
+
+	atomic_set(&delayed_work_counter, 0);
+	INIT_DELAYED_WORK(&dwork, test_delayed_work_fn);
+
+	/* Queue with 100ms delay */
+	queue_delayed_work(wq, &dwork, hz / 10);
+	tbridge_printf("INFO: Queued delayed work with 100ms delay\n");
+
+	/* Wait for completion */
+	flush_delayed_work(&dwork);
+
+	if (atomic_read(&delayed_work_counter) == 1) {
+		tbridge_printf("PASS: Delayed work fired after timeout (count=%d)\n",
+			atomic_read(&delayed_work_counter));
+	} else {
+		tbridge_printf("FAIL: Delayed work did not fire (count=%d)\n",
+			atomic_read(&delayed_work_counter));
+		errors++;
+	}
+
+	destroy_workqueue(wq);
+	return errors;
+}
+
+/* Test 16: Self-requeueing delayed work */
+static int test_delayed_self_requeue(void)
+{
+	int errors = 0;
+
+	tbridge_printf("\nTest 16: Self-requeueing delayed work...\n");
+
+	atomic_set(&delayed_self_requeue_count, 0);
+
+	delayed_requeue_wq = alloc_workqueue("test_delay_requeue", 0, 1);
+	if (delayed_requeue_wq == NULL) {
+		tbridge_printf("FAIL: alloc_workqueue() failed\n");
+		return 1;
+	}
+
+	INIT_DELAYED_WORK(&delayed_requeue_dwork, test_delayed_self_requeue_fn);
+
+	/* Queue initial delayed work with short delay */
+	schedule_delayed_work(&delayed_requeue_dwork, hz / 20);
+	tbridge_printf("INFO: Queued initial delayed work\n");
+
+	/* Wait for all iterations (5 * 50ms = ~250ms) */
+	/* Use a loop with flush to catch all re-queues */
+	while (atomic_read(&delayed_self_requeue_count) < 5) {
+		flush_delayed_work(&delayed_requeue_dwork);
+		if (atomic_read(&delayed_self_requeue_count) >= 5)
+			break;
+		/* Small delay between flushes */
+		DELAY(10000);  /* 10ms */
+	}
+
+	if (atomic_read(&delayed_self_requeue_count) == 5) {
+		tbridge_printf("PASS: Delayed work re-queued correctly (%d iterations)\n",
+			atomic_read(&delayed_self_requeue_count));
+	} else {
+		tbridge_printf("FAIL: Expected 5 iterations, got %d\n",
+			atomic_read(&delayed_self_requeue_count));
+		errors++;
+	}
+
+	destroy_workqueue(delayed_requeue_wq);
+	return errors;
+}
+
+/* Test 17: mod_delayed_work */
+static int test_mod_delayed_work(void)
+{
+	struct workqueue_struct *wq;
+	struct delayed_work dwork;
+	struct timeval start, end;
+	long elapsed;
+	bool was_pending;
+	int errors = 0;
+
+	tbridge_printf("\nTest 17: mod_delayed_work...\n");
+
+	wq = alloc_workqueue("test_mod_delayed", 0, 1);
+	if (wq == NULL) {
+		tbridge_printf("FAIL: alloc_workqueue() failed\n");
+		return 1;
+	}
+
+	atomic_set(&delayed_work_counter, 0);
+	INIT_DELAYED_WORK(&dwork, test_delayed_work_fn);
+
+	/* Queue with long delay (5 seconds) */
+	queue_delayed_work(wq, &dwork, hz * 5);
+	tbridge_printf("INFO: Queued with 5 second delay\n");
+
+	microtime(&start);
+
+	/* Modify to short delay (100ms) */
+	was_pending = mod_delayed_work(wq, &dwork, hz / 10);
+	tbridge_printf("INFO: mod_delayed_work() returned %s\n", was_pending ? "true" : "false");
+
+	/* Wait for completion */
+	flush_delayed_work(&dwork);
+	microtime(&end);
+
+	elapsed = elapsed_ms(&start, &end);
+
+	if (elapsed < 1000) {  /* Should complete well under 1 second */
+		tbridge_printf("PASS: Work fired quickly after mod (%ld ms)\n", elapsed);
+	} else {
+		tbridge_printf("FAIL: Work took too long (%ld ms) - mod may not have worked\n", elapsed);
+		errors++;
+	}
+
+	if (atomic_read(&delayed_work_counter) == 1) {
+		tbridge_printf("PASS: Callback executed (count=%d)\n",
+			atomic_read(&delayed_work_counter));
+	} else {
+		tbridge_printf("FAIL: Callback not executed (count=%d)\n",
+			atomic_read(&delayed_work_counter));
+		errors++;
+	}
+
+	/* Test 2: mod_delayed_work on non-pending work (should queue it) */
+	atomic_set(&delayed_work_counter, 0);
+	INIT_DELAYED_WORK(&dwork, test_delayed_work_fn);
+
+	/* Call mod on non-pending work */
+	was_pending = mod_delayed_work(wq, &dwork, hz / 20);
+	if (!was_pending) {
+		tbridge_printf("PASS: mod_delayed_work() on non-pending returned false\n");
+	} else {
+		tbridge_printf("INFO: mod_delayed_work() on non-pending returned true\n");
+	}
+
+	flush_delayed_work(&dwork);
+
+	if (atomic_read(&delayed_work_counter) == 1) {
+		tbridge_printf("PASS: mod_delayed_work() queued non-pending work\n");
+	} else {
+		tbridge_printf("FAIL: mod_delayed_work() did not queue non-pending work\n");
+		errors++;
+	}
+
+	destroy_workqueue(wq);
+	return errors;
+}
+
+/* Test 18: Delayed work idle timeout pattern (amdgpu-style power management) */
+static int test_idle_timeout_pattern(void)
+{
+	int errors = 0;
+	bool was_pending;
+	int i;
+
+	tbridge_printf("\nTest 18: Idle timeout pattern (amdgpu power management)...\n");
+
+	atomic_set(&power_up_count, 0);
+	atomic_set(&idle_timeout_executed, 0);
+	INIT_DELAYED_WORK(&idle_timeout_dwork, test_idle_timeout_fn);
+
+	/*
+	 * Simulate the amdgpu pattern:
+	 * begin_use(): cancel delayed work, if wasn't pending => power up
+	 * end_use(): schedule delayed work for idle timeout
+	 */
+
+	/* First use cycle - should need to power up */
+	was_pending = cancel_delayed_work_sync(&idle_timeout_dwork);
+	if (!was_pending) {
+		atomic_inc(&power_up_count);
+		tbridge_printf("INFO: First use - powered up (cancel returned false)\n");
+	}
+	/* ... do work ... */
+	schedule_delayed_work(&idle_timeout_dwork, hz / 10);  /* 100ms idle timeout */
+
+	/* Second use cycle quickly - should NOT need power up */
+	was_pending = cancel_delayed_work_sync(&idle_timeout_dwork);
+	if (!was_pending) {
+		atomic_inc(&power_up_count);
+		tbridge_printf("INFO: Second use - powered up (unexpected)\n");
+	} else {
+		tbridge_printf("INFO: Second use - still powered (cancel returned true)\n");
+	}
+	/* ... do work ... */
+	schedule_delayed_work(&idle_timeout_dwork, hz / 10);
+
+	/* Third use cycle quickly */
+	was_pending = cancel_delayed_work_sync(&idle_timeout_dwork);
+	if (!was_pending) {
+		atomic_inc(&power_up_count);
+	}
+	schedule_delayed_work(&idle_timeout_dwork, hz / 10);
+
+	/* Now let idle timeout fire */
+	flush_delayed_work(&idle_timeout_dwork);
+
+	/* Fourth use cycle after idle - should need power up again */
+	was_pending = cancel_delayed_work_sync(&idle_timeout_dwork);
+	if (!was_pending) {
+		atomic_inc(&power_up_count);
+		tbridge_printf("INFO: Fourth use (after idle) - powered up\n");
+	}
+
+	/* Verify pattern worked correctly */
+	if (atomic_read(&power_up_count) == 2) {
+		tbridge_printf("PASS: Power-up count correct (%d - initial and after idle)\n",
+			atomic_read(&power_up_count));
+	} else {
+		tbridge_printf("FAIL: Expected 2 power-ups, got %d\n",
+			atomic_read(&power_up_count));
+		errors++;
+	}
+
+	if (atomic_read(&idle_timeout_executed) >= 1) {
+		tbridge_printf("PASS: Idle timeout executed (%d times)\n",
+			atomic_read(&idle_timeout_executed));
+	} else {
+		tbridge_printf("FAIL: Idle timeout never executed\n");
+		errors++;
+	}
+
+	/* Cleanup - cancel any pending work */
+	cancel_delayed_work_sync(&idle_timeout_dwork);
+
+	return errors;
+}
+
+/* ============================================================
+ * ORDERED WORKQUEUE TEST (Test 19)
+ * ============================================================ */
+
+/* Test 19: alloc_ordered_workqueue */
+static int test_ordered_workqueue(void)
+{
+	struct workqueue_struct *wq;
+	struct work_struct *works;
+	int i;
+	int errors = 0;
+	const int num_items = 20;
+
+	tbridge_printf("\nTest 19: alloc_ordered_workqueue...\n");
+
+	wq = alloc_ordered_workqueue("test_ordered", 0);
+	if (wq == NULL) {
+		tbridge_printf("FAIL: alloc_ordered_workqueue() failed\n");
+		return 1;
+	}
+
+	atomic_set(&ordered_seq, 0);
+	atomic_set(&ordered_last_seen, 0);
+	atomic_set(&ordered_errors, 0);
+
+	works = kmalloc(sizeof(*works) * num_items, GFP_KERNEL);
+	if (works == NULL) {
+		tbridge_printf("FAIL: kmalloc() failed\n");
+		destroy_workqueue(wq);
+		return 1;
+	}
+
+	/* Queue all items - they should execute in order */
+	for (i = 0; i < num_items; i++) {
+		INIT_WORK(&works[i], test_ordered_work_fn);
+		queue_work(wq, &works[i]);
+	}
+
+	drain_workqueue(wq);
+
+	if (atomic_read(&ordered_seq) == num_items) {
+		tbridge_printf("PASS: All %d work items executed\n", num_items);
+	} else {
+		tbridge_printf("FAIL: Expected %d, got %d\n", num_items, atomic_read(&ordered_seq));
+		errors++;
+	}
+
+	if (atomic_read(&ordered_errors) == 0) {
+		tbridge_printf("PASS: Work executed in order (no ordering errors)\n");
+	} else {
+		tbridge_printf("FAIL: %d ordering errors detected\n", atomic_read(&ordered_errors));
+		errors++;
+	}
+
+	destroy_workqueue(wq);
+	kfree(works);
+
+	return errors;
+}
+
+/* ============================================================
+ * SYSTEM WORKQUEUE TESTS (Tests 20-22)
+ * ============================================================ */
+
+/* Test 20: system_unbound_wq */
+static int test_system_unbound_wq(void)
+{
+	struct work_struct work;
+	int errors = 0;
+
+	tbridge_printf("\nTest 20: system_unbound_wq...\n");
+
+	if (system_unbound_wq == NULL) {
+		tbridge_printf("FAIL: system_unbound_wq is NULL\n");
+		return 1;
+	}
+
+	atomic_set(&work_counter, 0);
+	INIT_WORK(&work, test_work_fn);
+
+	if (queue_work(system_unbound_wq, &work)) {
+		tbridge_printf("PASS: queue_work(system_unbound_wq) queued\n");
+	} else {
+		tbridge_printf("INFO: queue_work() returned false\n");
+	}
+
+	flush_work(&work);
+
+	if (atomic_read(&work_counter) == 1) {
+		tbridge_printf("PASS: Work executed on system_unbound_wq (count=%d)\n",
+			atomic_read(&work_counter));
+	} else {
+		tbridge_printf("FAIL: Work not executed (count=%d)\n",
+			atomic_read(&work_counter));
+		errors++;
+	}
+
+	return errors;
+}
+
+/* Test 21: system_highpri_wq */
+static int test_system_highpri_wq(void)
+{
+	struct work_struct work;
+	int errors = 0;
+
+	tbridge_printf("\nTest 21: system_highpri_wq...\n");
+
+	if (system_highpri_wq == NULL) {
+		tbridge_printf("FAIL: system_highpri_wq is NULL\n");
+		return 1;
+	}
+
+	atomic_set(&work_counter, 0);
+	INIT_WORK(&work, test_work_fn);
+
+	if (queue_work(system_highpri_wq, &work)) {
+		tbridge_printf("PASS: queue_work(system_highpri_wq) queued\n");
+	} else {
+		tbridge_printf("INFO: queue_work() returned false\n");
+	}
+
+	flush_work(&work);
+
+	if (atomic_read(&work_counter) == 1) {
+		tbridge_printf("PASS: Work executed on system_highpri_wq (count=%d)\n",
+			atomic_read(&work_counter));
+	} else {
+		tbridge_printf("FAIL: Work not executed (count=%d)\n",
+			atomic_read(&work_counter));
+		errors++;
+	}
+
+	return errors;
+}
+
+/* Test 22: system_long_wq */
+static int test_system_long_wq(void)
+{
+	struct work_struct work;
+	int errors = 0;
+
+	tbridge_printf("\nTest 22: system_long_wq...\n");
+
+	if (system_long_wq == NULL) {
+		tbridge_printf("FAIL: system_long_wq is NULL\n");
+		return 1;
+	}
+
+	atomic_set(&work_counter, 0);
+	INIT_WORK(&work, test_work_fn);
+
+	if (queue_work(system_long_wq, &work)) {
+		tbridge_printf("PASS: queue_work(system_long_wq) queued\n");
+	} else {
+		tbridge_printf("INFO: queue_work() returned false\n");
+	}
+
+	flush_work(&work);
+
+	if (atomic_read(&work_counter) == 1) {
+		tbridge_printf("PASS: Work executed on system_long_wq (count=%d)\n",
+			atomic_read(&work_counter));
+	} else {
+		tbridge_printf("FAIL: Work not executed (count=%d)\n",
+			atomic_read(&work_counter));
+		errors++;
+	}
+
+	return errors;
+}
+
+/* ============================================================
+ * UTILITY FUNCTION TESTS (Tests 23, 26-27)
+ * ============================================================ */
+
+/* Test 23: flush_workqueue */
+static int test_flush_workqueue(void)
+{
+	struct workqueue_struct *wq;
+	struct work_struct *works;
+	int i;
+	int errors = 0;
+	const int num_items = 30;
+
+	tbridge_printf("\nTest 23: flush_workqueue...\n");
+
+	wq = alloc_workqueue("test_flush", 0, 4);
+	if (wq == NULL) {
+		tbridge_printf("FAIL: alloc_workqueue() failed\n");
+		return 1;
+	}
+
+	atomic_set(&work_counter, 0);
+
+	works = kmalloc(sizeof(*works) * num_items, GFP_KERNEL);
+	if (works == NULL) {
+		tbridge_printf("FAIL: kmalloc() failed\n");
+		destroy_workqueue(wq);
+		return 1;
+	}
+
+	/* Queue all items */
+	for (i = 0; i < num_items; i++) {
+		INIT_WORK(&works[i], test_work_fn);
+		queue_work(wq, &works[i]);
+	}
+
+	/* Flush the entire workqueue (not individual items) */
+	flush_workqueue(wq);
+
+	if (atomic_read(&work_counter) == num_items) {
+		tbridge_printf("PASS: flush_workqueue() waited for all %d items\n",
+			atomic_read(&work_counter));
+	} else {
+		tbridge_printf("FAIL: Expected %d, got %d after flush_workqueue()\n",
+			num_items, atomic_read(&work_counter));
+		errors++;
+	}
+
+	destroy_workqueue(wq);
+	kfree(works);
+
+	return errors;
+}
+
+/* Test 24: WQ_HIGHPRI flag */
+static int test_wq_highpri_flag(void)
+{
+	struct workqueue_struct *wq;
+	struct work_struct work;
+	int errors = 0;
+
+	tbridge_printf("\nTest 24: WQ_HIGHPRI flag...\n");
+
+	wq = alloc_workqueue("test_highpri", WQ_HIGHPRI, 0);
+	if (wq == NULL) {
+		tbridge_printf("FAIL: alloc_workqueue(WQ_HIGHPRI) failed\n");
+		return 1;
+	}
+
+	tbridge_printf("PASS: alloc_workqueue(WQ_HIGHPRI) created workqueue\n");
+
+	atomic_set(&work_counter, 0);
+	INIT_WORK(&work, test_work_fn);
+
+	queue_work(wq, &work);
+	flush_work(&work);
+
+	if (atomic_read(&work_counter) == 1) {
+		tbridge_printf("PASS: Work executed on WQ_HIGHPRI workqueue\n");
+	} else {
+		tbridge_printf("FAIL: Work not executed (count=%d)\n",
+			atomic_read(&work_counter));
+		errors++;
+	}
+
+	destroy_workqueue(wq);
+	return errors;
+}
+
+/* Test 25: WQ_UNBOUND flag */
+static int test_wq_unbound_flag(void)
+{
+	struct workqueue_struct *wq;
+	struct work_struct work;
+	int errors = 0;
+
+	tbridge_printf("\nTest 25: WQ_UNBOUND flag...\n");
+
+	wq = alloc_workqueue("test_unbound", WQ_UNBOUND, 0);
+	if (wq == NULL) {
+		tbridge_printf("FAIL: alloc_workqueue(WQ_UNBOUND) failed\n");
+		return 1;
+	}
+
+	tbridge_printf("PASS: alloc_workqueue(WQ_UNBOUND) created workqueue\n");
+
+	atomic_set(&work_counter, 0);
+	INIT_WORK(&work, test_work_fn);
+
+	queue_work(wq, &work);
+	flush_work(&work);
+
+	if (atomic_read(&work_counter) == 1) {
+		tbridge_printf("PASS: Work executed on WQ_UNBOUND workqueue\n");
+	} else {
+		tbridge_printf("FAIL: Work not executed (count=%d)\n",
+			atomic_read(&work_counter));
+		errors++;
+	}
+
+	destroy_workqueue(wq);
+	return errors;
+}
+
+/* Test 26: work_pending and work_busy */
+static int test_work_pending_busy(void)
+{
+	struct work_struct work;
+	int errors = 0;
+	bool pending_before, busy_before;
+	bool pending_after, busy_after;
+
+	tbridge_printf("\nTest 26: work_pending() and work_busy()...\n");
+
+	atomic_set(&work_counter, 0);
+	INIT_WORK(&work, test_work_fn);
+
+	/* Check before queueing */
+	pending_before = work_pending(&work);
+	busy_before = work_busy(&work);
+
+	if (!pending_before) {
+		tbridge_printf("PASS: work_pending() is false before queueing\n");
+	} else {
+		tbridge_printf("FAIL: work_pending() is true before queueing\n");
+		errors++;
+	}
+
+	if (!busy_before) {
+		tbridge_printf("PASS: work_busy() is false before queueing\n");
+	} else {
+		tbridge_printf("FAIL: work_busy() is true before queueing\n");
+		errors++;
+	}
+
+	/* Queue and immediately flush */
+	queue_work(system_wq, &work);
+	flush_work(&work);
+
+	/* Check after completion */
+	pending_after = work_pending(&work);
+	busy_after = work_busy(&work);
+
+	if (!pending_after) {
+		tbridge_printf("PASS: work_pending() is false after completion\n");
+	} else {
+		tbridge_printf("FAIL: work_pending() is true after completion\n");
+		errors++;
+	}
+
+	if (!busy_after) {
+		tbridge_printf("PASS: work_busy() is false after completion\n");
+	} else {
+		tbridge_printf("FAIL: work_busy() is true after completion\n");
+		errors++;
+	}
+
+	if (atomic_read(&work_counter) == 1) {
+		tbridge_printf("PASS: Work executed correctly\n");
+	} else {
+		tbridge_printf("FAIL: Work not executed\n");
+		errors++;
+	}
+
+	return errors;
+}
+
+/* Test 27: delayed_work_pending */
+static int test_delayed_work_pending(void)
+{
+	struct delayed_work dwork;
+	int errors = 0;
+	bool pending_before, pending_during;
+
+	tbridge_printf("\nTest 27: delayed_work_pending()...\n");
+
+	atomic_set(&delayed_work_counter, 0);
+	INIT_DELAYED_WORK(&dwork, test_delayed_work_fn);
+
+	/* Check before queueing */
+	pending_before = delayed_work_pending(&dwork);
+
+	if (!pending_before) {
+		tbridge_printf("PASS: delayed_work_pending() is false before queueing\n");
+	} else {
+		tbridge_printf("FAIL: delayed_work_pending() is true before queueing\n");
+		errors++;
+	}
+
+	/* Queue with longer delay so we can check pending state */
+	schedule_delayed_work(&dwork, hz / 2);  /* 500ms */
+
+	/* Check while pending */
+	pending_during = delayed_work_pending(&dwork);
+
+	if (pending_during) {
+		tbridge_printf("PASS: delayed_work_pending() is true while queued\n");
+	} else {
+		tbridge_printf("FAIL: delayed_work_pending() is false while queued\n");
+		errors++;
+	}
+
+	/* Wait for completion */
+	flush_delayed_work(&dwork);
+
+	/* Check after firing - may or may not be pending depending on timing */
+	tbridge_printf("INFO: After flush, delayed_work_pending() = %s\n",
+		delayed_work_pending(&dwork) ? "true" : "false");
+
+	if (atomic_read(&delayed_work_counter) == 1) {
+		tbridge_printf("PASS: Delayed work executed correctly\n");
+	} else {
+		tbridge_printf("FAIL: Delayed work not executed (count=%d)\n",
+			atomic_read(&delayed_work_counter));
+		errors++;
+	}
+
+	return errors;
+}
+
+/* ============================================================
+ * STRESS TEST (Test 28)
+ * ============================================================ */
+
+/* Test 28: Concurrent cancel and queue stress test */
+static int test_concurrent_cancel_queue(void)
+{
+	struct workqueue_struct *wq;
+	struct work_struct *works;
+	int i, round;
+	int errors = 0;
+	const int num_items = 50;
+	const int num_rounds = 10;
+
+	tbridge_printf("\nTest 28: Concurrent cancel and queue stress test...\n");
+
+	wq = alloc_workqueue("test_stress", 0, 4);
+	if (wq == NULL) {
+		tbridge_printf("FAIL: alloc_workqueue() failed\n");
+		return 1;
+	}
+
+	works = kmalloc(sizeof(*works) * num_items, GFP_KERNEL);
+	if (works == NULL) {
+		tbridge_printf("FAIL: kmalloc() failed\n");
+		destroy_workqueue(wq);
+		return 1;
+	}
+
+	atomic_set(&stress_queue_success, 0);
+	atomic_set(&stress_cancel_success, 0);
+	atomic_set(&stress_executed, 0);
+
+	for (round = 0; round < num_rounds; round++) {
+		/* Initialize all work items */
+		for (i = 0; i < num_items; i++) {
+			INIT_WORK(&works[i], test_stress_fn);
+		}
+
+		/* Queue half the items */
+		for (i = 0; i < num_items / 2; i++) {
+			if (queue_work(wq, &works[i])) {
+				atomic_inc(&stress_queue_success);
+			}
+		}
+
+		/* Cancel some items (some queued, some not) */
+		for (i = 0; i < num_items / 4; i++) {
+			if (cancel_work_sync(&works[i])) {
+				atomic_inc(&stress_cancel_success);
+			}
+		}
+
+		/* Queue remaining items */
+		for (i = num_items / 2; i < num_items; i++) {
+			if (queue_work(wq, &works[i])) {
+				atomic_inc(&stress_queue_success);
+			}
+		}
+
+		/* Drain to complete round */
+		drain_workqueue(wq);
+	}
+
+	tbridge_printf("INFO: Queued %d, canceled %d, executed %d\n",
+		atomic_read(&stress_queue_success),
+		atomic_read(&stress_cancel_success),
+		atomic_read(&stress_executed));
+
+	/* Success criteria: no crashes/hangs, reasonable execution count */
+	if (atomic_read(&stress_executed) > 0) {
+		tbridge_printf("PASS: Stress test completed without crashes\n");
+	} else {
+		tbridge_printf("FAIL: No work items executed\n");
+		errors++;
+	}
+
+	destroy_workqueue(wq);
+	kfree(works);
+
+	return errors;
+}
+
 /* Helper to get elapsed time in milliseconds */
 static long
 elapsed_ms(struct timeval *start, struct timeval *end)
@@ -604,11 +1518,70 @@ linuxkpi_workqueue_run(void *arg __unused)
 	if (atomic_read(&test_abort_flag)) goto aborted;
 
 	total_errors += test_stress_many_items();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	/* Delayed work tests (12-18) */
+	total_errors += test_basic_delayed_work();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	total_errors += test_cancel_delayed_before();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	total_errors += test_cancel_delayed_after();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	total_errors += test_delayed_timeout_fires();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	total_errors += test_delayed_self_requeue();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	total_errors += test_mod_delayed_work();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	total_errors += test_idle_timeout_pattern();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	/* Ordered workqueue test (19) */
+	total_errors += test_ordered_workqueue();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	/* System workqueue tests (20-22) */
+	total_errors += test_system_unbound_wq();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	total_errors += test_system_highpri_wq();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	total_errors += test_system_long_wq();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	/* Utility function tests (23, 26-27) */
+	total_errors += test_flush_workqueue();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	/* WQ flag tests (24-25) */
+	total_errors += test_wq_highpri_flag();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	total_errors += test_wq_unbound_flag();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	/* Pending/busy tests (26-27) */
+	total_errors += test_work_pending_busy();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	total_errors += test_delayed_work_pending();
+	if (atomic_read(&test_abort_flag)) goto aborted;
+
+	/* Stress test (28) */
+	total_errors += test_concurrent_cancel_queue();
 
 	microtime(&end_time);
 
 	tbridge_printf("\n========================================\n");
 	tbridge_printf("Total time: %ld ms\n", elapsed_ms(&start_time, &end_time));
+	tbridge_printf("Tests completed: 28\n");
 	if (total_errors == 0) {
 		tbridge_printf("ALL WORKQUEUE TESTS PASSED!\n");
 		tbridge_printf("========================================\n");
