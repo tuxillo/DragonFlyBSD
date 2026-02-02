@@ -151,10 +151,23 @@ taskqueue_terminate(struct thread **pp, struct taskqueue *tq)
 void
 taskqueue_free(struct taskqueue *queue)
 {
+	kprintf("DEBUG: taskqueue_free(%p) START, tq_tcount=%d, tq_busy_count=%d\n",
+	    queue, queue->tq_tcount, queue->tq_busy_count);
+
 	TQ_LOCK(queue);
 	queue->tq_flags &= ~TQ_FLAGS_ACTIVE;
+	kprintf("DEBUG: taskqueue_free(%p) cleared ACTIVE, calling taskqueue_run\n", queue);
 	taskqueue_run(queue, 1);
+	kprintf("DEBUG: taskqueue_free(%p) taskqueue_run done, calling terminate (tq_tcount=%d)\n",
+	    queue, queue->tq_tcount);
 	taskqueue_terminate(queue->tq_threads, queue);
+	kprintf("DEBUG: taskqueue_free(%p) terminate done, tq_tcount=%d\n",
+	    queue, queue->tq_tcount);
+
+	/* Assert threads have truly exited */
+	KKASSERT(queue->tq_tcount == 0);
+	KKASSERT(queue->tq_busy_count == 0);
+
 	TQ_UNLOCK(queue);
 
 	lockmgr(&taskqueue_queues_lock, LK_EXCLUSIVE);
@@ -163,7 +176,9 @@ taskqueue_free(struct taskqueue *queue)
 
 	TQ_LOCK_UNINIT(queue);
 
+	kprintf("DEBUG: taskqueue_free(%p) about to kfree\n", queue);
 	kfree(queue, M_TASKQUEUE);
+	kprintf("DEBUG: taskqueue_free() DONE\n");
 }
 
 /*
@@ -549,6 +564,11 @@ taskqueue_drain(struct taskqueue *queue, struct task *task)
 void
 taskqueue_drain_all(struct taskqueue *queue)
 {
+	int loops = 0;
+
+	kprintf("DEBUG: taskqueue_drain_all(%p) START, tq_busy_count=%d\n",
+	    queue, queue->tq_busy_count);
+
 	TQ_LOCK(queue);
 
 	/*
@@ -559,8 +579,17 @@ taskqueue_drain_all(struct taskqueue *queue)
 	 * has truly finished and is no longer accessing any task data.
 	 */
 	while (!STAILQ_EMPTY(&queue->tq_queue) || queue->tq_busy_count > 0) {
+		loops++;
+		if (loops <= 5 || (loops % 100) == 0) {
+			kprintf("DEBUG: taskqueue_drain_all(%p) loop %d: queue_empty=%d, tq_busy_count=%d\n",
+			    queue, loops, STAILQ_EMPTY(&queue->tq_queue) ? 1 : 0,
+			    queue->tq_busy_count);
+		}
 		TQ_SLEEP(queue, queue, "tq_drain");
 	}
+
+	kprintf("DEBUG: taskqueue_drain_all(%p) DONE after %d loops, tq_busy_count=%d\n",
+	    queue, loops, queue->tq_busy_count);
 
 	TQ_UNLOCK(queue);
 }

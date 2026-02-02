@@ -241,6 +241,9 @@ static int test_multiple_work(void)
 		return 1;
 	}
 
+	tbridge_printf("DEBUG: works array allocated at %p (size=%zu)\n",
+	    works, sizeof(*works) * num_items);
+
 	for (i = 0; i < num_items; i++) {
 		INIT_WORK(&works[i], test_work_fn);
 		queue_work(wq, &works[i]);
@@ -252,7 +255,9 @@ static int test_multiple_work(void)
 	 * Use drain_workqueue() to ensure all work items complete.
 	 * drain_workqueue() waits for all pending and active work.
 	 */
+	tbridge_printf("DEBUG: Calling drain_workqueue(%p)\n", wq);
 	drain_workqueue(wq);
+	tbridge_printf("DEBUG: drain_workqueue() returned\n");
 
 	if (atomic_read(&work_counter) == num_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", atomic_read(&work_counter));
@@ -261,13 +266,23 @@ static int test_multiple_work(void)
 		errors++;
 	}
 
+	tbridge_printf("DEBUG: Calling destroy_workqueue(%p)\n", wq);
 	destroy_workqueue(wq);
+	tbridge_printf("DEBUG: destroy_workqueue() returned\n");
 	
 	/*
-	 * Small delay to ensure any pending taskqueue cleanup completes
-	 * before we free the work items. Use curthread as ident.
+	 * DEBUG: Try WITHOUT delay first to provoke the race.
+	 * If panic happens here, we know the issue is between
+	 * destroy_workqueue() and kfree(works).
+	 * Set to 0 to disable delay, or hz/10 for 100ms delay.
 	 */
-	tsleep(curthread, 0, "wqdelay", hz / 10);
+#define TEST5_DELAY_TICKS 0  /* Set to 0 to test without delay */
+#if TEST5_DELAY_TICKS > 0
+	tbridge_printf("DEBUG: Sleeping for %d ticks before kfree(works)\n", TEST5_DELAY_TICKS);
+	tsleep(curthread, 0, "wqdelay", TEST5_DELAY_TICKS);
+#else
+	tbridge_printf("DEBUG: NO DELAY before kfree(works) - testing race condition\n");
+#endif
 	
 	/*
 	 * ASSERT: Verify all work items are in IDLE state before freeing.
@@ -282,7 +297,9 @@ static int test_multiple_work(void)
 		}
 	}
 	
+	tbridge_printf("DEBUG: About to kfree(works=%p)\n", works);
 	kfree(works);
+	tbridge_printf("DEBUG: kfree(works) completed\n");
 
 	return errors;
 }
@@ -328,6 +345,9 @@ static int test_sustained_work(void)
 		return 1;
 	}
 
+	tbridge_printf("DEBUG: works array allocated at %p (size=%zu)\n",
+	    works, sizeof(struct work_struct) * num_items);
+
 	/*
 	 * Use singlethread workqueue to avoid stack overflow.
 	 * Sequential execution with bounded stack usage.
@@ -352,7 +372,9 @@ static int test_sustained_work(void)
 	 * Use drain_workqueue() for sustained work - this ensures ALL work
 	 * items complete, including those still queued.
 	 */
+	tbridge_printf("DEBUG: Calling drain_workqueue(%p)\n", wq);
 	drain_workqueue(wq);
+	tbridge_printf("DEBUG: drain_workqueue() returned\n");
 
 	if (atomic_read(&work_done) == num_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", atomic_read(&work_done));
@@ -364,18 +386,25 @@ static int test_sustained_work(void)
 	/* No need to cancel - drain_workqueue ensures all work completed */
 	tbridge_printf("INFO: All work items completed\n");
 	
-	tbridge_printf("INFO: About to call destroy_workqueue()...\n");
+	tbridge_printf("DEBUG: Calling destroy_workqueue(%p)\n", wq);
 	destroy_workqueue(wq);
-	tbridge_printf("INFO: destroy_workqueue() returned\n");
+	tbridge_printf("DEBUG: destroy_workqueue() returned\n");
 	
 	/*
-	 * Small delay to ensure any pending taskqueue cleanup completes
-	 * before we free the work items. Use curthread as ident.
+	 * DEBUG: Try WITHOUT delay first to provoke the race.
+	 * Set to 0 to disable delay, or hz/10 for 100ms delay.
 	 */
-	tsleep(curthread, 0, "wqdelay", hz / 10);
+#define TEST7_DELAY_TICKS 0  /* Set to 0 to test without delay */
+#if TEST7_DELAY_TICKS > 0
+	tbridge_printf("DEBUG: Sleeping for %d ticks before kfree(works)\n", TEST7_DELAY_TICKS);
+	tsleep(curthread, 0, "wqdelay", TEST7_DELAY_TICKS);
+#else
+	tbridge_printf("DEBUG: NO DELAY before kfree(works) - testing race condition\n");
+#endif
 	
+	tbridge_printf("DEBUG: About to kfree(works=%p)\n", works);
 	kfree(works);
-	tbridge_printf("INFO: kfree() returned, test_sustained_work done\n");
+	tbridge_printf("DEBUG: kfree(works) completed, test_sustained_work done\n");
 
 	return errors;
 }
@@ -507,17 +536,19 @@ static int test_per_cpu_distribution(void)
 		return 1;
 	}
 
+	tbridge_printf("DEBUG: works array allocated at %p\n", works);
+
 	for (i = 0; i < work_items; i++) {
 		INIT_WORK(&works[i], test_cpu_track_fn);
 		queue_work(wq, &works[i]);
 	}
 
 	tbridge_printf("INFO: Queued %d work items\n", work_items);
-	tbridge_printf("INFO: About to call drain_workqueue()...\n");
+	tbridge_printf("DEBUG: Calling drain_workqueue(%p)\n", wq);
 
 	drain_workqueue(wq);
 
-	tbridge_printf("INFO: drain_workqueue() returned\n");
+	tbridge_printf("DEBUG: drain_workqueue() returned\n");
 
 	if (atomic_read(&work_counter) == work_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", work_items);
@@ -536,9 +567,21 @@ static int test_per_cpu_distribution(void)
 		errors++;
 	}
 
+	tbridge_printf("DEBUG: Calling destroy_workqueue(%p)\n", wq);
 	destroy_workqueue(wq);
-	tsleep(curthread, 0, "wqdelay", hz / 10);
+	tbridge_printf("DEBUG: destroy_workqueue() returned\n");
+
+#define TEST10_DELAY_TICKS 0  /* Set to 0 to test without delay */
+#if TEST10_DELAY_TICKS > 0
+	tbridge_printf("DEBUG: Sleeping for %d ticks before kfree(works)\n", TEST10_DELAY_TICKS);
+	tsleep(curthread, 0, "wqdelay", TEST10_DELAY_TICKS);
+#else
+	tbridge_printf("DEBUG: NO DELAY before kfree(works)\n");
+#endif
+
+	tbridge_printf("DEBUG: About to kfree(works=%p)\n", works);
 	kfree(works);
+	tbridge_printf("DEBUG: kfree(works) completed\n");
 
 	return errors;
 }
@@ -569,6 +612,8 @@ static int test_stress_many_items(void)
 		return 1;
 	}
 
+	tbridge_printf("DEBUG: works array allocated at %p\n", works);
+
 	/* Queue all 1000 items */
 	for (i = 0; i < num_items; i++) {
 		INIT_WORK(&works[i], test_work_fn);
@@ -577,7 +622,9 @@ static int test_stress_many_items(void)
 
 	tbridge_printf("INFO: Queued %d work items\n", num_items);
 
+	tbridge_printf("DEBUG: Calling drain_workqueue(%p)\n", wq);
 	drain_workqueue(wq);
+	tbridge_printf("DEBUG: drain_workqueue() returned\n");
 
 	if (atomic_read(&work_counter) == num_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", num_items);
@@ -587,9 +634,21 @@ static int test_stress_many_items(void)
 		errors++;
 	}
 
+	tbridge_printf("DEBUG: Calling destroy_workqueue(%p)\n", wq);
 	destroy_workqueue(wq);
-	tsleep(curthread, 0, "wqdelay", hz / 10);
+	tbridge_printf("DEBUG: destroy_workqueue() returned\n");
+
+#define TEST11_DELAY_TICKS 0  /* Set to 0 to test without delay */
+#if TEST11_DELAY_TICKS > 0
+	tbridge_printf("DEBUG: Sleeping for %d ticks before kfree(works)\n", TEST11_DELAY_TICKS);
+	tsleep(curthread, 0, "wqdelay", TEST11_DELAY_TICKS);
+#else
+	tbridge_printf("DEBUG: NO DELAY before kfree(works)\n");
+#endif
+
+	tbridge_printf("DEBUG: About to kfree(works=%p)\n", works);
 	kfree(works);
+	tbridge_printf("DEBUG: kfree(works) completed\n");
 
 	return errors;
 }

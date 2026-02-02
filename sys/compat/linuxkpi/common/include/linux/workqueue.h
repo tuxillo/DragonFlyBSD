@@ -54,6 +54,7 @@ struct work_exec {
 };
 
 struct workqueue_struct {
+	uint32_t magic;			/* Magic number for debug: WQ_MAGIC_LIVE/DEAD */
 	int num_queues;			/* Number of per-CPU taskqueues */
 	struct taskqueue **taskqueues;	/* Array of per-CPU taskqueues */
 	struct mtx exec_mtx;
