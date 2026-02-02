@@ -579,6 +579,7 @@ static int test_stress_many_items(void)
 	size_t alloc_size, usable_size_before, usable_size_after;
 
 	kprintf("TEST11: test_stress_many_items() START\n");
+	kprintf("TEST11: sizeof(struct work_struct)=%zu\n", sizeof(struct work_struct));
 	tbridge_printf("\nTest 11: Stress test (%d work items)...\n", num_items);
 
 	wq = alloc_workqueue("test_stress", 0, 0);  /* Per-CPU workqueue */

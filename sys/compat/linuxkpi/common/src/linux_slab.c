@@ -236,11 +236,13 @@ lkpi___kmalloc(size_t size, gfp_t flags)
 	/* sizeof(struct llist_node) is used for kfree_async(). */
 	_s = MAX(size, sizeof(struct llist_node));
 
-	if (_s <= PAGE_SIZE)
-		return (malloc(_s, M_KMALLOC, linux_check_m_flags(flags)));
-	else
-		return (contigmalloc(_s, M_KMALLOC, linux_check_m_flags(flags),
-		    0, -1UL, PAGE_SIZE, 0));
+	/*
+	 * DragonFly: Always use malloc() which routes to _kmalloc().
+	 * The slab allocator handles large allocations internally via
+	 * kmem_slab_alloc() and properly sets up ku_pagecnt metadata.
+	 * Using contigmalloc() would bypass this and break kfree()/ksize().
+	 */
+	return (malloc(_s, M_KMALLOC, linux_check_m_flags(flags)));
 }
 
 void *
