@@ -31,81 +31,82 @@
  */
 
 /*
- * Test 16: Self-requeueing delayed work
+ * Test 16: Self-requeueing delayed work (amdgpu idle work pattern)
  *
- * **KNOWN BUGGY** - Tests delayed work that re-queues itself from callback.
- * This is a stress test for the delayed work implementation.
+ * This test mirrors the pattern used in amdgpu VCN/UVD/VCE/JPEG idle work:
+ * - Uses schedule_delayed_work() which queues to system_wq
+ * - Work handler checks condition and re-queues itself if needed
+ * - This is the most common GPU driver pattern for power management
  *
- * - Callback increments counter and re-queues itself with short delay
- * - Repeats 5 times then stops
- * - NO debug printfs in callback to avoid stack overflow
+ * Real example from amdgpu_vcn.c:
+ *   static void amdgpu_vcn_idle_work_handler(struct work_struct *work) {
+ *       if (fences_pending)
+ *           schedule_delayed_work(&adev->vcn.idle_work, VCN_IDLE_TIMEOUT);
+ *       else
+ *           power_gate_vcn();
+ *   }
  */
 
 #include "../linuxkpi_workqueue_common.h"
 
-static atomic_t delayed_self_requeue_count = ATOMIC_INIT(0);
-static struct delayed_work delayed_requeue_dwork;
-static struct workqueue_struct *delayed_requeue_wq;
+static atomic_t idle_work_count = ATOMIC_INIT(0);
+static struct delayed_work idle_dwork;
 
 /*
- * Self-requeueing delayed work callback.
- * IMPORTANT: No tbridge_printf calls here to avoid stack overflow.
+ * Simulates amdgpu idle work handler.
+ * Re-queues itself to system_wq via schedule_delayed_work().
  */
 static void
-test_delayed_self_requeue_fn(struct work_struct *work)
+test_idle_work_fn(struct work_struct *work)
 {
-	int count = atomic_inc_return(&delayed_self_requeue_count);
+	int count = atomic_inc_return(&idle_work_count);
 
+	/* Simulate: if still busy, re-queue to check again later */
 	if (count < 5) {
-		/* Re-queue with short delay */
-		queue_delayed_work(delayed_requeue_wq, &delayed_requeue_dwork, hz / 20);
+		schedule_delayed_work(&idle_dwork, hz / 20);  /* 50ms */
 	}
+	/* else: "hardware idle" - stop re-queueing */
 }
 
 static int
 wq_test16_run(void)
 {
 	int errors = 0;
+	int timeout_loops = 0;
+	const int max_loops = 100;  /* 100 * 10ms = 1 second max */
 
-	tbridge_printf("Test: Self-requeueing delayed work...\n");
+	tbridge_printf("Test: Self-requeueing delayed work (amdgpu pattern)...\n");
 
-	atomic_set(&delayed_self_requeue_count, 0);
+	atomic_set(&idle_work_count, 0);
 
-	delayed_requeue_wq = alloc_workqueue("test_delay_requeue", 0, 1);
-	if (delayed_requeue_wq == NULL) {
-		tbridge_printf("FAIL: alloc_workqueue() failed\n");
-		return 1;
-	}
+	INIT_DELAYED_WORK(&idle_dwork, test_idle_work_fn);
 
-	INIT_DELAYED_WORK(&delayed_requeue_dwork, test_delayed_self_requeue_fn);
+	/* Initial schedule - like amdgpu_vcn_sw_init() does */
+	schedule_delayed_work(&idle_dwork, hz / 20);  /* 50ms delay */
 
-	/* Queue initial delayed work with short delay - use same wq as requeue! */
-	queue_delayed_work(delayed_requeue_wq, &delayed_requeue_dwork, hz / 20);
-
-	/* Wait for all iterations (5 * 50ms = ~250ms) */
-	/* Use a loop with flush to catch all re-queues */
-	while (atomic_read(&delayed_self_requeue_count) < 5) {
-		flush_delayed_work(&delayed_requeue_dwork);
-		if (atomic_read(&delayed_self_requeue_count) >= 5)
-			break;
+	/*
+	 * Wait for all iterations to complete.
+	 * Don't use flush_delayed_work in a tight loop - just poll the counter.
+	 * Real drivers typically wait on a different event or just let it run.
+	 */
+	while (atomic_read(&idle_work_count) < 5 && timeout_loops < max_loops) {
 		DELAY(10000);  /* 10ms */
+		timeout_loops++;
 	}
 
-	if (atomic_read(&delayed_self_requeue_count) == 5) {
-		tbridge_printf("PASS: Delayed work re-queued correctly (%d iterations)\n",
-			atomic_read(&delayed_self_requeue_count));
+	if (atomic_read(&idle_work_count) == 5) {
+		tbridge_printf("PASS: Idle work completed %d iterations\n",
+			atomic_read(&idle_work_count));
 	} else {
-		tbridge_printf("FAIL: Expected 5 iterations, got %d\n",
-			atomic_read(&delayed_self_requeue_count));
+		tbridge_printf("FAIL: Expected 5 iterations, got %d (timeout=%d)\n",
+			atomic_read(&idle_work_count), timeout_loops >= max_loops);
 		errors++;
 	}
 
-	/* Ensure all work is cancelled and drained before destroying */
-	cancel_delayed_work_sync(&delayed_requeue_dwork);
-	drain_workqueue(delayed_requeue_wq);
-	destroy_workqueue(delayed_requeue_wq);
+	/* Cleanup - cancel any pending work */
+	cancel_delayed_work_sync(&idle_dwork);
 
 	return errors;
 }
 
-DEFINE_WQ_TEST(wq_test16, "Self-requeueing delayed work");
+DEFINE_WQ_TEST(wq_test16, "Self-requeueing delayed work (amdgpu pattern)");

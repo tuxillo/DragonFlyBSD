@@ -31,3 +31,6 @@ linuxkpi/workqueue/wq_test25_unbound_flag/wq_test25.ko		kernel	defaults
 linuxkpi/workqueue/wq_test26_pending_busy/wq_test26.ko		kernel	defaults
 linuxkpi/workqueue/wq_test27_delayed_pending/wq_test27.ko	kernel	defaults
 linuxkpi/workqueue/wq_test28_stress_cancel/wq_test28.ko		kernel	defaults
+linuxkpi/workqueue/wq_test29_cancel_retval/wq_test29.ko		kernel	defaults
+linuxkpi/workqueue/wq_test30_delayed_zero/wq_test30.ko		kernel	defaults
+linuxkpi/workqueue/wq_test31_i915_requeue/wq_test31.ko		kernel	defaults
