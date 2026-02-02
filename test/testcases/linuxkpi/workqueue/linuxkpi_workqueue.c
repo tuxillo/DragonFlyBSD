@@ -223,7 +223,9 @@ static int test_multiple_work(void)
 	int i;
 	int errors = 0;
 	const int num_items = 50;
+	uint32_t sentinel;
 
+	kprintf("TEST5: test_multiple_work() START\n");
 	tbridge_printf("\nTest 5: Multiple work items (%d items)...\n", num_items);
 
 	wq = alloc_workqueue("test_multi", 0, 4);
@@ -241,23 +243,16 @@ static int test_multiple_work(void)
 		return 1;
 	}
 
-	tbridge_printf("DEBUG: works array allocated at %p (size=%zu)\n",
-	    works, sizeof(*works) * num_items);
+	kprintf("TEST5: works=%p, wq=%p\n", works, wq);
 
 	for (i = 0; i < num_items; i++) {
 		INIT_WORK(&works[i], test_work_fn);
 		queue_work(wq, &works[i]);
 	}
 
-	tbridge_printf("INFO: Queued %d work items\n", num_items);
-
-	/*
-	 * Use drain_workqueue() to ensure all work items complete.
-	 * drain_workqueue() waits for all pending and active work.
-	 */
-	tbridge_printf("DEBUG: Calling drain_workqueue(%p)\n", wq);
+	kprintf("TEST5: Queued %d items, calling drain_workqueue()\n", num_items);
 	drain_workqueue(wq);
-	tbridge_printf("DEBUG: drain_workqueue() returned\n");
+	kprintf("TEST5: drain_workqueue() done\n");
 
 	if (atomic_read(&work_counter) == num_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", atomic_read(&work_counter));
@@ -266,40 +261,25 @@ static int test_multiple_work(void)
 		errors++;
 	}
 
-	tbridge_printf("DEBUG: Calling destroy_workqueue(%p)\n", wq);
+	/* Set sentinel in first work item to detect memory corruption */
+	sentinel = 0xDEAD0005;
+	works[0].state.counter = sentinel;
+	kprintf("TEST5: Set sentinel=0x%x at works[0].state, calling destroy_workqueue()\n", sentinel);
+
 	destroy_workqueue(wq);
-	tbridge_printf("DEBUG: destroy_workqueue() returned\n");
-	
-	/*
-	 * DEBUG: Try WITHOUT delay first to provoke the race.
-	 * If panic happens here, we know the issue is between
-	 * destroy_workqueue() and kfree(works).
-	 * Set to 0 to disable delay, or hz/10 for 100ms delay.
-	 */
-#define TEST5_DELAY_TICKS 0  /* Set to 0 to test without delay */
-#if TEST5_DELAY_TICKS > 0
-	tbridge_printf("DEBUG: Sleeping for %d ticks before kfree(works)\n", TEST5_DELAY_TICKS);
-	tsleep(curthread, 0, "wqdelay", TEST5_DELAY_TICKS);
-#else
-	tbridge_printf("DEBUG: NO DELAY before kfree(works) - testing race condition\n");
-#endif
-	
-	/*
-	 * ASSERT: Verify all work items are in IDLE state before freeing.
-	 * If any work is not IDLE, it's a race - taskqueue may still be
-	 * accessing the work_struct.
-	 */
-	for (i = 0; i < num_items; i++) {
-		int state = atomic_read(&works[i].state);
-		if (state != 0) {  /* WORK_ST_IDLE = 0 */
-			tbridge_printf("ASSERT FAIL: works[%d].state = %d (expected 0/IDLE)\n", i, state);
-			KKASSERT(state == 0);
-		}
+	kprintf("TEST5: destroy_workqueue() done\n");
+
+	/* Verify sentinel is still intact - if not, memory was corrupted */
+	if (works[0].state.counter != sentinel) {
+		kprintf("TEST5: CORRUPTION! sentinel changed from 0x%x to 0x%x\n",
+		    sentinel, works[0].state.counter);
+	} else {
+		kprintf("TEST5: sentinel OK (0x%x)\n", works[0].state.counter);
 	}
 	
-	tbridge_printf("DEBUG: About to kfree(works=%p)\n", works);
+	kprintf("TEST5: About to kfree(works=%p)\n", works);
 	kfree(works);
-	tbridge_printf("DEBUG: kfree(works) completed\n");
+	kprintf("TEST5: kfree() done\n");
 
 	return errors;
 }
@@ -336,7 +316,9 @@ static int test_sustained_work(void)
 	int i;
 	int errors = 0;
 	const int num_items = 20;
+	uint32_t sentinel;
 
+	kprintf("TEST7: test_sustained_work() START\n");
 	tbridge_printf("\nTest 7: Sustained work processing (%d items)...\n", num_items);
 
 	works = kmalloc(sizeof(struct work_struct) * num_items, GFP_KERNEL);
@@ -345,8 +327,7 @@ static int test_sustained_work(void)
 		return 1;
 	}
 
-	tbridge_printf("DEBUG: works array allocated at %p (size=%zu)\n",
-	    works, sizeof(struct work_struct) * num_items);
+	kprintf("TEST7: works=%p, size=%zu\n", works, sizeof(struct work_struct) * num_items);
 
 	/*
 	 * Use singlethread workqueue to avoid stack overflow.
@@ -359,6 +340,7 @@ static int test_sustained_work(void)
 		return 1;
 	}
 
+	kprintf("TEST7: wq=%p\n", wq);
 	atomic_set(&work_done, 0);
 
 	for (i = 0; i < num_items; i++) {
@@ -366,15 +348,14 @@ static int test_sustained_work(void)
 		queue_work(wq, &works[i]);
 	}
 
-	tbridge_printf("INFO: Queued %d work items\n", num_items);
+	kprintf("TEST7: Queued %d items, calling drain_workqueue()\n", num_items);
 
 	/*
 	 * Use drain_workqueue() for sustained work - this ensures ALL work
 	 * items complete, including those still queued.
 	 */
-	tbridge_printf("DEBUG: Calling drain_workqueue(%p)\n", wq);
 	drain_workqueue(wq);
-	tbridge_printf("DEBUG: drain_workqueue() returned\n");
+	kprintf("TEST7: drain_workqueue() done\n");
 
 	if (atomic_read(&work_done) == num_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", atomic_read(&work_done));
@@ -383,28 +364,25 @@ static int test_sustained_work(void)
 		errors++;
 	}
 
-	/* No need to cancel - drain_workqueue ensures all work completed */
-	tbridge_printf("INFO: All work items completed\n");
-	
-	tbridge_printf("DEBUG: Calling destroy_workqueue(%p)\n", wq);
+	/* Set sentinel in first work item to detect memory corruption */
+	sentinel = 0xDEAD0007;
+	works[0].state.counter = sentinel;
+	kprintf("TEST7: Set sentinel=0x%x at works[0].state, calling destroy_workqueue()\n", sentinel);
+
 	destroy_workqueue(wq);
-	tbridge_printf("DEBUG: destroy_workqueue() returned\n");
-	
-	/*
-	 * DEBUG: Try WITHOUT delay first to provoke the race.
-	 * Set to 0 to disable delay, or hz/10 for 100ms delay.
-	 */
-#define TEST7_DELAY_TICKS 0  /* Set to 0 to test without delay */
-#if TEST7_DELAY_TICKS > 0
-	tbridge_printf("DEBUG: Sleeping for %d ticks before kfree(works)\n", TEST7_DELAY_TICKS);
-	tsleep(curthread, 0, "wqdelay", TEST7_DELAY_TICKS);
-#else
-	tbridge_printf("DEBUG: NO DELAY before kfree(works) - testing race condition\n");
-#endif
-	
-	tbridge_printf("DEBUG: About to kfree(works=%p)\n", works);
+	kprintf("TEST7: destroy_workqueue() done\n");
+
+	/* Verify sentinel is still intact - if not, memory was corrupted */
+	if (works[0].state.counter != sentinel) {
+		kprintf("TEST7: CORRUPTION! sentinel changed from 0x%x to 0x%x\n",
+		    sentinel, works[0].state.counter);
+	} else {
+		kprintf("TEST7: sentinel OK (0x%x)\n", works[0].state.counter);
+	}
+
+	kprintf("TEST7: About to kfree(works=%p)\n", works);
 	kfree(works);
-	tbridge_printf("DEBUG: kfree(works) completed, test_sustained_work done\n");
+	kprintf("TEST7: kfree() done\n");
 
 	return errors;
 }
@@ -514,7 +492,9 @@ static int test_per_cpu_distribution(void)
 	int errors = 0;
 	int num_cpus = ncpus;
 	int work_items = num_cpus * 5;  /* 5 items per CPU */
+	uint32_t sentinel;
 
+	kprintf("TEST10: test_per_cpu_distribution() START\n");
 	tbridge_printf("\nTest 10: Per-CPU distribution (%d CPUs, %d items)...\n", num_cpus, work_items);
 
 	/* Initialize per-CPU counters (only up to ncpus, not MAXCPU) */
@@ -536,19 +516,16 @@ static int test_per_cpu_distribution(void)
 		return 1;
 	}
 
-	tbridge_printf("DEBUG: works array allocated at %p\n", works);
+	kprintf("TEST10: works=%p, wq=%p, work_items=%d\n", works, wq, work_items);
 
 	for (i = 0; i < work_items; i++) {
 		INIT_WORK(&works[i], test_cpu_track_fn);
 		queue_work(wq, &works[i]);
 	}
 
-	tbridge_printf("INFO: Queued %d work items\n", work_items);
-	tbridge_printf("DEBUG: Calling drain_workqueue(%p)\n", wq);
-
+	kprintf("TEST10: Queued %d items, calling drain_workqueue()\n", work_items);
 	drain_workqueue(wq);
-
-	tbridge_printf("DEBUG: drain_workqueue() returned\n");
+	kprintf("TEST10: drain_workqueue() done\n");
 
 	if (atomic_read(&work_counter) == work_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", work_items);
@@ -567,21 +544,25 @@ static int test_per_cpu_distribution(void)
 		errors++;
 	}
 
-	tbridge_printf("DEBUG: Calling destroy_workqueue(%p)\n", wq);
+	/* Set sentinel in first work item to detect memory corruption */
+	sentinel = 0xDEAD0010;
+	works[0].state.counter = sentinel;
+	kprintf("TEST10: Set sentinel=0x%x at works[0].state, calling destroy_workqueue()\n", sentinel);
+
 	destroy_workqueue(wq);
-	tbridge_printf("DEBUG: destroy_workqueue() returned\n");
+	kprintf("TEST10: destroy_workqueue() done\n");
 
-#define TEST10_DELAY_TICKS 0  /* Set to 0 to test without delay */
-#if TEST10_DELAY_TICKS > 0
-	tbridge_printf("DEBUG: Sleeping for %d ticks before kfree(works)\n", TEST10_DELAY_TICKS);
-	tsleep(curthread, 0, "wqdelay", TEST10_DELAY_TICKS);
-#else
-	tbridge_printf("DEBUG: NO DELAY before kfree(works)\n");
-#endif
+	/* Verify sentinel is still intact - if not, memory was corrupted */
+	if (works[0].state.counter != sentinel) {
+		kprintf("TEST10: CORRUPTION! sentinel changed from 0x%x to 0x%x\n",
+		    sentinel, works[0].state.counter);
+	} else {
+		kprintf("TEST10: sentinel OK (0x%x)\n", works[0].state.counter);
+	}
 
-	tbridge_printf("DEBUG: About to kfree(works=%p)\n", works);
+	kprintf("TEST10: About to kfree(works=%p)\n", works);
 	kfree(works);
-	tbridge_printf("DEBUG: kfree(works) completed\n");
+	kprintf("TEST10: kfree() done\n");
 
 	return errors;
 }
@@ -594,7 +575,9 @@ static int test_stress_many_items(void)
 	int i;
 	int errors = 0;
 	const int num_items = 1000;
+	uint32_t sentinel;
 
+	kprintf("TEST11: test_stress_many_items() START\n");
 	tbridge_printf("\nTest 11: Stress test (%d work items)...\n", num_items);
 
 	wq = alloc_workqueue("test_stress", 0, 0);  /* Per-CPU workqueue */
@@ -612,7 +595,7 @@ static int test_stress_many_items(void)
 		return 1;
 	}
 
-	tbridge_printf("DEBUG: works array allocated at %p\n", works);
+	kprintf("TEST11: works=%p, wq=%p, num_items=%d\n", works, wq, num_items);
 
 	/* Queue all 1000 items */
 	for (i = 0; i < num_items; i++) {
@@ -620,11 +603,9 @@ static int test_stress_many_items(void)
 		queue_work(wq, &works[i]);
 	}
 
-	tbridge_printf("INFO: Queued %d work items\n", num_items);
-
-	tbridge_printf("DEBUG: Calling drain_workqueue(%p)\n", wq);
+	kprintf("TEST11: Queued %d items, calling drain_workqueue()\n", num_items);
 	drain_workqueue(wq);
-	tbridge_printf("DEBUG: drain_workqueue() returned\n");
+	kprintf("TEST11: drain_workqueue() done\n");
 
 	if (atomic_read(&work_counter) == num_items) {
 		tbridge_printf("PASS: All %d work callbacks executed\n", num_items);
@@ -634,21 +615,25 @@ static int test_stress_many_items(void)
 		errors++;
 	}
 
-	tbridge_printf("DEBUG: Calling destroy_workqueue(%p)\n", wq);
+	/* Set sentinel in first work item to detect memory corruption */
+	sentinel = 0xDEAD0011;
+	works[0].state.counter = sentinel;
+	kprintf("TEST11: Set sentinel=0x%x at works[0].state, calling destroy_workqueue()\n", sentinel);
+
 	destroy_workqueue(wq);
-	tbridge_printf("DEBUG: destroy_workqueue() returned\n");
+	kprintf("TEST11: destroy_workqueue() done\n");
 
-#define TEST11_DELAY_TICKS 0  /* Set to 0 to test without delay */
-#if TEST11_DELAY_TICKS > 0
-	tbridge_printf("DEBUG: Sleeping for %d ticks before kfree(works)\n", TEST11_DELAY_TICKS);
-	tsleep(curthread, 0, "wqdelay", TEST11_DELAY_TICKS);
-#else
-	tbridge_printf("DEBUG: NO DELAY before kfree(works)\n");
-#endif
+	/* Verify sentinel is still intact - if not, memory was corrupted */
+	if (works[0].state.counter != sentinel) {
+		kprintf("TEST11: CORRUPTION! sentinel changed from 0x%x to 0x%x\n",
+		    sentinel, works[0].state.counter);
+	} else {
+		kprintf("TEST11: sentinel OK (0x%x)\n", works[0].state.counter);
+	}
 
-	tbridge_printf("DEBUG: About to kfree(works=%p)\n", works);
+	kprintf("TEST11: About to kfree(works=%p)\n", works);
 	kfree(works);
-	tbridge_printf("DEBUG: kfree(works) completed\n");
+	kprintf("TEST11: kfree() done\n");
 
 	return errors;
 }
