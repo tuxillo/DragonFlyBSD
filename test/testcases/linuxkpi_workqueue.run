@@ -1,0 +1,33 @@
+# LinuxKPI Workqueue Tests (split for isolation)
+# Each test is a separate kernel module for easier crash identification
+#
+# Run with: dfregress -r linuxkpi_workqueue.run
+
+linuxkpi/workqueue/wq_test01_alloc_destroy/wq_test01.ko		kernel	defaults
+linuxkpi/workqueue/wq_test02_queue_work/wq_test02.ko		kernel	defaults
+linuxkpi/workqueue/wq_test03_system_wq/wq_test03.ko		kernel	defaults
+linuxkpi/workqueue/wq_test04_schedule_work/wq_test04.ko		kernel	defaults
+linuxkpi/workqueue/wq_test05_multiple_work/wq_test05.ko		kernel	defaults
+linuxkpi/workqueue/wq_test06_cancel_work/wq_test06.ko		kernel	defaults
+linuxkpi/workqueue/wq_test07_sustained/wq_test07.ko		kernel	defaults
+linuxkpi/workqueue/wq_test08_requeue/wq_test08.ko		kernel	defaults
+linuxkpi/workqueue/wq_test09_concurrent_wq/wq_test09.ko		kernel	defaults
+linuxkpi/workqueue/wq_test10_percpu/wq_test10.ko		kernel	defaults
+linuxkpi/workqueue/wq_test11_stress_1000/wq_test11.ko		kernel	defaults
+linuxkpi/workqueue/wq_test12_delayed_basic/wq_test12.ko		kernel	defaults
+linuxkpi/workqueue/wq_test13_cancel_before/wq_test13.ko		kernel	defaults
+linuxkpi/workqueue/wq_test14_cancel_after/wq_test14.ko		kernel	defaults
+linuxkpi/workqueue/wq_test15_delayed_fire/wq_test15.ko		kernel	defaults
+linuxkpi/workqueue/wq_test16_delayed_requeue/wq_test16.ko	kernel	defaults
+linuxkpi/workqueue/wq_test17_mod_delayed/wq_test17.ko		kernel	defaults
+linuxkpi/workqueue/wq_test18_idle_timeout/wq_test18.ko		kernel	defaults
+linuxkpi/workqueue/wq_test19_ordered/wq_test19.ko		kernel	defaults
+linuxkpi/workqueue/wq_test20_unbound_wq/wq_test20.ko		kernel	defaults
+linuxkpi/workqueue/wq_test21_highpri_wq/wq_test21.ko		kernel	defaults
+linuxkpi/workqueue/wq_test22_long_wq/wq_test22.ko		kernel	defaults
+linuxkpi/workqueue/wq_test23_flush_wq/wq_test23.ko		kernel	defaults
+linuxkpi/workqueue/wq_test24_highpri_flag/wq_test24.ko		kernel	defaults
+linuxkpi/workqueue/wq_test25_unbound_flag/wq_test25.ko		kernel	defaults
+linuxkpi/workqueue/wq_test26_pending_busy/wq_test26.ko		kernel	defaults
+linuxkpi/workqueue/wq_test27_delayed_pending/wq_test27.ko	kernel	defaults
+linuxkpi/workqueue/wq_test28_stress_cancel/wq_test28.ko		kernel	defaults
