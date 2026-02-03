@@ -984,8 +984,8 @@ linux_dev_fdopen(struct cdev *dev, int fflags, struct thread *td,
 	filp = linux_file_alloc();
 	filp->f_dentry = &filp->f_dentry_store;
 	filp->f_op = ldev->ops;
-	filp->f_mode = file->f_flag;
-	filp->f_flags = file->f_flag;
+	filp->f_mode = fflags;
+	filp->f_flags = fflags;
 #ifdef __DragonFly__
 	filp->f_vnode = BSD_FILE_VNODE(file);
 #else
