@@ -490,6 +490,14 @@ vm_page_unwire_noq(vm_page_t m)
 #define vm_page_free(m)			vm_page_free_toq((m))
 #endif
 
+#ifndef vm_page_valid
+static __inline void
+vm_page_valid(vm_page_t m)
+{
+	m->valid = VM_PAGE_BITS_ALL;
+}
+#endif
+
 /*
  * vm_free_count - return global free page count.
  */

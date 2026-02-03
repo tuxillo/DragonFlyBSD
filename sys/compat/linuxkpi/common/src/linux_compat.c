@@ -141,6 +141,10 @@ SYSCTL_INT(_compat_linuxkpi, OID_AUTO, net_ratelimit, CTLFLAG_RWTUN,
     &lkpi_net_maxpps, 0, "Limit number of LinuxKPI net messages per second.");
 
 MALLOC_DEFINE(M_KMALLOC, "lkpikmalloc", "Linux kmalloc compat");
+#ifdef __DragonFly__
+MALLOC_DEFINE(M_LKPI_FICT_PAGES, "lkpifake", "LinuxKPI fictitious pages");
+MALLOC_DEFINE(M_LKPI_SG_HANDLE, "lkpisg", "LinuxKPI sg handle");
+#endif
 
 #include <linux/rbtree.h>
 /* Undo Linux compat changes. */
@@ -669,6 +673,115 @@ static struct cdev_pager_ops linux_cdev_pager_ops[2] = {
 	.cdev_pg_dtor	= linux_cdev_pager_dtor
   },
 };
+
+#ifdef __DragonFly__
+struct lkpi_sg_handle {
+	struct sglist *sg;
+	vm_ooffset_t len;
+};
+
+static int
+lkpi_sg_pager_ctor(void *handle, vm_ooffset_t size, vm_prot_t prot,
+    vm_ooffset_t foff, struct ucred *cred, u_short *color)
+{
+	struct lkpi_sg_handle *sg_handle;
+	struct sglist *sg;
+	vm_ooffset_t total;
+	int i;
+
+	(void)prot;
+	(void)cred;
+
+	if (foff & PAGE_MASK)
+		return (EINVAL);
+
+	sg_handle = handle;
+	sg = sg_handle != NULL ? sg_handle->sg : NULL;
+	if (sg == NULL)
+		return (EINVAL);
+
+	total = 0;
+	for (i = 0; i < sg->sg_nseg; i++) {
+		if ((sg->sg_segs[i].ss_paddr % PAGE_SIZE) != 0 ||
+		    (sg->sg_segs[i].ss_len % PAGE_SIZE) != 0)
+			return (EINVAL);
+		total += sg->sg_segs[i].ss_len;
+	}
+
+	size = round_page(size);
+	if (foff + size > total)
+		return (EINVAL);
+
+	sglist_hold(sg);
+	*color = 0;
+	return (0);
+}
+
+static void
+lkpi_sg_pager_dtor(void *handle)
+{
+	struct lkpi_sg_handle *sg_handle;
+
+	sg_handle = handle;
+	if (sg_handle->sg != NULL)
+		sglist_free(sg_handle->sg);
+	kfree(sg_handle, M_LKPI_SG_HANDLE);
+}
+
+static int
+lkpi_sg_pager_fault(vm_object_t object, vm_ooffset_t offset, int prot,
+    vm_page_t *mres)
+{
+	struct lkpi_sg_handle *sg_handle;
+	struct sglist *sg;
+	vm_paddr_t paddr;
+	vm_ooffset_t space;
+	vm_page_t page;
+	int i;
+
+	(void)prot;
+
+	sg_handle = object->handle;
+	if (sg_handle == NULL || sg_handle->sg == NULL)
+		return (VM_PAGER_FAIL);
+	if (offset >= sg_handle->len)
+		return (VM_PAGER_FAIL);
+
+	sg = sg_handle->sg;
+	space = 0;
+	paddr = 1;
+	for (i = 0; i < sg->sg_nseg; i++) {
+		if (space + sg->sg_segs[i].ss_len <= offset) {
+			space += sg->sg_segs[i].ss_len;
+			continue;
+		}
+		paddr = sg->sg_segs[i].ss_paddr + offset - space;
+		break;
+	}
+	if (paddr == 1)
+		return (VM_PAGER_FAIL);
+
+	if (((*mres)->flags & PG_FICTITIOUS) != 0) {
+		page = *mres;
+		vm_page_updatefake(page, paddr, object->memattr);
+	} else {
+		VM_OBJECT_WUNLOCK(object);
+		page = vm_page_getfake(paddr, object->memattr);
+		VM_OBJECT_WLOCK(object);
+		vm_page_replace(page, object, (*mres)->pindex, *mres);
+		TAILQ_INSERT_TAIL(&object->un_pager.devp.devp_pglist, page, pageq);
+		*mres = page;
+	}
+	vm_page_valid(page);
+	return (VM_PAGER_OK);
+}
+
+static struct cdev_pager_ops lkpi_sg_pager_ops = {
+	.cdev_pg_ctor = lkpi_sg_pager_ctor,
+	.cdev_pg_dtor = lkpi_sg_pager_dtor,
+	.cdev_pg_fault = lkpi_sg_pager_fault,
+};
+#endif
 
 int
 zap_vma_ptes(struct vm_area_struct *vma, unsigned long address,
@@ -1484,20 +1597,36 @@ linux_file_mmap_single(struct file *fp, const struct file_operations *fop,
 		}
 	} else {
 		struct sglist *sg;
+		struct lkpi_sg_handle *sg_handle;
 
 		sg = sglist_alloc(1, M_WAITOK);
 		sglist_append_phys(sg,
 		    (vm_paddr_t)vmap->vm_pfn << PAGE_SHIFT, vmap->vm_len);
 
+#ifdef __DragonFly__
+		sg_handle = kmalloc(sizeof(*sg_handle), M_LKPI_SG_HANDLE,
+		    M_WAITOK | M_ZERO);
+		sg_handle->sg = sg;
+		sg_handle->len = vmap->vm_len;
+		*object = cdev_pager_allocate(sg_handle, OBJT_DEVICE,
+		    &lkpi_sg_pager_ops, vmap->vm_len, nprot, 0, td->td_ucred);
+#else
+		sg_handle = NULL;
 		*object = vm_pager_allocate(OBJT_SG, sg, vmap->vm_len,
 		    nprot, 0, td->td_ucred);
+#endif
 
 		linux_cdev_handle_free(vmap);
 
 		if (*object == NULL) {
 			sglist_free(sg);
+			if (sg_handle != NULL)
+				kfree(sg_handle, M_LKPI_SG_HANDLE);
 			return (EINVAL);
 		}
+#ifdef __DragonFly__
+		sglist_free(sg);
+#endif
 	}
 
 	if (attr != VM_MEMATTR_DEFAULT) {
@@ -1516,6 +1645,56 @@ linux_file_mmap_single(struct file *fp, const struct file_operations *fop,
  * that bridges dev_ops to LinuxKPI file operations.
  */
 #include <sys/device.h>
+
+static __inline void
+finit(struct file *fp, int flags, short type, void *data,
+    const struct fileops *ops)
+{
+	fp->f_flag = flags;
+	fp->f_type = type;
+	fp->f_data = data;
+	fp->f_ops = __DECONST(struct fileops *, ops);
+}
+
+static __inline int
+vm_object_set_memattr(vm_object_t object, vm_memattr_t memattr)
+{
+
+	if (object->type == OBJT_DEAD)
+		return (KERN_INVALID_ARGUMENT);
+	if (object->resident_page_count != 0)
+		return (KERN_FAILURE);
+	object->memattr = memattr;
+	return (KERN_SUCCESS);
+}
+
+static __inline vm_page_t
+vm_page_getfake(vm_paddr_t paddr, vm_memattr_t memattr)
+{
+	vm_page_t page;
+
+	page = kmalloc(sizeof(struct vm_page), M_LKPI_FICT_PAGES,
+	    M_WAITOK | M_ZERO);
+	vm_page_initfake(page, paddr, memattr);
+	return (page);
+}
+
+static __inline void
+vm_page_updatefake(vm_page_t page, vm_paddr_t paddr, vm_memattr_t memattr)
+{
+	KASSERT((page->flags & PG_FICTITIOUS) != 0,
+	    ("vm_page_updatefake: bad page %p", page));
+	page->phys_addr = paddr;
+	pmap_page_set_memattr(page, memattr);
+}
+
+static __inline void
+vm_page_replace(vm_page_t page, vm_object_t object, vm_pindex_t pindex,
+    vm_page_t old)
+{
+	vm_page_free(old);
+	(void)vm_page_insert(page, object, pindex);
+}
 
 static int linux_file_read(struct file *file, struct uio *uio,
     struct ucred *active_cred, int flags, struct thread *td);
