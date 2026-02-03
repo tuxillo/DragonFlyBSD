@@ -118,6 +118,17 @@
 #include <xen/xen-os.h>
 #endif
 
+#ifdef __DragonFly__
+static __inline int vm_object_set_memattr(vm_object_t object,
+    vm_memattr_t memattr);
+static __inline vm_page_t vm_page_getfake(vm_paddr_t paddr,
+    vm_memattr_t memattr);
+static __inline void vm_page_updatefake(vm_page_t page, vm_paddr_t paddr,
+    vm_memattr_t memattr);
+static __inline void vm_page_replace(vm_page_t page, vm_object_t object,
+    vm_pindex_t pindex, vm_page_t old);
+#endif
+
 SYSCTL_NODE(_compat, OID_AUTO, linuxkpi, CTLFLAG_RW | CTLFLAG_MPSAFE, 0,
     "LinuxKPI parameters");
 
@@ -725,7 +736,7 @@ lkpi_sg_pager_dtor(void *handle)
 	sg_handle = handle;
 	if (sg_handle->sg != NULL)
 		sglist_free(sg_handle->sg);
-	kfree(sg_handle, M_LKPI_SG_HANDLE);
+	kfree(sg_handle);
 }
 
 static int
@@ -809,6 +820,8 @@ zap_vma_ptes(struct vm_area_struct *vma, unsigned long address,
 	vm_object_t obj;
 	vm_page_t m;
 	vm_pindex_t start_idx, end_idx, idx;
+	vm_pindex_t limit;
+	struct pctrie_iter pages;
 
 	obj = vma->vm_obj;
 	if (obj == NULL || (obj->flags & OBJ_NOSPLIT) != 0)
@@ -817,13 +830,18 @@ zap_vma_ptes(struct vm_area_struct *vma, unsigned long address,
 	start_idx = OFF_TO_IDX(address);
 	end_idx = OFF_TO_IDX(address + size);
 
-	vm_object_hold(obj);
-	for (idx = start_idx; idx < end_idx; idx++) {
-		m = vm_page_lookup(obj, idx);
-		if (m != NULL)
-			pmap_remove_all(m);
+	if (end_idx == 0 || end_idx <= start_idx)
+		return (0);
+	limit = end_idx - 1;
+
+	VM_OBJECT_WLOCK(obj);
+	vm_page_iter_limit_init(&pages, obj, limit);
+	VM_RADIX_FOREACH_FROM(m, &pages, start_idx) {
+		if (m->pindex >= end_idx)
+			break;
+		pmap_remove_all(m);
 	}
-	vm_object_drop(obj);
+	VM_OBJECT_WUNLOCK(obj);
 	return (0);
 #endif
 }
@@ -966,7 +984,7 @@ linux_dev_fdopen(struct cdev *dev, int fflags, struct thread *td,
 	vref(filp->f_vnode);
 
 	/* release the file from devfs */
-	finit(file, filp->f_mode, DTYPE_DEV, filp, &linuxfileops);
+lkpi_finit(file, filp->f_mode, DTYPE_DEV, filp, &linuxfileops);
 	linux_drop_fop(ldev);
 	return (ENXIO);
 }
@@ -1604,8 +1622,7 @@ linux_file_mmap_single(struct file *fp, const struct file_operations *fop,
 		    (vm_paddr_t)vmap->vm_pfn << PAGE_SHIFT, vmap->vm_len);
 
 #ifdef __DragonFly__
-		sg_handle = kmalloc(sizeof(*sg_handle), M_LKPI_SG_HANDLE,
-		    M_WAITOK | M_ZERO);
+		sg_handle = kmalloc(sizeof(*sg_handle), M_WAITOK | M_ZERO);
 		sg_handle->sg = sg;
 		sg_handle->len = vmap->vm_len;
 		*object = cdev_pager_allocate(sg_handle, OBJT_DEVICE,
@@ -1621,7 +1638,7 @@ linux_file_mmap_single(struct file *fp, const struct file_operations *fop,
 		if (*object == NULL) {
 			sglist_free(sg);
 			if (sg_handle != NULL)
-				kfree(sg_handle, M_LKPI_SG_HANDLE);
+				kfree(sg_handle);
 			return (EINVAL);
 		}
 #ifdef __DragonFly__
@@ -1646,25 +1663,20 @@ linux_file_mmap_single(struct file *fp, const struct file_operations *fop,
  */
 #include <sys/device.h>
 
-static __inline void
-finit(struct file *fp, int flags, short type, void *data,
-    const struct fileops *ops)
-{
-	fp->f_flag = flags;
-	fp->f_type = type;
-	fp->f_data = data;
-	fp->f_ops = __DECONST(struct fileops *, ops);
-}
-
 static __inline int
 vm_object_set_memattr(vm_object_t object, vm_memattr_t memattr)
 {
+	vm_page_t page;
 
 	if (object->type == OBJT_DEAD)
 		return (KERN_INVALID_ARGUMENT);
-	if (object->resident_page_count != 0)
-		return (KERN_FAILURE);
 	object->memattr = memattr;
+	if (object->resident_page_count != 0) {
+		for (page = RB_MIN(vm_page_rb_tree, &object->rb_memq);
+		    page != NULL;
+		    page = RB_NEXT(vm_page_rb_tree, &object->rb_memq, page))
+			pmap_page_set_memattr(page, memattr);
+	}
 	return (KERN_SUCCESS);
 }
 
@@ -1673,8 +1685,7 @@ vm_page_getfake(vm_paddr_t paddr, vm_memattr_t memattr)
 {
 	vm_page_t page;
 
-	page = kmalloc(sizeof(struct vm_page), M_LKPI_FICT_PAGES,
-	    M_WAITOK | M_ZERO);
+	page = kmalloc(sizeof(struct vm_page), M_WAITOK | M_ZERO);
 	vm_page_initfake(page, paddr, memattr);
 	return (page);
 }

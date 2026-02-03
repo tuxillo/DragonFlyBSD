@@ -10,7 +10,7 @@ DragonFly integration or careful shims beyond simple symbol mapping.
 The DragonFly compatibility layer now implements:
 
 - an SG pager shim using `cdev_pager_allocate()` with custom ops
-- a local `vm_object_set_memattr()` wrapper
+- a local `vm_object_set_memattr()` wrapper that updates resident pages
 - LinuxKPI mmap path wiring to use the SG pager shim on DragonFly
 
 Implementation locations:
@@ -233,7 +233,7 @@ This ensures the sglist is freed when the object is deallocated.
 #### 2) Implement a DragonFly-compatible `vm_object_set_memattr()` wrapper
 
 Goal: Provide the FreeBSD behavior for LinuxKPI usage without modifying
-DragonFly core VM. (Implemented.)
+DragonFly core VM. (Implemented, with resident-page updates.)
 
 Proposed wrapper (LinuxKPI-local, `__DragonFly__` only):
 
@@ -246,10 +246,13 @@ vm_object_set_memattr(vm_object_t object, vm_memattr_t memattr)
     if (object->type == OBJT_DEAD)
         return (KERN_INVALID_ARGUMENT);
 
-    if (object->resident_page_count != 0)
-        return (KERN_FAILURE);
-
     object->memattr = memattr;
+    if (object->resident_page_count != 0) {
+        for (page = RB_MIN(vm_page_rb_tree, &object->rb_memq);
+             page != NULL;
+             page = RB_NEXT(vm_page_rb_tree, &object->rb_memq, page))
+            pmap_page_set_memattr(page, memattr);
+    }
     return (KERN_SUCCESS);
 }
 ```
@@ -259,8 +262,8 @@ Notes:
   (`VM_OBJECT_WLOCK/UNLOCK` in `linux/mm.h`), so this check is
   a best-effort compatibility layer.
 - FreeBSD checks `vm_radix_is_empty(&object->rtree)`; DragonFly has no
-  `vm_radix` in `vm_object`, so `resident_page_count == 0` is the closest
-  practical guard.
+  `vm_radix` in `vm_object`, so the wrapper updates any resident pages
+  and returns success.
 - Return codes should use `KERN_SUCCESS/KERN_FAILURE/KERN_INVALID_ARGUMENT`
   where available; if those are not defined, map to `0/EINVAL/ENOMEM` and
   update LinuxKPI call sites accordingly.
@@ -303,3 +306,43 @@ Plan:
   a radix tree; the `resident_page_count` guard is a best-effort check.
 - `cdev_pager_allocate()` ctor/dtor must be MPSAFE and avoid sleeping
   in unsafe contexts.
+
+## VM Compatibility: vm_radix (iterator surface)
+
+### Status (Implemented)
+
+DragonFly now provides a FreeBSD-style vm_radix iterator surface via
+`sys/compat/linuxkpi/common/include/vm/vm_radix.h`, implemented over
+DragonFly’s `vm_object->rb_memq` resident page RB tree.
+
+### Why it is needed
+
+FreeBSD’s VM uses `vm_radix` (pctrie + SMR) for resident page indexing.
+DragonFly uses an RB tree (`rb_memq`) and does not provide vm_radix APIs.
+LinuxKPI and FreeBSD-derived code paths expect macros like
+`VM_RADIX_FORALL` and iterator helpers (`vm_page_iter_init`,
+`vm_radix_iter_lookup_ge`, etc.).
+
+### Implementation notes
+
+Implemented in `sys/compat/linuxkpi/common/include/vm/vm_radix.h`:
+
+- `struct pctrie_iter` compatibility cursor
+- `vm_page_iter_init`, `vm_page_iter_limit_init`, `pctrie_iter_reset`
+- `vm_radix_iter_lookup[_ge/_le/_lt]`, `vm_radix_iter_next`,
+  `vm_radix_iter_step`, `vm_radix_iter_prev`
+- `VM_RADIX_FORALL[_FROM]` (consecutive pages using `vm_page_next`)
+- `VM_RADIX_FOREACH[_FROM]` (full iteration using RB in-order traversal)
+
+### Locking contract
+
+Callers must hold the `vm_object` lock while iterating or performing
+lookups. The iterator is not safe against concurrent insert/remove
+without the object lock held.
+
+### Build selection
+
+No drm-kmod changes are made here. When drm-kmod builds are enabled,
+ensure the build selects the vm_radix iterator path without source edits
+(for example, by providing an appropriate `__FreeBSD_version` define in
+the drm-kmod build flags).
