@@ -1,3 +1,4 @@
+
 /*-
  * Copyright (c) 2010 Isilon Systems, Inc.
  * Copyright (c) 2010 iX Systems, Inc.
@@ -1515,6 +1516,18 @@ linux_file_mmap_single(struct file *fp, const struct file_operations *fop,
  * that bridges dev_ops to LinuxKPI file operations.
  */
 #include <sys/device.h>
+
+static int linux_file_read(struct file *file, struct uio *uio,
+    struct ucred *active_cred, int flags, struct thread *td);
+static int linux_file_write(struct file *file, struct uio *uio,
+    struct ucred *active_cred, int flags, struct thread *td);
+static int linux_file_ioctl(struct file *fp, u_long cmd, void *data,
+    struct ucred *cred, struct thread *td);
+static int linux_file_close(struct file *file, struct thread *td);
+static int linux_file_kqfilter(struct file *file, struct knote *kn);
+static int linux_file_mmap_single(struct file *fp,
+    const struct file_operations *fop, vm_ooffset_t *offset, vm_size_t size,
+    struct vm_object **object, int nprot, bool is_shared, struct thread *td);
 
 static int
 linux_dev_open(struct dev_open_args *ap)
