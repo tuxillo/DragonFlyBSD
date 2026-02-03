@@ -35,6 +35,10 @@
 #include <sys/cpuset.h>
 #include <sys/thread.h>
 
+#ifndef CACHE_LINE_SIZE
+#define CACHE_LINE_SIZE 64
+#endif
+
 /* 
  * FreeBSD-style per-CPU data structure for LinuxKPI compatibility.
  * DragonFly uses different mechanisms for per-CPU data.
