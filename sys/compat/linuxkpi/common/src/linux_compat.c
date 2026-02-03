@@ -1,4 +1,5 @@
 
+
 /*-
  * Copyright (c) 2010 Isilon Systems, Inc.
  * Copyright (c) 2010 iX Systems, Inc.
@@ -1751,6 +1752,16 @@ static int linux_file_mmap_single(struct file *fp,
     const struct file_operations *fop, vm_ooffset_t *offset, vm_size_t size,
     struct vm_object **object, int nprot, bool is_shared, struct thread *td);
 
+#ifdef __DragonFly__
+static int linux_file_read_dfly(struct file *file, struct uio *uio,
+    struct ucred *active_cred, int flags);
+static int linux_file_write_dfly(struct file *file, struct uio *uio,
+    struct ucred *active_cred, int flags);
+static int linux_file_ioctl_dfly(struct file *fp, u_long cmd, void *data,
+    struct ucred *cred, struct sysmsg *msg);
+static int linux_file_close_dfly(struct file *file);
+#endif
+
 static int
 linux_dev_open(struct dev_open_args *ap)
 {
@@ -2260,6 +2271,17 @@ linux_file_kcmp(struct file *fp1, struct file *fp2, struct thread *td)
 }
 
 const struct fileops linuxfileops = {
+#ifdef __DragonFly__
+	.fo_read = linux_file_read_dfly,
+	.fo_write = linux_file_write_dfly,
+	.fo_ioctl = linux_file_ioctl_dfly,
+	.fo_kqfilter = linux_file_kqfilter,
+	.fo_stat = linux_file_stat,
+	.fo_close = linux_file_close_dfly,
+	.fo_shutdown = nofo_shutdown,
+	.fo_seek = badfo_seek,
+	.fo_flags = DFLAG_PASSABLE,
+#else
 	.fo_read = linux_file_read,
 	.fo_write = linux_file_write,
 	.fo_ioctl = linux_file_ioctl,
@@ -2269,7 +2291,38 @@ const struct fileops linuxfileops = {
 	.fo_shutdown = nofo_shutdown,
 	.fo_seek = badfo_seek,
 	.fo_flags = DFLAG_PASSABLE,
+#endif
 };
+
+#ifdef __DragonFly__
+static int
+linux_file_read_dfly(struct file *file, struct uio *uio,
+    struct ucred *active_cred, int flags)
+{
+	return (linux_file_read(file, uio, active_cred, flags, curthread));
+}
+
+static int
+linux_file_write_dfly(struct file *file, struct uio *uio,
+    struct ucred *active_cred, int flags)
+{
+	return (linux_file_write(file, uio, active_cred, flags, curthread));
+}
+
+static int
+linux_file_ioctl_dfly(struct file *fp, u_long cmd, void *data,
+    struct ucred *cred, struct sysmsg *msg)
+{
+	(void)msg;
+	return (linux_file_ioctl(fp, cmd, data, cred, curthread));
+}
+
+static int
+linux_file_close_dfly(struct file *file)
+{
+	return (linux_file_close(file, curthread));
+}
+#endif
 
 static char *
 devm_kvasprintf(struct device *dev, gfp_t gfp, const char *fmt, va_list ap)
