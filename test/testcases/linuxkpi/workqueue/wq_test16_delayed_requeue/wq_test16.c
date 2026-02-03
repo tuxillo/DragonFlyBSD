@@ -90,7 +90,7 @@ wq_test16_run(void)
 	 * Real drivers typically wait on a different event or just let it run.
 	 */
 	while (atomic_read(&idle_work_count) < 5 && timeout_loops < max_loops) {
-		DELAY(10000);  /* 10ms */
+		pause("wqwait", hz / 100);  /* 10ms */
 		timeout_loops++;
 	}
 

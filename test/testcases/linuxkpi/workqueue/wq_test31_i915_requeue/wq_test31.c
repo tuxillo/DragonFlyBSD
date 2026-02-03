@@ -105,7 +105,7 @@ wq_test31_run(void)
 
 	/* Wait for all iterations */
 	while (atomic_read(&heartbeat_count) < 5 && timeout_loops < max_loops) {
-		DELAY(10000);  /* 10ms */
+		pause("wqwait", hz / 100);  /* 10ms */
 		timeout_loops++;
 	}
 
@@ -139,7 +139,7 @@ wq_test31_run(void)
 
 	/* Wait for any remaining iterations from test 2's self-requeue */
 	while (atomic_read(&heartbeat_count) < 5 && timeout_loops < max_loops * 2) {
-		DELAY(10000);
+		pause("wqwait", hz / 100);
 		timeout_loops++;
 	}
 
