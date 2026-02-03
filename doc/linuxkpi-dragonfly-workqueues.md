@@ -749,6 +749,12 @@ Transform LinuxKPI workqueue implementation from:
 To:
 - **New:** N taskqueues × 1 worker each (works correctly)
 
+**Alternative solution (implemented in LinuxKPI workqueues):**
+DragonFly's LinuxKPI workqueues already use the per-CPU single-worker taskqueue
+model in `linux_work.c` to avoid multi-worker taskqueue tracking limitations.
+This is the DragonFly-specific adaptation that preserves FreeBSD LinuxKPI
+semantics while staying within DragonFly's taskqueue capabilities.
+
 This approach:
 - Keeps existing LinuxKPI state machine (tested by FreeBSD)
 - Preserves rcu_work, irq_work, current_work() features

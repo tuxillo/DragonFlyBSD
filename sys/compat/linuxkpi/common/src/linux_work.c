@@ -335,19 +335,12 @@ out:
 void
 linux_work_fn(void *context, int pending)
 {
-	static const uint8_t entry_states[WORK_ST_MAX] __aligned(8) = {
+	static const uint8_t states[WORK_ST_MAX] __aligned(8) = {
 		[WORK_ST_IDLE] = WORK_ST_IDLE,		/* NOP */
 		[WORK_ST_TIMER] = WORK_ST_EXEC,		/* delayed work w/o timeout */
 		[WORK_ST_TASK] = WORK_ST_EXEC,		/* call callback */
-		[WORK_ST_EXEC] = WORK_ST_EXEC,		/* NOP */
-		[WORK_ST_CANCEL] = WORK_ST_EXEC,	/* failed to cancel */
-	};
-	static const uint8_t exit_states[WORK_ST_MAX] __aligned(8) = {
-		[WORK_ST_IDLE] = WORK_ST_IDLE,		/* NOP */
-		[WORK_ST_TIMER] = WORK_ST_TIMER,	/* callback requeued delayed work */
-		[WORK_ST_TASK] = WORK_ST_TASK,		/* callback requeued work */
 		[WORK_ST_EXEC] = WORK_ST_IDLE,		/* complete callback */
-		[WORK_ST_CANCEL] = WORK_ST_CANCEL,	/* preserve cancel request */
+		[WORK_ST_CANCEL] = WORK_ST_EXEC,	/* failed to cancel */
 	};
 	struct work_struct *work;
 	struct workqueue_struct *wq;
@@ -367,7 +360,7 @@ linux_work_fn(void *context, int pending)
 	WQ_EXEC_LOCK(wq);
 	TAILQ_INSERT_TAIL(&wq->exec_head, &exec, entry);
 	while (1) {
-		switch (linux_update_state(&work->state, entry_states)) {
+		switch (linux_update_state(&work->state, states)) {
 		case WORK_ST_TIMER:
 		case WORK_ST_TASK:
 		case WORK_ST_CANCEL:
@@ -389,8 +382,6 @@ linux_work_fn(void *context, int pending)
 				exec.target = work;
 				break;
 			}
-			linux_update_state(&work->state, exit_states);
-			/* FALLTHROUGH */
 		default:
 			goto done;
 		}
