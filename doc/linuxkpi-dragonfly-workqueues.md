@@ -393,7 +393,7 @@ taskqueue_run(struct taskqueue *queue, int lock_held)
 
 | File | Thread Count | Uses `drain_all`? | Uses `poll_is_busy`? |
 |------|--------------|-------------------|----------------------|
-| `sys/compat/linuxkpi/common/src/linux_work.c:679` | **`cpus` (multi-worker)** | **Yes (via macro)** | **Yes** |
+| `sys/compat/linuxkpi/common/src/linux_work.c:679` | **`cpus` (per-CPU queues)** | **Yes (via macro)** | **Yes** |
 | `sys/compat/linuxkpi/common/src/linux_work.c:793` | 1 | Yes | No |
 | `sys/netproto/802_11/wlan/ieee80211.c:351` | 1 | No | No |
 | `sys/kern/uipc_usrreq.c:1697` | 1 | No | No |
@@ -441,7 +441,7 @@ vmxnet3_start_taskqueue(struct vmxnet3_softc *sc)
 
 | File | Line | Context |
 |------|------|---------|
-| `sys/compat/linuxkpi/common/src/linux_work.c:807` | IRQ work init | LinuxKPI - **multi-worker queue** |
+| `sys/compat/linuxkpi/common/src/linux_work.c:807` | IRQ work init | LinuxKPI irq_work (single worker) |
 | `sys/kern/subr_gtaskqueue.c:415` | gtaskqueue drain | Group taskqueue (separate implementation) |
 | `sys/kern/subr_gtaskqueue.c:815` | Group drain all | Group taskqueue |
 | `sys/kern/subr_taskqueue.c:524` | Implementation | N/A |
@@ -473,36 +473,46 @@ vmxnet3_start_taskqueue(struct vmxnet3_softc *sc)
 
 ### A.7 LinuxKPI Workqueue Analysis
 
-#### A.7.1 Workqueue Creation (linux_work.c:670-687)
+#### A.7.1 Workqueue Creation (linux_work.c)
 
 ```c
 struct workqueue_struct *
-alloc_workqueue(const char *name, unsigned flags, int cpus)
+linux_create_workqueue_common(const char *name, int cpus)
 {
     struct workqueue_struct *wq;
+    int i, num_queues;
+    char tq_name[64];
 
-    if (cpus == 0)
-        cpus = linux_default_wq_cpus;  /* mp_ncpus + 1, minimum 4 */
+    /* cpus == 1 => ordered/single-threaded workqueue */
+    if (cpus == 1)
+        num_queues = 1;
+    else
+        num_queues = ncpus;  /* per-CPU queues */
 
     wq = kmalloc(sizeof(*wq), M_WAITOK | M_ZERO);
-    wq->taskqueue = taskqueue_create(name, M_WAITOK,
-        taskqueue_thread_enqueue, &wq->taskqueue);
-    atomic_set(&wq->draining, 0);
-#ifdef __DragonFly__
-    taskqueue_start_threads(&wq->taskqueue, cpus, PWAIT, -1, "%s", name);
-#else
-    taskqueue_start_threads(&wq->taskqueue, cpus, PWAIT, "%s", name);
-#endif
-    TAILQ_INIT(&wq->exec_head);
-    mtx_init(&wq->exec_mtx, "linux_wq_exec", NULL, MTX_DEF);
+    wq->num_queues = num_queues;
+    wq->taskqueues = kmalloc(sizeof(struct taskqueue *) * num_queues,
+        M_WAITOK | M_ZERO);
+
+    for (i = 0; i < num_queues; i++) {
+        if (num_queues > 1)
+            ksnprintf(tq_name, sizeof(tq_name), "%s/%d", name, i);
+        else
+            ksnprintf(tq_name, sizeof(tq_name), "%s", name);
+
+        wq->taskqueues[i] = taskqueue_create(tq_name, M_WAITOK,
+            taskqueue_thread_enqueue, &wq->taskqueues[i]);
+        taskqueue_start_threads(&wq->taskqueues[i], 1, PWAIT, -1,
+            "%s", tq_name);
+    }
 
     return (wq);
 }
 ```
 
-**Key:** LinuxKPI workqueues create **`cpus` worker threads** (typically `mp_ncpus + 1`).
+**Key:** LinuxKPI workqueues now create **N single-worker taskqueues** (per-CPU) rather than **1 taskqueue with N workers**.
 
-#### A.7.2 Default Worker Count (linux_work.c:717-727)
+#### A.7.2 Default Worker Count (linux_work.c)
 
 ```c
 static void
@@ -510,11 +520,9 @@ linux_work_init(void *arg)
 {
     int max_wq_cpus = mp_ncpus + 1;
 
-    /* avoid deadlock when there are too few threads */
     if (max_wq_cpus < 4)
         max_wq_cpus = 4;
 
-    /* set default number of CPUs */
     linux_default_wq_cpus = max_wq_cpus;
 
     linux_system_short_wq = alloc_workqueue("linuxkpi_short_wq", 0, max_wq_cpus);
@@ -524,23 +532,23 @@ linux_work_init(void *arg)
 ```
 
 **Example:** On a 4-core system:
-- `linux_system_short_wq` → 5 worker threads
-- `linux_system_long_wq` → 5 worker threads
+- `linux_default_wq_cpus` is set to 5 (mp_ncpus + 1)
+- workqueues created with `max_active > 1` become **per-CPU** (`ncpus` queues, one worker each)
 
-#### A.7.3 flush_workqueue and drain_workqueue Macros (workqueue.h:171-178)
+#### A.7.3 flush_workqueue and drain_workqueue Macros (workqueue.h)
 
 ```c
 #define flush_workqueue(wq) \
-    taskqueue_drain_all((wq)->taskqueue)
+    linux_flush_workqueue(wq)
 
 #define drain_workqueue(wq) do {        \
     atomic_inc(&(wq)->draining);        \
-    taskqueue_drain_all((wq)->taskqueue);   \
+    linux_flush_workqueue(wq);          \
     atomic_dec(&(wq)->draining);        \
 } while (0)
 ```
 
-**These macros call `taskqueue_drain_all()` on multi-worker taskqueues.**
+**These macros drain all per-CPU taskqueues via `linux_flush_workqueue()`.**
 
 ---
 
@@ -638,8 +646,13 @@ Multiple attempts to fix wakeup/sleep race conditions in `taskqueue_drain_all()`
 
 #### A.10.3 Required for LinuxKPI/DRM
 
-To properly support LinuxKPI workqueues with multi-worker taskqueues:
+Two viable approaches were identified. The selected approach is implemented.
 
+**Chosen (implemented):** Per-CPU single-worker taskqueues in LinuxKPI workqueues.
+- Implemented in `sys/compat/linuxkpi/common/src/linux_work.c`
+- API surface updated in `sys/compat/linuxkpi/common/include/linux/workqueue.h`
+
+**Alternative (not implemented):** Full FreeBSD-style taskqueue busy tracking.
 1. **Add `struct taskqueue_busy`** - Per-worker task tracking structure
 2. **Add `tq_active` list** - Track all currently executing tasks
 3. **Add `tq_seq`** - Sequence number for drain ordering
@@ -732,7 +745,7 @@ sys/dev/netif/iwm/if_iwm.c:6673:		taskqueue_drain_all(sc->sc_tq);
 ## Appendix B: LinuxKPI Per-CPU Workqueue Implementation Plan
 
 **Date:** 2026-02-01
-**Status:** Planned
+**Status:** Implemented
 **Goal:** Fix LinuxKPI workqueue drain/flush operations by using per-CPU single-worker taskqueues instead of one multi-worker taskqueue.
 
 ### B.1 Background and Rationale
@@ -1142,13 +1155,18 @@ make -j$(sysctl -n hw.ncpu) buildkernel KERNCONF=X86_64_GENERIC
 
 #### B.9.3 Workqueue Functional Tests
 
-Create test module that:
-1. Creates workqueue with multiple CPUs
-2. Queues work items to different CPUs
-3. Verifies `flush_workqueue()` waits for all items
-4. Verifies `flush_work()` waits for specific item
-5. Verifies `cancel_work_sync()` properly cancels
-6. Tests work re-queueing from callback
+Run the workqueue regression suite:
+
+```bash
+cd /usr/src/test/testcases
+dfregress -r linuxkpi_workqueue.run
+```
+
+The suite (tests 1–44) covers:
+1. Per-CPU workqueue scheduling and distribution
+2. `flush_workqueue()` and `flush_work()` semantics
+3. `cancel_work_sync()` and delayed work cancellation patterns
+4. Work re-queueing and self-rescheduling patterns (amdgpu/i915)
 
 #### B.9.4 DRM/GPU Validation
 
@@ -1193,7 +1211,7 @@ After implementation:
 DragonFly's taskqueue tracks only ONE running task via `tq_running`, but LinuxKPI creates multi-worker taskqueues. This broke `taskqueue_drain_all()` and `taskqueue_poll_is_busy()` used by `flush_workqueue()`, `drain_workqueue()`, `flush_work()`, and `work_busy()`.
 
 #### Solution Implemented
-Transformed LinuxKPI workqueue from **1 taskqueue × N workers** to **N taskqueues × 1 worker each** (per-CPU model).
+Transformed LinuxKPI workqueue from **1 taskqueue × N workers** to **N taskqueues × 1 worker each** (per-CPU model). The implementation is in `sys/compat/linuxkpi/common/src/linux_work.c` and `sys/compat/linuxkpi/common/include/linux/workqueue.h`.
 
 #### Key Changes
 

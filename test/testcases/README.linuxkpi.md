@@ -483,9 +483,9 @@ static void retire_work_handler(struct work_struct *work) {
 
 ---
 
-## i915-Specific Patterns (Future Tests)
+## i915-Specific Patterns (Workqueue Tests 32–44)
 
-The following patterns are used by i915 but not yet covered by tests.
+The following patterns are used by i915 and are covered by workqueue tests 32–44.
 These are prioritized by how critical they are for i915 functionality.
 
 ### High Priority (Blocks i915 functionality)

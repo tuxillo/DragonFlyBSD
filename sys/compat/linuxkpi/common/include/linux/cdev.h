@@ -83,13 +83,20 @@ cdev_add(struct linux_cdev *cdev, dev_t dev, unsigned count)
 #ifdef __DragonFly__
 	/*
 	 * DragonFly device creation works differently than FreeBSD.
-	 * XXX: This needs proper implementation using make_dev() or
-	 * dev_ops_add() when DRM device support is completed.
+	 * Use make_dev() to create the devfs node and attach linuxdev_ops.
 	 */
 	if (count != 1)
 		return (-EINVAL);
 	cdev->dev = dev;
-	/* XXX: Device creation stub - needs implementation */
+	if (kobject_name(&cdev->kobj) == NULL)
+		return (-EINVAL);
+	cdev->cdev = make_dev(&linuxdev_ops, MINOR(dev), 0, 0, 0700, "%s",
+	    kobject_name(&cdev->kobj));
+	if (cdev->cdev == NULL)
+		return (-ENOMEM);
+	cdev->cdev->si_drv1 = cdev;
+	if (cdev->kobj.parent != NULL)
+		kobject_get(cdev->kobj.parent);
 	return (0);
 #else
 	struct make_dev_args args;
@@ -124,10 +131,18 @@ cdev_add_ext(struct linux_cdev *cdev, dev_t dev, uid_t uid, gid_t gid, int mode)
 #ifdef __DragonFly__
 	/*
 	 * DragonFly device creation with extended attributes.
-	 * XXX: This needs proper implementation.
+	 * Use make_dev() to create the devfs node and attach linuxdev_ops.
 	 */
 	cdev->dev = dev;
-	/* XXX: Device creation stub - needs implementation */
+	if (kobject_name(&cdev->kobj) == NULL)
+		return (-EINVAL);
+	cdev->cdev = make_dev(&linuxdev_ops, MINOR(dev), uid, gid, mode, "%s/%d",
+	    kobject_name(&cdev->kobj), MINOR(dev));
+	if (cdev->cdev == NULL)
+		return (-ENOMEM);
+	cdev->cdev->si_drv1 = cdev;
+	if (cdev->kobj.parent != NULL)
+		kobject_get(cdev->kobj.parent);
 	return (0);
 #else
 	struct make_dev_args args;

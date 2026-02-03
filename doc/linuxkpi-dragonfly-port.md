@@ -743,9 +743,9 @@ taskqueue_poll_is_busy(struct taskqueue *tq __unused, struct task *t __unused)
 - ✓ Kernel builds successfully with new implementations
 - ✓ No compilation errors or warnings
 - ✓ Build time: ~18 minutes (quickkernel)
-- ⏳ Workqueue tests pass with 100+ concurrent work items (to be validated)
-- ⏳ `flush_workqueue()` and `drain_workqueue()` properly wait for completion (to be validated)
-- ⏳ No race conditions in work re-queuing scenarios (to be validated in runtime)
+- ⏳ Run workqueue regression suite (tests 1–44) via `dfregress -r linuxkpi_workqueue.run`
+- ⏳ `flush_workqueue()` and `drain_workqueue()` properly wait for completion (validated via tests)
+- ⏳ No race conditions in work re-queuing scenarios (validated via tests)
 
 **Completed Work:**
 - `taskqueue_drain_all()` added to `sys/kern/subr_taskqueue.c` (lines 522-554)
@@ -753,23 +753,54 @@ taskqueue_poll_is_busy(struct taskqueue *tq __unused, struct task *t __unused)
 - Function declarations added to `sys/sys/taskqueue.h` (lines 92, 96)
 - Stubs removed from `dragonfly_compat.h` (lines 742-754, 622-631)
 - Kernel build validated: commit `ef2ac85ff6` builds successfully
+- Workqueue test suite implemented in `test/testcases/linuxkpi/workqueue/` and `test/testcases/linuxkpi_workqueue.run`
 
 #### Phase 3B: Fix Device Operations (DRM Critical)
 
 **Goal:** Implement proper `linuxdev_ops` for DRM device access.
 
-**Approach:**
-1. **Study FreeBSD's linux_compat.c** device operations implementation
-2. **Implement DragonFly equivalents:**
-   - `linux_dev_open()` - Map to DragonFly device open
-   - `linux_dev_close()` - Map to DragonFly device close
-   - `linux_dev_ioctl()` - Map to DragonFly ioctl with Linux compatibility
-   - `linux_dev_mmap()` - Map to DragonFly mmap
-   - `linux_dev_read/write()` - If needed by DRM
-3. **Map Linux device model** to DragonFly's device structure
+**Approach (Detailed Plan):**
+1. **Baseline review and mapping**
+   - Compare FreeBSD LinuxKPI device ops in `sys/compat/linuxkpi/common/src/linux_compat.c` to DragonFly's dev_ops model in `sys/sys/device.h`.
+   - Identify how DragonFly drivers wire `struct dev_ops` (open/read/write/ioctl/mmap/kqfilter) in examples like `sys/net/netmap/netmap_freebsd.c` and `sys/net/tun/if_tun.c`.
+   - Confirm how LinuxKPI uses `linux_dev_fdopen()` and `linuxfileops` to bridge into `struct linux_file`.
+
+2. **Implement DragonFly dev_ops wrappers (linuxdev_ops)**
+   - Add wrappers that funnel into the existing LinuxKPI file layer in `sys/compat/linuxkpi/common/src/linux_compat.c`:
+     - `d_open`: create a `struct file` and call `linux_dev_fdopen()` to attach a `struct linux_file` and install `linuxfileops`.
+     - `d_close`: call `linux_file_close()`.
+     - `d_read`: call `linux_file_read()`.
+     - `d_write`: call `linux_file_write()`.
+     - `d_ioctl`: call `linux_file_ioctl()`.
+     - `d_mmap`: call `linux_file_mmap()`.
+     - `d_mmap_single`: call `linux_file_mmap_single()` (or the same path as mmap) as supported by DragonFly.
+     - `d_kqfilter`: call `linux_file_kqfilter()`.
+   - Ensure each wrapper pulls the correct `struct file *` and `cdev_t` from `struct dev_*_args` and uses the same error translation patterns already in `linux_file_*`.
+   - Keep `D_MPSAFE` in `linuxdev_ops.head.flags`.
+
+3. **Fix LinuxKPI cdev creation on DragonFly**
+   - Implement the DragonFly branches of `cdev_add()` and `cdev_add_ext()` in `sys/compat/linuxkpi/common/include/linux/cdev.h`:
+     - Use `make_dev()` / `make_only_dev()` to create devfs nodes with `linuxdev_ops`.
+     - Set `si_drv1` to the `struct linux_cdev *` so `linux_dev_fdopen()` can find it.
+     - Preserve the kobject name (`kobject_name(&cdev->kobj)`) and apply uid/gid/mode in `_ext`.
+     - Store the created `cdev_t` in `ldev->cdev` for later cleanup.
+   - Confirm `linux_destroy_dev()` and `linux_cdev_release()` still call `destroy_dev()` correctly.
+
+4. **Wire device model details**
+   - Update `linux_iminor()` DragonFly branch if needed to ensure it recognizes devices created via `linuxdev_ops` and `si_drv1`.
+   - Ensure any devfs permissions or naming requirements used by drm-kmod are respected (e.g., `card0`, `renderD*`).
+
+5. **Build and runtime validation**
+   - Build the kernel with the new `linuxdev_ops`.
+   - Load a LinuxKPI consumer module that registers a cdev (drm-kmod when ready).
+   - Verify device node creation and basic open/ioctl paths:
+     - `ls -la /dev/drm*`
+     - `kldload /path/to/drm.ko`
+   - If needed, add a minimal test module to exercise open/close/ioctl without hardware.
 
 **Files to Modify:**
 - `sys/compat/linuxkpi/common/src/linux_compat.c` - Implement device ops
+- `sys/compat/linuxkpi/common/include/linux/cdev.h` - Implement DragonFly cdev creation
 
 **Success Criteria:**
 - DRM device nodes can be opened/closed
@@ -818,7 +849,7 @@ make -j$(sysctl -n hw.ncpu) buildkernel KERNCONF=X86_64_GENERIC
 
 # Run workqueue tests
 cd /usr/src/test/testcases
-dfregress linuxkpi/workqueue/workqueue.run
+dfregress -r linuxkpi_workqueue.run
 
 # Verify all tests pass:
 # - Test 5: Multiple work items (5 items, max_active=4)

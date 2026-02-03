@@ -1512,22 +1512,114 @@ linux_file_mmap_single(struct file *fp, const struct file_operations *fop,
 /*
  * DragonFly uses struct dev_ops instead of FreeBSD's struct cdevsw.
  * The device open path works differently. For now, provide a stub
- * that will need to be completed when DRM device support is implemented.
- *
- * XXX: This needs proper DragonFly dev_ops implementation.
+ * that bridges dev_ops to LinuxKPI file operations.
  */
 #include <sys/device.h>
+
+static int
+linux_dev_open(struct dev_open_args *ap)
+{
+	struct file *fp;
+	int error;
+
+	if (ap->a_fpp == NULL || *ap->a_fpp == NULL)
+		return (EINVAL);
+
+	fp = *ap->a_fpp;
+	error = linux_dev_fdopen(ap->a_head.a_dev, ap->a_oflags, curthread, fp);
+	if (error == ENXIO)
+		return (EALREADY);
+	return (error);
+}
+
+static int
+linux_dev_close(struct dev_close_args *ap)
+{
+	if (ap->a_fp == NULL)
+		return (EINVAL);
+	return (linux_file_close(ap->a_fp, curthread));
+}
+
+static int
+linux_dev_read(struct dev_read_args *ap)
+{
+	struct ucred *cred;
+
+	if (ap->a_fp == NULL)
+		return (EINVAL);
+	cred = ap->a_fp->f_cred != NULL ? ap->a_fp->f_cred : curthread->td_ucred;
+	return (linux_file_read(ap->a_fp, ap->a_uio, cred, ap->a_ioflag, curthread));
+}
+
+static int
+linux_dev_write(struct dev_write_args *ap)
+{
+	struct ucred *cred;
+
+	if (ap->a_fp == NULL)
+		return (EINVAL);
+	cred = ap->a_fp->f_cred != NULL ? ap->a_fp->f_cred : curthread->td_ucred;
+	return (linux_file_write(ap->a_fp, ap->a_uio, cred, ap->a_ioflag, curthread));
+}
+
+static int
+linux_dev_ioctl(struct dev_ioctl_args *ap)
+{
+	if (ap->a_fp == NULL)
+		return (EINVAL);
+	return (linux_file_ioctl(ap->a_fp, ap->a_cmd, ap->a_data, ap->a_cred,
+	    curthread));
+}
+
+static int
+linux_dev_mmap_single(struct dev_mmap_single_args *ap)
+{
+	struct linux_file *filp;
+	const struct file_operations *fop;
+	struct linux_cdev *ldev;
+	int error;
+
+	if (ap->a_fp == NULL)
+		return (EINVAL);
+	filp = (struct linux_file *)ap->a_fp->f_data;
+	if (filp == NULL)
+		return (EINVAL);
+
+	linux_get_fop(filp, &fop, &ldev);
+	error = linux_file_mmap_single(ap->a_fp, fop, ap->a_offset, ap->a_size,
+	    ap->a_object, ap->a_nprot, true, curthread);
+	linux_drop_fop(ldev);
+
+	return (error);
+}
+
+static int
+linux_dev_kqfilter(struct dev_kqfilter_args *ap)
+{
+	int error;
+
+	if (ap->a_fp == NULL)
+		return (EINVAL);
+	if (ap->a_kn == NULL)
+		return (EINVAL);
+
+	error = linux_file_kqfilter(ap->a_fp, ap->a_kn);
+	if (error == 0)
+		ap->a_result = 0;
+	return (error);
+}
 
 struct dev_ops linuxdev_ops = {
 	{ "lkpidev", 0, D_MPSAFE },
 	.d_default = NULL,
-	.d_open = NULL,		/* XXX: needs linux_dev_open wrapper */
-	.d_close = NULL,
-	.d_read = NULL,
-	.d_write = NULL,
-	.d_ioctl = NULL,
+	.d_open = linux_dev_open,
+	.d_close = linux_dev_close,
+	.d_read = linux_dev_read,
+	.d_write = linux_dev_write,
+	.d_ioctl = linux_dev_ioctl,
 	.d_mmap = NULL,
-	.d_mmap_single = NULL,
+	.d_mmap_single = linux_dev_mmap_single,
+	.d_kqfilter = linux_dev_kqfilter,
 };
 #else /* FreeBSD */
 struct cdevsw linuxcdevsw = {
