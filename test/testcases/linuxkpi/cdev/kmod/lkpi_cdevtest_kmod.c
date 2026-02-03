@@ -35,10 +35,10 @@
 #include <sys/param.h>
 #include <sys/kernel.h>
 #include <sys/errno.h>
+#include <sys/module.h>
 
 #include "../../../../sys/compat/linuxkpi/common/include/linux/cdev.h"
 #include "../../../../sys/compat/linuxkpi/common/include/linux/fs.h"
-#include "../../../../sys/compat/linuxkpi/common/include/linux/module.h"
 #include "../../../../sys/compat/linuxkpi/common/include/asm/uaccess.h"
 
 #include "../lkpi_cdevtest.h"
@@ -123,7 +123,7 @@ lkpi_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 }
 
 static const struct file_operations lkpi_cdev_fops = {
-	.owner = THIS_MODULE,
+	.owner = NULL,
 	.open = lkpi_cdev_open,
 	.release = lkpi_cdev_release,
 	.read = lkpi_cdev_read,
@@ -141,7 +141,7 @@ lkpi_cdevtest_init(void)
 	if (lkpi_cdev == NULL)
 		return -ENOMEM;
 
-	lkpi_cdev->owner = THIS_MODULE;
+	lkpi_cdev->owner = NULL;
 	cdev_init(lkpi_cdev, &lkpi_cdev_fops);
 
 	error = kobject_set_name(&lkpi_cdev->kobj, LKPI_CDEVTEST_DEVNAME);
@@ -173,9 +173,32 @@ lkpi_cdevtest_exit(void)
 	}
 }
 
-module_init(lkpi_cdevtest_init);
-module_exit(lkpi_cdevtest_exit);
+static int
+lkpi_cdevtest_modevent(module_t mod, int type, void *data)
+{
+	int error = 0;
 
-MODULE_LICENSE("BSD");
-MODULE_AUTHOR("DragonFly Project");
-MODULE_DESCRIPTION("LinuxKPI cdev/devfs bridge test module");
+	switch (type) {
+	case MOD_LOAD:
+		error = lkpi_cdevtest_init();
+		break;
+	case MOD_UNLOAD:
+		lkpi_cdevtest_exit();
+		break;
+	default:
+		error = EOPNOTSUPP;
+		break;
+	}
+
+	return error;
+}
+
+static moduledata_t lkpi_cdevtest_mod = {
+	"lkpi_cdevtest_kmod",
+	lkpi_cdevtest_modevent,
+	NULL
+};
+
+DECLARE_MODULE(lkpi_cdevtest_kmod, lkpi_cdevtest_mod,
+    SI_SUB_DRIVERS, SI_ORDER_MIDDLE);
+MODULE_VERSION(lkpi_cdevtest_kmod, 1);

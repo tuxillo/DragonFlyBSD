@@ -1,4 +1,5 @@
 #include <sys/types.h>
+#include <sys/param.h>
 #include <sys/stat.h>
 int kldload(const char *);
 int kldunload(int);
@@ -31,6 +32,25 @@ wait_for_device(const char *path, int retries, int usec)
 	return -1;
 }
 
+static const char *
+find_kmod_path(void)
+{
+	static const char *candidates[] = {
+		LKPI_CDEVTEST_KO_PATH,
+		"kmod/obj/lkpi_cdevtest_kmod.ko",
+		NULL
+	};
+	struct stat sb;
+	int i;
+
+	for (i = 0; candidates[i] != NULL; i++) {
+		if (stat(candidates[i], &sb) == 0)
+			return candidates[i];
+	}
+
+	return NULL;
+}
+
 static int
 find_module_id(void)
 {
@@ -55,12 +75,17 @@ find_module_id(void)
 static int
 do_pre(void)
 {
+	const char *kmod_path;
 	int id;
 
-	printf("Loading %s...\n", LKPI_CDEVTEST_KO_PATH);
-	id = kldload(LKPI_CDEVTEST_KO_PATH);
+	kmod_path = find_kmod_path();
+	if (kmod_path == NULL)
+		errx(1, "kernel module not found under kmod/");
+
+	printf("Loading %s...\n", kmod_path);
+	id = kldload(kmod_path);
 	if (id < 0)
-		err(1, "kldload(%s)", LKPI_CDEVTEST_KO_PATH);
+		err(1, "kldload(%s)", kmod_path);
 
 	if (wait_for_device(LKPI_CDEVTEST_DEVPATH, 200, 10000) != 0)
 		errx(1, "device node %s not found", LKPI_CDEVTEST_DEVPATH);
