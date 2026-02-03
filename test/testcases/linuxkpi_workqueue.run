@@ -34,3 +34,16 @@ linuxkpi/workqueue/wq_test28_stress_cancel/wq_test28.ko		kernel	defaults
 linuxkpi/workqueue/wq_test29_cancel_retval/wq_test29.ko		kernel	defaults
 linuxkpi/workqueue/wq_test30_delayed_zero/wq_test30.ko		kernel	defaults
 linuxkpi/workqueue/wq_test31_i915_requeue/wq_test31.ko		kernel	defaults
+linuxkpi/workqueue/wq_test32_delayed_onstack/wq_test32.ko		kernel	defaults
+linuxkpi/workqueue/wq_test33_mod_delayed_exec/wq_test33.ko		kernel	defaults
+linuxkpi/workqueue/wq_test34_rcu_work/wq_test34.ko		kernel	defaults
+linuxkpi/workqueue/wq_test35_drain_rcu/wq_test35.ko		kernel	defaults
+linuxkpi/workqueue/wq_test36_cancel_delayed_nosync/wq_test36.ko	kernel	defaults
+linuxkpi/workqueue/wq_test37_cancel_choice/wq_test37.ko		kernel	defaults
+linuxkpi/workqueue/wq_test38_highpri_unbound/wq_test38.ko		kernel	defaults
+linuxkpi/workqueue/wq_test39_gated_queue/wq_test39.ko		kernel	defaults
+linuxkpi/workqueue/wq_test40_irq_queue/wq_test40.ko		kernel	defaults
+linuxkpi/workqueue/wq_test41_flush_distinction/wq_test41.ko	kernel	defaults
+linuxkpi/workqueue/wq_test42_cancel_loop/wq_test42.ko		kernel	defaults
+linuxkpi/workqueue/wq_test43_multi_flush/wq_test43.ko		kernel	defaults
+linuxkpi/workqueue/wq_test44_refcounted_work/wq_test44.ko		kernel	defaults

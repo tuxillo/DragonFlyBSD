@@ -491,7 +491,7 @@ These are prioritized by how critical they are for i915 functionality.
 ### High Priority (Blocks i915 functionality)
 
 #### Test 32: INIT_DELAYED_WORK_ONSTACK
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests stack-allocated delayed work:
 ```c
@@ -507,7 +507,7 @@ destroy_delayed_work_on_stack(&w->work);
 ---
 
 #### Test 33: mod_delayed_work on executing work
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests `mod_delayed_work()` called on work that is currently executing:
 ```c
@@ -522,7 +522,7 @@ Test 17 covers basic `mod_delayed_work` but NOT this specific edge case.
 ---
 
 #### Test 36: cancel_delayed_work (non-sync) conditional cleanup
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests using `cancel_delayed_work()` (non-sync) return value for conditional cleanup:
 ```c
@@ -539,7 +539,7 @@ Only releases resource if work was actually cancelled (was pending).
 ---
 
 #### Test 42: cancel_delayed_work_sync loop pattern
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests looping until `cancel_delayed_work_sync()` returns false:
 ```c
@@ -560,7 +560,7 @@ Needed when work reschedules itself and you need to ensure it's fully stopped.
 ### Medium Priority (Important for stability)
 
 #### Test 34: queue_rcu_work
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests RCU-delayed work queueing:
 ```c
@@ -572,7 +572,7 @@ queue_rcu_work(ve->context.engine->i915->unordered_wq, &ve->rcu);
 ---
 
 #### Test 35: Iterative drain with RCU barrier
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests the GEM shutdown pattern:
 ```c
@@ -591,7 +591,7 @@ void i915_gem_drain_workqueue(struct drm_i915_private *i915) {
 ---
 
 #### Test 37: Conditional sync vs non-sync cancel
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests choosing between sync/non-sync cancel based on lock state:
 ```c
@@ -607,7 +607,7 @@ else
 ---
 
 #### Test 41: flush_delayed_work vs flush_work distinction
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests that `flush_delayed_work()` waits for both timer AND work execution,
 while `flush_work()` only waits for work execution:
@@ -623,7 +623,7 @@ flush_delayed_work(&engine->wakeref.work);
 ### Lower Priority (Optimization/edge cases)
 
 #### Test 38: WQ_HIGHPRI | WQ_UNBOUND combined flags
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests combined workqueue flags:
 ```c
@@ -638,7 +638,7 @@ Tests 24/25 test these flags separately but not in combination.
 ---
 
 #### Test 39: Gated work queueing
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests checking a condition before queueing:
 ```c
@@ -655,7 +655,7 @@ static bool mod_delayed_detection_work(...) {
 ---
 
 #### Test 40: Work queuing from IRQ context
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests queueing to `system_unbound_wq` from IRQ/softirq context:
 ```c
@@ -671,7 +671,7 @@ if (ref->flags & I915_ACTIVE_RETIRE_SLEEPS) {
 ---
 
 #### Test 43: Multiple workqueue flush sequence
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests correct ordering when flushing multiple workqueues:
 ```c
@@ -688,7 +688,7 @@ void intel_display_driver_remove(struct drm_i915_private *i915) {
 ---
 
 #### Test 44: Reference-counted work
-**Status:** Not implemented
+**Status:** Implemented
 
 Tests work that holds a reference to prevent use-after-free:
 ```c
@@ -718,23 +718,8 @@ i915 uses these system workqueues:
 
 ## Known LinuxKPI Issues
 
-### Issue: Self-requeueing delayed work fails (Test 16)
-
-**Symptom:** `schedule_delayed_work()` called from within a delayed work callback
-doesn't work - the requeue is silently lost.
-
-**Root cause:** In `linux_work_fn()`, after the work callback completes, it
-unconditionally calls `linux_update_state()` which transitions
-`WORK_ST_TIMER -> WORK_ST_EXEC -> WORK_ST_IDLE`. This clobbers the timer that
-was just scheduled from within the callback.
-
-**Impact:** Any delayed work that tries to requeue itself with a non-zero delay
-will fail. This breaks:
-- amdgpu VCN/UVD/VCE/JPEG idle work handlers
-- i915 heartbeat
-- Any periodic maintenance work
-
-**Status:** Needs fix in `sys/compat/linuxkpi/common/src/linux_work.c`
+No known workqueue issues at this time. The self-requeueing delayed work pattern
+used by amdgpu and i915 is now covered by tests 16 and 31 and passes consistently.
 
 ---
 
