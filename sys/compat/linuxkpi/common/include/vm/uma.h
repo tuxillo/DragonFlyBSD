@@ -236,12 +236,6 @@ uma_zdestroy(uma_zone_t zone)
 }
 
 static __inline void *
-uma_zalloc(uma_zone_t zone, int flags)
-{
-    return uma_zalloc_arg(zone, NULL, flags);
-}
-
-static __inline void *
 uma_zalloc_arg(uma_zone_t zone, void *arg, int flags)
 {
     void *item;
@@ -285,12 +279,6 @@ uma_zalloc_arg(uma_zone_t zone, void *arg, int flags)
 }
 
 static __inline void
-uma_zfree(uma_zone_t zone, void *item)
-{
-    uma_zfree_arg(zone, item, NULL);
-}
-
-static __inline void
 uma_zfree_arg(uma_zone_t zone, void *item, void *arg)
 {
     if (zone == NULL || item == NULL)
@@ -303,6 +291,18 @@ uma_zfree_arg(uma_zone_t zone, void *item, void *arg)
 
     uma_zone_put_raw(zone, item);
     zone->frees++;
+}
+
+static __inline void *
+uma_zalloc(uma_zone_t zone, int flags)
+{
+    return uma_zalloc_arg(zone, NULL, flags);
+}
+
+static __inline void
+uma_zfree(uma_zone_t zone, void *item)
+{
+    uma_zfree_arg(zone, item, NULL);
 }
 
 /* uma_zcache_create - FreeBSD function for creating a cache-backed UMA zone */
