@@ -64,7 +64,7 @@ wq_test40_run(void)
     atomic_set(&irq_work_count, 0);
     INIT_WORK(&irq_work, test_irq_work_fn);
 
-    callout_init(&irq_callout);
+    callout_init(&irq_callout, 0);
     callout_reset(&irq_callout, hz / 100, irq_callout_fn, NULL);
 
     while (atomic_read(&irq_work_count) < 1 && loops < 200) {

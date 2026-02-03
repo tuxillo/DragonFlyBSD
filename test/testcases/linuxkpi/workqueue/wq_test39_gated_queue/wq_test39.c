@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2025
- *\tThe DragonFly Project.  All rights reserved.
+ *    The DragonFly Project.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -63,7 +63,7 @@ wq_test39_run(void)
 
     INIT_DELAYED_WORK(&gated_dwork, test_gated_fn);
 
-\t/* Disabled gate */
+    /* Disabled gate */
     gated_enabled = false;
     atomic_set(&gated_count, 0);
     if (gated_queue(system_wq, &gated_dwork, hz / 10)) {
@@ -79,7 +79,7 @@ wq_test39_run(void)
         errors++;
     }
 
-\t/* Enabled gate */
+    /* Enabled gate */
     gated_enabled = true;
     if (!gated_queue(system_wq, &gated_dwork, hz / 10))
         tbridge_printf("INFO: gated queue returned false while enabled\n");

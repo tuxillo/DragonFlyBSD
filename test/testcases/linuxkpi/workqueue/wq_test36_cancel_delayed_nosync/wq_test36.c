@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2025
- *\tThe DragonFly Project.  All rights reserved.
+ *    The DragonFly Project.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -56,7 +56,7 @@ wq_test36_run(void)
 
     INIT_DELAYED_WORK(&test_dwork, test_work_fn);
 
-\t/* Subtest 1: cancel pending work should return true and cleanup */
+    /* Subtest 1: cancel pending work should return true and cleanup */
     atomic_set(&work_executed, 0);
     atomic_set(&cleanup_count, 0);
     schedule_delayed_work(&test_dwork, hz * 5);
@@ -87,7 +87,7 @@ wq_test36_run(void)
         errors++;
     }
 
-\t/* Subtest 2: cancel non-pending work should return false */
+    /* Subtest 2: cancel non-pending work should return false */
     atomic_set(&cleanup_count, 0);
     was_pending = cancel_delayed_work(&test_dwork);
 

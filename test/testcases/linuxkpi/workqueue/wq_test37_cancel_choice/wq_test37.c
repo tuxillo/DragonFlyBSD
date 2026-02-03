@@ -1,6 +1,6 @@
 /*-
  * Copyright (c) 2025
- *\tThe DragonFly Project.  All rights reserved.
+ *    The DragonFly Project.  All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -55,7 +55,7 @@ wq_test37_run(void)
 
     INIT_DELAYED_WORK(&test_dwork, test_work_fn);
 
-\t/* Subtest 1: use non-sync cancel */
+    /* Subtest 1: use non-sync cancel */
     atomic_set(&work_executed, 0);
     schedule_delayed_work(&test_dwork, hz * 5);
     pause("wqwait", hz / 100);
@@ -69,7 +69,7 @@ wq_test37_run(void)
     }
     cancel_delayed_work_sync(&test_dwork);
 
-\t/* Subtest 2: use sync cancel */
+    /* Subtest 2: use sync cancel */
     atomic_set(&work_executed, 0);
     schedule_delayed_work(&test_dwork, hz * 5);
     pause("wqwait", hz / 100);
@@ -82,7 +82,7 @@ wq_test37_run(void)
         errors++;
     }
 
-\t/* Subtest 3: non-pending should return false */
+    /* Subtest 3: non-pending should return false */
     was_pending = cancel_delayed_work_sync(&test_dwork);
     if (!was_pending) {
         tbridge_printf("PASS: sync cancel returned false for non-pending\n");
