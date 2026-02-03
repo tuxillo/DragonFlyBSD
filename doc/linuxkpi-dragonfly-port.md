@@ -811,12 +811,81 @@ taskqueue_poll_is_busy(struct taskqueue *tq __unused, struct task *t __unused)
 
 **Goal:** Implement `vm_radix_*`, `vm_reserv_*`, and `sf_buf_kva()` properly.
 
-**Approach:**
-1. **For vm_radix:** Study FreeBSD's VM radix tree implementation; either:
-   - Port FreeBSD's implementation to DragonFly, OR
-   - Use DragonFly's existing radix tree (if available) with LinuxKPI wrapper
-2. **For vm_reserv:** Study FreeBSD's reservation system; implement DragonFly version
-3. **For sf_buf_kva:** Fix to return proper kernel virtual address
+**Approach (Detailed Plan):**
+1. **sf_buf_* (must-fix before DRM runtime)**
+   - Current LinuxKPI stub in `sys/compat/linuxkpi/common/include/sys/sf_buf.h`
+     returns `0` for `sf_buf_kva()` and uses dummy alloc/free.
+   - LinuxKPI paths that rely on it:
+     - `sys/compat/linuxkpi/common/include/linux/highmem.h`
+     - `sys/compat/linuxkpi/common/include/linux/scatterlist.h`
+   - DragonFly already has a real sfbuf subsystem:
+     - API: `sys/sys/sfbuf.h` (uses lwbuf)
+     - Impl: `sys/kern/kern_sfbuf.c`
+   - Plan:
+     - Replace the LinuxKPI sf_buf stub with a compatibility bridge to
+       DragonFly’s sfbuf (lwbuf) implementation.
+     - Provide wrappers with the FreeBSD-style LinuxKPI signature
+       (`sf_buf_alloc(vm_page_t, int flags)`), while routing to DragonFly
+       `sf_buf_alloc(struct vm_page *)`.
+     - Ensure `sf_buf_kva()` returns a valid kernel mapping and that
+       `sf_buf_free()`/`sf_buf_ref()` map to DragonFly semantics.
+
+2. **vm_radix_* (required for i915)**
+   - Current LinuxKPI `sys/compat/linuxkpi/common/include/vm/vm_radix.h` is
+     a stub that returns NULL/0 and fakes iteration.
+   - drm-kmod i915 uses `vm_object_set_memattr()` and may iterate pages using
+     `VM_RADIX_FORALL` or FreeBSD-style page iterators.
+   - DragonFly’s `vm_page_next()` only walks consecutive pages, not a full
+     tree traversal, so it cannot replace VM radix iteration by itself.
+   - DragonFly resident pages are stored in an RB tree on the object:
+     - `struct vm_object::rb_memq` in `sys/vm/vm_object.h`
+     - RB tree helpers in `sys/vm/vm_page.h` / `sys/vm/vm_page.c`
+   - Plan:
+     - Implement a real radix-like container for LinuxKPI (RB-tree or
+       existing DragonFly tree primitives), with correct lookup/insert/remove
+       and iteration semantics.
+     - Define and document locking expectations (caller holds object/lock).
+     - Keep the API shape compatible with FreeBSD’s vm_radix use sites.
+
+3. **vm_object_set_memattr() runtime behavior**
+   - A minimal DragonFly wrapper was added for LinuxKPI to set `memattr` only
+     when `resident_page_count == 0`.
+   - i915 has a fallback path that iterates pages to update memattr when
+     `vm_object_set_memattr()` fails; on DragonFly that iteration is currently
+     not reliable.
+   - Plan:
+     - Prefer extending the wrapper to update existing resident pages’
+       memattr using RB-tree iteration over `rb_memq`, so i915 does not need
+       the fallback per-page loop.
+
+4. **vm_reserv_***
+   - Current LinuxKPI `sys/compat/linuxkpi/common/include/vm/vm_reserv.h` is
+     stubbed (often returns ENOMEM or no-ops).
+   - drm-kmod currently shows no direct `vm_reserv_*` use, but this must be
+     confirmed during drm-kmod build and module load.
+   - Plan:
+     - If required, implement a minimal safe reservation layer, or map to
+       DragonFly primitives where possible.
+     - Avoid leaving stubs that silently succeed in safety-critical paths.
+
+**Equivalence Notes (FreeBSD vs DragonFly):**
+- `sf_buf_*`:
+  - FreeBSD API in `~/s/freebsd/sys/sys/sf_buf.h` with implementation in
+    `~/s/freebsd/sys/kern/subr_sfbuf.c`.
+  - DragonFly API in `sys/sys/sfbuf.h` with implementation in
+    `sys/kern/kern_sfbuf.c` using lwbuf + objcache.
+  - Compat should wrap DragonFly’s real sfbuf (avoid LinuxKPI stub).
+- `vm_radix_*`:
+  - FreeBSD uses vm_radix/pctrie for VM object resident pages.
+  - DragonFly uses RB trees (`rb_memq`) for resident pages.
+  - Compat should use RB tree traversal for iteration and lookup semantics.
+- `vm_object_set_memattr()`:
+  - FreeBSD enforces “no resident pages” via `vm_radix_is_empty()`.
+  - DragonFly has `memattr` field but no setter; compat wrapper must enforce
+    safety and/or update existing pages as needed.
+- `vm_reserv_*`:
+  - FreeBSD provides a full superpage reservation subsystem.
+  - DragonFly has no VM reservation subsystem in-tree.
 
 **Alternative for vm_radix/vm_reserv:**
 If DragonFly doesn't have equivalent functionality, DRM drivers might work with fallback implementations that use basic malloc/free with tracking.
@@ -831,13 +900,19 @@ If DragonFly doesn't have equivalent functionality, DRM drivers might work with 
 **Goal:** Fix UMA, per-CPU, VGA arbitration, and stack tracing stubs.
 
 **Priority Order:**
-1. **sf_buf_kva()** - Critical for DMA (do with Phase 3C)
-2. **uma_zcreate/alloc/free** - Performance optimization (can use malloc fallback for now)
-3. **pcpu_alloc** - Performance optimization (can use regular allocation for now)
-4. **vga_get/put** - Only needed for multi-GPU systems
-5. **stack_save** - Debug feature only
+1. **UMA (`uma_zcreate/alloc/free`)** - Performance optimization (malloc fallback may be acceptable short-term)
+2. **Per-CPU alloc (`pcpu_alloc/malloc`)** - Performance optimization (can use regular allocation for now)
+3. **VGA arbitration (`vga_get/put`)** - Only needed for multi-GPU systems
+4. **Stack tracing (`stack_save`)** - Debug feature only
 
 **Approach:** Implement following FreeBSD patterns where applicable, or document that fallback behavior is acceptable for GPU/DRM use case.
+
+**Detailed Notes:**
+- UMA: prioritize correctness first, then perf; if malloc fallback is used,
+  document expected overhead and add TODOs for zone caching.
+- Per-CPU alloc: ensure non-NULL allocations for drm-kmod paths; perf tuning can follow.
+- VGA arbitration: defer unless multi-GPU testing is planned.
+- Stack save: keep as low-priority, but ensure panic/debug paths do not crash.
 
 ### Testing and Validation
 
