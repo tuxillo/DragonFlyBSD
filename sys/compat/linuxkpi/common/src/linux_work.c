@@ -552,7 +552,8 @@ linux_cancel_delayed_work(struct delayed_work *dwork)
 	switch (linux_update_state(&dwork->work.state, states)) {
 	case WORK_ST_TIMER:
 	case WORK_ST_CANCEL:
-		cancelled = (callout_stop(&dwork->timer.callout) == 1);
+		cancelled = (callout_pending(&dwork->timer.callout) != 0);
+		callout_stop(&dwork->timer.callout);
 		if (cancelled) {
 			atomic_cmpxchg(&dwork->work.state,
 			    WORK_ST_CANCEL, WORK_ST_IDLE);
@@ -606,7 +607,8 @@ linux_cancel_delayed_work_sync_int(struct delayed_work *dwork)
 		return (false);
 	case WORK_ST_TIMER:
 	case WORK_ST_CANCEL:
-		cancelled = (callout_stop(&dwork->timer.callout) == 1);
+		cancelled = (callout_pending(&dwork->timer.callout) != 0);
+		callout_stop(&dwork->timer.callout);
 
 		tq = linux_get_taskqueue(dwork->work.work_queue,
 		    dwork->work.queue_index);
