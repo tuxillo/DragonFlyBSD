@@ -1,4 +1,5 @@
 SUBDIR+= basic
+SUBDIR+= cdev
 SUBDIR+= workqueue
 SUBDIR+= irqwork
 SUBDIR+= memory

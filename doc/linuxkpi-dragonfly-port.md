@@ -39,7 +39,7 @@ ad8f587d67 linuxkpi: Add rman_res_t for DragonFly
 ### Build Status
 
 **Last tested:** 2026-02-03
-**Result:** PASS (`quickkernel` on X86_64_GENERIC) - includes Phase 3D.2 per-CPU
+**Result:** PASS (`quickkernel` on X86_64_GENERIC) - includes Phase 3D.4 stack debug
 
 LinuxKPI now builds cleanly in the DragonFly kernel. Remaining work is
 functional validation (drm-kmod build and runtime) and reducing stubbed
@@ -1044,6 +1044,7 @@ ls -la /dev/drm*
 - ✓ Eventfd support added (required for syncobj)
 - ✓ UMA compatibility shim updated to use objcache-backed zones with ctor/dtor and reserve/prealloc
 - ✓ LKPI per-CPU storage backed by a dedicated pcpu array (no td_pcpu reliance)
+- ✓ LKPI stack dump now prints DragonFly backtrace
 
 ### In Progress
 - ⏳ DRM runtime validation (device node + mmap path)

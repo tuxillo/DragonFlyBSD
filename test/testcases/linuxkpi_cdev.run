@@ -1,0 +1,4 @@
+# LinuxKPI cdev/devfs bridge tests
+# Run with: dfregress -r linuxkpi_cdev.run
+
+linuxkpi/cdev/linuxkpi_cdev	userland	intpre,intpost,timeout=60
