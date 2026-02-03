@@ -45,62 +45,62 @@ static struct work_struct work;
 static void
 test_work_fn(struct work_struct *work)
 {
-\tatomic_inc(&work_count);
+    atomic_inc(&work_count);
 }
 
 static void
 test_rcu_fn(struct work_struct *work)
 {
-\tatomic_inc(&rcu_count);
+    atomic_inc(&rcu_count);
 }
 
 static int
 wq_test35_run(void)
 {
-\tstruct workqueue_struct *wq;
-\tint errors = 0;
-\tint i;
+    struct workqueue_struct *wq;
+    int errors = 0;
+    int i;
 
-\ttbridge_printf("Test: iterative drain with RCU barrier...\n");
+    tbridge_printf("Test: iterative drain with RCU barrier...\n");
 
-\twq = alloc_workqueue("drain_rcu_wq", 0, 1);
-\tif (wq == NULL) {
-\t\ttbridge_printf("FAIL: alloc_workqueue() failed\n");
-\t\treturn 1;
-\t}
+    wq = alloc_workqueue("drain_rcu_wq", 0, 1);
+    if (wq == NULL) {
+        tbridge_printf("FAIL: alloc_workqueue() failed\n");
+        return 1;
+    }
 
-\tatomic_set(&work_count, 0);
-\tatomic_set(&rcu_count, 0);
+    atomic_set(&work_count, 0);
+    atomic_set(&rcu_count, 0);
 
-\tfor (i = 0; i < 3; i++) {
-\t\tINIT_WORK(&work, test_work_fn);
-\t\tINIT_RCU_WORK(&rwork, test_rcu_fn);
+    for (i = 0; i < 3; i++) {
+        INIT_WORK(&work, test_work_fn);
+        INIT_RCU_WORK(&rwork, test_rcu_fn);
 
-\t\tqueue_work(wq, &work);
-\t\tqueue_rcu_work(wq, &rwork);
+        queue_work(wq, &work);
+        queue_rcu_work(wq, &rwork);
 
-\t\tflush_workqueue(wq);
-\t\trcu_barrier();
-\t}
+        flush_workqueue(wq);
+        rcu_barrier();
+    }
 
-\tif (atomic_read(&work_count) == 3) {
-\t\ttbridge_printf("PASS: work drained across iterations\n");
-\t} else {
-\t\ttbridge_printf("FAIL: expected 3 work runs, got %d\n",
-\t\t    atomic_read(&work_count));
-\t\terrors++;
-\t}
+    if (atomic_read(&work_count) == 3) {
+        tbridge_printf("PASS: work drained across iterations\n");
+    } else {
+        tbridge_printf("FAIL: expected 3 work runs, got %d\n",
+            atomic_read(&work_count));
+        errors++;
+    }
 
-\tif (atomic_read(&rcu_count) == 3) {
-\t\ttbridge_printf("PASS: rcu work drained across iterations\n");
-\t} else {
-\t\ttbridge_printf("FAIL: expected 3 rcu runs, got %d\n",
-\t\t    atomic_read(&rcu_count));
-\t\terrors++;
-\t}
+    if (atomic_read(&rcu_count) == 3) {
+        tbridge_printf("PASS: rcu work drained across iterations\n");
+    } else {
+        tbridge_printf("FAIL: expected 3 rcu runs, got %d\n",
+            atomic_read(&rcu_count));
+        errors++;
+    }
 
-\tdestroy_workqueue(wq);
-\treturn errors;
+    destroy_workqueue(wq);
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test35, "iterative drain with RCU barrier");

@@ -41,37 +41,37 @@ static atomic_t onstack_count = ATOMIC_INIT(0);
 static void
 test_onstack_fn(struct work_struct *work)
 {
-\tatomic_inc(&onstack_count);
+    atomic_inc(&onstack_count);
 }
 
 static int
 wq_test32_run(void)
 {
-\tstruct delayed_work dwork;
-\tint errors = 0;
+    struct delayed_work dwork;
+    int errors = 0;
 
-\ttbridge_printf("Test: INIT_DELAYED_WORK_ONSTACK...\n");
+    tbridge_printf("Test: INIT_DELAYED_WORK_ONSTACK...\n");
 
-\tatomic_set(&onstack_count, 0);
-\tINIT_DELAYED_WORK_ONSTACK(&dwork, test_onstack_fn);
+    atomic_set(&onstack_count, 0);
+    INIT_DELAYED_WORK_ONSTACK(&dwork, test_onstack_fn);
 
-\tif (!schedule_delayed_work(&dwork, hz / 20))
-\t\ttbridge_printf("INFO: schedule_delayed_work() returned false\n");
+    if (!schedule_delayed_work(&dwork, hz / 20))
+        tbridge_printf("INFO: schedule_delayed_work() returned false\n");
 
-\tflush_delayed_work(&dwork);
+    flush_delayed_work(&dwork);
 
-\tif (atomic_read(&onstack_count) == 1) {
-\t\ttbridge_printf("PASS: on-stack delayed work executed\n");
-\t} else {
-\t\ttbridge_printf("FAIL: expected 1 execution, got %d\n",
-\t\t    atomic_read(&onstack_count));
-\t\terrors++;
-\t}
+    if (atomic_read(&onstack_count) == 1) {
+        tbridge_printf("PASS: on-stack delayed work executed\n");
+    } else {
+        tbridge_printf("FAIL: expected 1 execution, got %d\n",
+            atomic_read(&onstack_count));
+        errors++;
+    }
 
-\tcancel_delayed_work_sync(&dwork);
-\tdestroy_delayed_work_on_stack(&dwork);
+    cancel_delayed_work_sync(&dwork);
+    destroy_delayed_work_on_stack(&dwork);
 
-\treturn errors;
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test32, "INIT_DELAYED_WORK_ONSTACK");

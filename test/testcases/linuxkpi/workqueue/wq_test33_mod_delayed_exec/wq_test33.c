@@ -42,41 +42,41 @@ static struct delayed_work exec_dwork;
 static void
 test_exec_mod_fn(struct work_struct *work)
 {
-\tint count = atomic_inc_return(&exec_count);
+    int count = atomic_inc_return(&exec_count);
 
-\tif (count == 1)
-\t\tmod_delayed_work(system_wq, &exec_dwork, hz / 20);
+    if (count == 1)
+        mod_delayed_work(system_wq, &exec_dwork, hz / 20);
 }
 
 static int
 wq_test33_run(void)
 {
-\tint errors = 0;
-\tint loops = 0;
+    int errors = 0;
+    int loops = 0;
 
-\ttbridge_printf("Test: mod_delayed_work while executing...\n");
+    tbridge_printf("Test: mod_delayed_work while executing...\n");
 
-\tatomic_set(&exec_count, 0);
-\tINIT_DELAYED_WORK(&exec_dwork, test_exec_mod_fn);
+    atomic_set(&exec_count, 0);
+    INIT_DELAYED_WORK(&exec_dwork, test_exec_mod_fn);
 
-\tqueue_delayed_work(system_wq, &exec_dwork, hz / 20);
+    queue_delayed_work(system_wq, &exec_dwork, hz / 20);
 
-\twhile (atomic_read(&exec_count) < 2 && loops < 200) {
-\t\tpause("wqwait", hz / 100);
-\t\tloops++;
-\t}
+    while (atomic_read(&exec_count) < 2 && loops < 200) {
+        pause("wqwait", hz / 100);
+        loops++;
+    }
 
-\tif (atomic_read(&exec_count) == 2) {
-\t\ttbridge_printf("PASS: mod_delayed_work rescheduled executing work\n");
-\t} else {
-\t\ttbridge_printf("FAIL: expected 2 executions, got %d\n",
-\t\t    atomic_read(&exec_count));
-\t\terrors++;
-\t}
+    if (atomic_read(&exec_count) == 2) {
+        tbridge_printf("PASS: mod_delayed_work rescheduled executing work\n");
+    } else {
+        tbridge_printf("FAIL: expected 2 executions, got %d\n",
+            atomic_read(&exec_count));
+        errors++;
+    }
 
-\tcancel_delayed_work_sync(&exec_dwork);
+    cancel_delayed_work_sync(&exec_dwork);
 
-\treturn errors;
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test33, "mod_delayed_work on executing work");

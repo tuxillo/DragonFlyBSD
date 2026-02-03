@@ -42,48 +42,48 @@ static struct delayed_work loop_dwork;
 static void
 test_loop_fn(struct work_struct *work)
 {
-\tint count = atomic_inc_return(&loop_count);
+    int count = atomic_inc_return(&loop_count);
 
-\tif (count < 3)
-\t\tschedule_delayed_work(&loop_dwork, hz / 50);
+    if (count < 3)
+        schedule_delayed_work(&loop_dwork, hz / 50);
 }
 
 static int
 wq_test42_run(void)
 {
-\tint errors = 0;
-\tint loops = 0;
+    int errors = 0;
+    int loops = 0;
 
-\ttbridge_printf("Test: cancel_delayed_work_sync loop pattern...\n");
+    tbridge_printf("Test: cancel_delayed_work_sync loop pattern...\n");
 
-\tatomic_set(&loop_count, 0);
-\tINIT_DELAYED_WORK(&loop_dwork, test_loop_fn);
+    atomic_set(&loop_count, 0);
+    INIT_DELAYED_WORK(&loop_dwork, test_loop_fn);
 
-\tschedule_delayed_work(&loop_dwork, hz / 50);
-\tpause("wqwait", hz / 20);
+    schedule_delayed_work(&loop_dwork, hz / 50);
+    pause("wqwait", hz / 20);
 
-\twhile (cancel_delayed_work_sync(&loop_dwork)) {
-\t\tloops++;
-\t\tif (loops > 10) {
-\t\t\ttbridge_printf("FAIL: cancel loop did not converge\n");
-\t\t\terrors++;
-\t\t\tbreak;
-\t\t}
-\t}
+    while (cancel_delayed_work_sync(&loop_dwork)) {
+        loops++;
+        if (loops > 10) {
+            tbridge_printf("FAIL: cancel loop did not converge\n");
+            errors++;
+            break;
+        }
+    }
 
-\tif (loops >= 1) {
-\t\ttbridge_printf("PASS: cancel loop completed after %d iterations\n", loops);
-\t} else {
-\t\ttbridge_printf("FAIL: cancel loop did not cancel pending work\n");
-\t\terrors++;
-\t}
+    if (loops >= 1) {
+        tbridge_printf("PASS: cancel loop completed after %d iterations\n", loops);
+    } else {
+        tbridge_printf("FAIL: cancel loop did not cancel pending work\n");
+        errors++;
+    }
 
-\tif (delayed_work_pending(&loop_dwork)) {
-\t\ttbridge_printf("FAIL: delayed work still pending after loop\n");
-\t\terrors++;
-\t}
+    if (delayed_work_pending(&loop_dwork)) {
+        tbridge_printf("FAIL: delayed work still pending after loop\n");
+        errors++;
+    }
 
-\treturn errors;
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test42, "cancel_delayed_work_sync loop pattern");

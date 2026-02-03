@@ -44,46 +44,46 @@ static struct callout irq_callout;
 static void
 test_irq_work_fn(struct work_struct *work)
 {
-\tatomic_inc(&irq_work_count);
+    atomic_inc(&irq_work_count);
 }
 
 static void
 irq_callout_fn(void *arg)
 {
-\tqueue_work(system_unbound_wq, &irq_work);
+    queue_work(system_unbound_wq, &irq_work);
 }
 
 static int
 wq_test40_run(void)
 {
-\tint errors = 0;
-\tint loops = 0;
+    int errors = 0;
+    int loops = 0;
 
-\ttbridge_printf("Test: queueing from IRQ/softirq context...\n");
+    tbridge_printf("Test: queueing from IRQ/softirq context...\n");
 
-\tatomic_set(&irq_work_count, 0);
-\tINIT_WORK(&irq_work, test_irq_work_fn);
+    atomic_set(&irq_work_count, 0);
+    INIT_WORK(&irq_work, test_irq_work_fn);
 
-\tcallout_init(&irq_callout);
-\tcallout_reset(&irq_callout, hz / 100, irq_callout_fn, NULL);
+    callout_init(&irq_callout);
+    callout_reset(&irq_callout, hz / 100, irq_callout_fn, NULL);
 
-\twhile (atomic_read(&irq_work_count) < 1 && loops < 200) {
-\t\tpause("wqwait", hz / 100);
-\t\tloops++;
-\t}
+    while (atomic_read(&irq_work_count) < 1 && loops < 200) {
+        pause("wqwait", hz / 100);
+        loops++;
+    }
 
-\tif (atomic_read(&irq_work_count) == 1) {
-\t\ttbridge_printf("PASS: work queued from callout executed\n");
-\t} else {
-\t\ttbridge_printf("FAIL: work did not execute (count=%d)\n",
-\t\t    atomic_read(&irq_work_count));
-\t\terrors++;
-\t}
+    if (atomic_read(&irq_work_count) == 1) {
+        tbridge_printf("PASS: work queued from callout executed\n");
+    } else {
+        tbridge_printf("FAIL: work did not execute (count=%d)\n",
+            atomic_read(&irq_work_count));
+        errors++;
+    }
 
-\tcallout_stop(&irq_callout);
-\tflush_work(&irq_work);
+    callout_stop(&irq_callout);
+    flush_work(&irq_work);
 
-\treturn errors;
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test40, "work queueing from IRQ/softirq context");

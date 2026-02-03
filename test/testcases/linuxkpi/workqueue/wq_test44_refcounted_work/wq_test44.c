@@ -42,37 +42,37 @@ static struct work_struct ref_work;
 static void
 test_ref_fn(struct work_struct *work)
 {
-\tatomic_dec(&refcount);
+    atomic_dec(&refcount);
 }
 
 static int
 wq_test44_run(void)
 {
-\tint errors = 0;
+    int errors = 0;
 
-\ttbridge_printf("Test: reference-counted work...\n");
+    tbridge_printf("Test: reference-counted work...\n");
 
-\tINIT_WORK(&ref_work, test_ref_fn);
+    INIT_WORK(&ref_work, test_ref_fn);
 
-\tatomic_inc(&refcount);
-\tqueue_work(system_wq, &ref_work);
-\tflush_work(&ref_work);
+    atomic_inc(&refcount);
+    queue_work(system_wq, &ref_work);
+    flush_work(&ref_work);
 
-\tif (atomic_read(&refcount) == 1) {
-\t\ttbridge_printf("PASS: refcount released by work\n");
-\t} else {
-\t\ttbridge_printf("FAIL: expected refcount 1, got %d\n",
-\t\t    atomic_read(&refcount));
-\t\terrors++;
-\t}
+    if (atomic_read(&refcount) == 1) {
+        tbridge_printf("PASS: refcount released by work\n");
+    } else {
+        tbridge_printf("FAIL: expected refcount 1, got %d\n",
+            atomic_read(&refcount));
+        errors++;
+    }
 
-\tatomic_dec(&refcount);
-\tif (atomic_read(&refcount) != 0) {
-\t\ttbridge_printf("FAIL: expected refcount 0 after final put\n");
-\t\terrors++;
-\t}
+    atomic_dec(&refcount);
+    if (atomic_read(&refcount) != 0) {
+        tbridge_printf("FAIL: expected refcount 0 after final put\n");
+        errors++;
+    }
 
-\treturn errors;
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test44, "reference-counted work");

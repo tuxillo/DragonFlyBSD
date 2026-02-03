@@ -42,49 +42,49 @@ static struct delayed_work test_dwork;
 static void
 test_work_fn(struct work_struct *work)
 {
-\tatomic_inc(&work_count);
+    atomic_inc(&work_count);
 }
 
 static int
 wq_test41_run(void)
 {
-\tint errors = 0;
-\tbool flushed;
+    int errors = 0;
+    bool flushed;
 
-\ttbridge_printf("Test: flush_delayed_work vs flush_work...\n");
+    tbridge_printf("Test: flush_delayed_work vs flush_work...\n");
 
-\tINIT_DELAYED_WORK(&test_dwork, test_work_fn);
-\tatomic_set(&work_count, 0);
+    INIT_DELAYED_WORK(&test_dwork, test_work_fn);
+    atomic_set(&work_count, 0);
 
-\tschedule_delayed_work(&test_dwork, hz * 5);
+    schedule_delayed_work(&test_dwork, hz * 5);
 
-\tflushed = flush_work(&test_dwork.work);
-\tif (flushed) {
-\t\ttbridge_printf("INFO: flush_work reported busy\n");
-\t}
+    flushed = flush_work(&test_dwork.work);
+    if (flushed) {
+        tbridge_printf("INFO: flush_work reported busy\n");
+    }
 
-\tif (atomic_read(&work_count) != 0) {
-\t\ttbridge_printf("FAIL: flush_work executed delayed work early\n");
-\t\terrors++;
-\t}
+    if (atomic_read(&work_count) != 0) {
+        tbridge_printf("FAIL: flush_work executed delayed work early\n");
+        errors++;
+    }
 
-\tif (!delayed_work_pending(&test_dwork)) {
-\t\ttbridge_printf("FAIL: delayed work not pending after flush_work\n");
-\t\terrors++;
-\t}
+    if (!delayed_work_pending(&test_dwork)) {
+        tbridge_printf("FAIL: delayed work not pending after flush_work\n");
+        errors++;
+    }
 
-\tflush_delayed_work(&test_dwork);
+    flush_delayed_work(&test_dwork);
 
-\tif (atomic_read(&work_count) == 1) {
-\t\ttbridge_printf("PASS: flush_delayed_work waited for execution\n");
-\t} else {
-\t\ttbridge_printf("FAIL: expected 1 execution, got %d\n",
-\t\t    atomic_read(&work_count));
-\t\terrors++;
-\t}
+    if (atomic_read(&work_count) == 1) {
+        tbridge_printf("PASS: flush_delayed_work waited for execution\n");
+    } else {
+        tbridge_printf("FAIL: expected 1 execution, got %d\n",
+            atomic_read(&work_count));
+        errors++;
+    }
 
-\tcancel_delayed_work_sync(&test_dwork);
-\treturn errors;
+    cancel_delayed_work_sync(&test_dwork);
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test41, "flush_delayed_work vs flush_work");

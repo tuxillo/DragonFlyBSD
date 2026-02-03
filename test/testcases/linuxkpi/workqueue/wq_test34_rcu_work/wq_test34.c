@@ -43,43 +43,43 @@ static struct rcu_work rwork;
 static void
 test_rcu_fn(struct work_struct *work)
 {
-\tatomic_inc(&rcu_count);
+    atomic_inc(&rcu_count);
 }
 
 static int
 wq_test34_run(void)
 {
-\tstruct workqueue_struct *wq;
-\tint errors = 0;
+    struct workqueue_struct *wq;
+    int errors = 0;
 
-\ttbridge_printf("Test: queue_rcu_work...\n");
+    tbridge_printf("Test: queue_rcu_work...\n");
 
-\twq = alloc_workqueue("rcu_work_wq", 0, 1);
-\tif (wq == NULL) {
-\t\ttbridge_printf("FAIL: alloc_workqueue() failed\n");
-\t\treturn 1;
-\t}
+    wq = alloc_workqueue("rcu_work_wq", 0, 1);
+    if (wq == NULL) {
+        tbridge_printf("FAIL: alloc_workqueue() failed\n");
+        return 1;
+    }
 
-\tatomic_set(&rcu_count, 0);
-\tINIT_RCU_WORK(&rwork, test_rcu_fn);
+    atomic_set(&rcu_count, 0);
+    INIT_RCU_WORK(&rwork, test_rcu_fn);
 
-\tif (!queue_rcu_work(wq, &rwork)) {
-\t\ttbridge_printf("FAIL: queue_rcu_work() returned false\n");
-\t\terrors++;
-\t}
+    if (!queue_rcu_work(wq, &rwork)) {
+        tbridge_printf("FAIL: queue_rcu_work() returned false\n");
+        errors++;
+    }
 
-\tflush_rcu_work(&rwork);
+    flush_rcu_work(&rwork);
 
-\tif (atomic_read(&rcu_count) == 1) {
-\t\ttbridge_printf("PASS: rcu work executed\n");
-\t} else {
-\t\ttbridge_printf("FAIL: expected 1 execution, got %d\n",
-\t\t    atomic_read(&rcu_count));
-\t\terrors++;
-\t}
+    if (atomic_read(&rcu_count) == 1) {
+        tbridge_printf("PASS: rcu work executed\n");
+    } else {
+        tbridge_printf("FAIL: expected 1 execution, got %d\n",
+            atomic_read(&rcu_count));
+        errors++;
+    }
 
-\tdestroy_workqueue(wq);
-\treturn errors;
+    destroy_workqueue(wq);
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test34, "queue_rcu_work");

@@ -43,59 +43,59 @@ static bool gated_enabled;
 static void
 test_gated_fn(struct work_struct *work)
 {
-\tatomic_inc(&gated_count);
+    atomic_inc(&gated_count);
 }
 
 static bool
 gated_queue(struct workqueue_struct *wq, struct delayed_work *dwork, unsigned long delay)
 {
-\tif (!gated_enabled)
-\t\treturn (false);
-\treturn mod_delayed_work(wq, dwork, delay);
+    if (!gated_enabled)
+        return (false);
+    return mod_delayed_work(wq, dwork, delay);
 }
 
 static int
 wq_test39_run(void)
 {
-\tint errors = 0;
+    int errors = 0;
 
-\ttbridge_printf("Test: gated work queueing...\n");
+    tbridge_printf("Test: gated work queueing...\n");
 
-\tINIT_DELAYED_WORK(&gated_dwork, test_gated_fn);
+    INIT_DELAYED_WORK(&gated_dwork, test_gated_fn);
 
 \t/* Disabled gate */
-\tgated_enabled = false;
-\tatomic_set(&gated_count, 0);
-\tif (gated_queue(system_wq, &gated_dwork, hz / 10)) {
-\t\ttbridge_printf("FAIL: gated queue returned true while disabled\n");
-\t\terrors++;
-\t} else {
-\t\ttbridge_printf("PASS: gated queue returned false while disabled\n");
-\t}
+    gated_enabled = false;
+    atomic_set(&gated_count, 0);
+    if (gated_queue(system_wq, &gated_dwork, hz / 10)) {
+        tbridge_printf("FAIL: gated queue returned true while disabled\n");
+        errors++;
+    } else {
+        tbridge_printf("PASS: gated queue returned false while disabled\n");
+    }
 
-\tpause("wqwait", hz / 10);
-\tif (atomic_read(&gated_count) != 0) {
-\t\ttbridge_printf("FAIL: work executed while gated\n");
-\t\terrors++;
-\t}
+    pause("wqwait", hz / 10);
+    if (atomic_read(&gated_count) != 0) {
+        tbridge_printf("FAIL: work executed while gated\n");
+        errors++;
+    }
 
 \t/* Enabled gate */
-\tgated_enabled = true;
-\tif (!gated_queue(system_wq, &gated_dwork, hz / 10))
-\t\ttbridge_printf("INFO: gated queue returned false while enabled\n");
+    gated_enabled = true;
+    if (!gated_queue(system_wq, &gated_dwork, hz / 10))
+        tbridge_printf("INFO: gated queue returned false while enabled\n");
 
-\tflush_delayed_work(&gated_dwork);
+    flush_delayed_work(&gated_dwork);
 
-\tif (atomic_read(&gated_count) == 1) {
-\t\ttbridge_printf("PASS: work executed when gate enabled\n");
-\t} else {
-\t\ttbridge_printf("FAIL: expected 1 execution, got %d\n",
-\t\t    atomic_read(&gated_count));
-\t\terrors++;
-\t}
+    if (atomic_read(&gated_count) == 1) {
+        tbridge_printf("PASS: work executed when gate enabled\n");
+    } else {
+        tbridge_printf("FAIL: expected 1 execution, got %d\n",
+            atomic_read(&gated_count));
+        errors++;
+    }
 
-\tcancel_delayed_work_sync(&gated_dwork);
-\treturn errors;
+    cancel_delayed_work_sync(&gated_dwork);
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test39, "gated work queueing");

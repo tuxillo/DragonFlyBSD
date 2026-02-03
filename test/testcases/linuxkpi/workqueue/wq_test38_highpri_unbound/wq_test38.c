@@ -41,39 +41,39 @@ static atomic_t work_count = ATOMIC_INIT(0);
 static void
 test_work_fn(struct work_struct *work)
 {
-\tatomic_inc(&work_count);
+    atomic_inc(&work_count);
 }
 
 static int
 wq_test38_run(void)
 {
-\tstruct workqueue_struct *wq;
-\tstruct work_struct work;
-\tint errors = 0;
+    struct workqueue_struct *wq;
+    struct work_struct work;
+    int errors = 0;
 
-\ttbridge_printf("Test: WQ_HIGHPRI | WQ_UNBOUND combined...\n");
+    tbridge_printf("Test: WQ_HIGHPRI | WQ_UNBOUND combined...\n");
 
-\twq = alloc_workqueue("hp_unbound", WQ_HIGHPRI | WQ_UNBOUND, 0);
-\tif (wq == NULL) {
-\t\ttbridge_printf("FAIL: alloc_workqueue() failed\n");
-\t\treturn 1;
-\t}
+    wq = alloc_workqueue("hp_unbound", WQ_HIGHPRI | WQ_UNBOUND, 0);
+    if (wq == NULL) {
+        tbridge_printf("FAIL: alloc_workqueue() failed\n");
+        return 1;
+    }
 
-\tatomic_set(&work_count, 0);
-\tINIT_WORK(&work, test_work_fn);
-\tqueue_work(wq, &work);
-\tflush_work(&work);
+    atomic_set(&work_count, 0);
+    INIT_WORK(&work, test_work_fn);
+    queue_work(wq, &work);
+    flush_work(&work);
 
-\tif (atomic_read(&work_count) == 1) {
-\t\ttbridge_printf("PASS: combined flags work executed\n");
-\t} else {
-\t\ttbridge_printf("FAIL: expected 1 execution, got %d\n",
-\t\t    atomic_read(&work_count));
-\t\terrors++;
-\t}
+    if (atomic_read(&work_count) == 1) {
+        tbridge_printf("PASS: combined flags work executed\n");
+    } else {
+        tbridge_printf("FAIL: expected 1 execution, got %d\n",
+            atomic_read(&work_count));
+        errors++;
+    }
 
-\tdestroy_workqueue(wq);
-\treturn errors;
+    destroy_workqueue(wq);
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test38, "WQ_HIGHPRI | WQ_UNBOUND combined");

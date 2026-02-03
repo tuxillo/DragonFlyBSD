@@ -42,56 +42,56 @@ static struct delayed_work test_dwork;
 static void
 test_work_fn(struct work_struct *work)
 {
-\tatomic_inc(&work_executed);
+    atomic_inc(&work_executed);
 }
 
 static int
 wq_test37_run(void)
 {
-\tint errors = 0;
-\tbool was_pending;
+    int errors = 0;
+    bool was_pending;
 
-\ttbridge_printf("Test: conditional sync vs non-sync cancel...\n");
+    tbridge_printf("Test: conditional sync vs non-sync cancel...\n");
 
-\tINIT_DELAYED_WORK(&test_dwork, test_work_fn);
+    INIT_DELAYED_WORK(&test_dwork, test_work_fn);
 
 \t/* Subtest 1: use non-sync cancel */
-\tatomic_set(&work_executed, 0);
-\tschedule_delayed_work(&test_dwork, hz * 5);
-\tpause("wqwait", hz / 100);
+    atomic_set(&work_executed, 0);
+    schedule_delayed_work(&test_dwork, hz * 5);
+    pause("wqwait", hz / 100);
 
-\twas_pending = cancel_delayed_work(&test_dwork);
-\tif (was_pending) {
-\t\ttbridge_printf("PASS: non-sync cancel returned true\n");
-\t} else {
-\t\ttbridge_printf("FAIL: non-sync cancel returned false for pending\n");
-\t\terrors++;
-\t}
-\tcancel_delayed_work_sync(&test_dwork);
+    was_pending = cancel_delayed_work(&test_dwork);
+    if (was_pending) {
+        tbridge_printf("PASS: non-sync cancel returned true\n");
+    } else {
+        tbridge_printf("FAIL: non-sync cancel returned false for pending\n");
+        errors++;
+    }
+    cancel_delayed_work_sync(&test_dwork);
 
 \t/* Subtest 2: use sync cancel */
-\tatomic_set(&work_executed, 0);
-\tschedule_delayed_work(&test_dwork, hz * 5);
-\tpause("wqwait", hz / 100);
+    atomic_set(&work_executed, 0);
+    schedule_delayed_work(&test_dwork, hz * 5);
+    pause("wqwait", hz / 100);
 
-\twas_pending = cancel_delayed_work_sync(&test_dwork);
-\tif (was_pending) {
-\t\ttbridge_printf("PASS: sync cancel returned true\n");
-\t} else {
-\t\ttbridge_printf("FAIL: sync cancel returned false for pending\n");
-\t\terrors++;
-\t}
+    was_pending = cancel_delayed_work_sync(&test_dwork);
+    if (was_pending) {
+        tbridge_printf("PASS: sync cancel returned true\n");
+    } else {
+        tbridge_printf("FAIL: sync cancel returned false for pending\n");
+        errors++;
+    }
 
 \t/* Subtest 3: non-pending should return false */
-\twas_pending = cancel_delayed_work_sync(&test_dwork);
-\tif (!was_pending) {
-\t\ttbridge_printf("PASS: sync cancel returned false for non-pending\n");
-\t} else {
-\t\ttbridge_printf("FAIL: sync cancel returned true for non-pending\n");
-\t\terrors++;
-\t}
+    was_pending = cancel_delayed_work_sync(&test_dwork);
+    if (!was_pending) {
+        tbridge_printf("PASS: sync cancel returned false for non-pending\n");
+    } else {
+        tbridge_printf("FAIL: sync cancel returned true for non-pending\n");
+        errors++;
+    }
 
-\treturn errors;
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test37, "conditional sync vs non-sync cancel");

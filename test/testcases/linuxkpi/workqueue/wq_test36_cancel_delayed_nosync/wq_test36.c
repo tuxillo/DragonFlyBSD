@@ -43,69 +43,69 @@ static struct delayed_work test_dwork;
 static void
 test_work_fn(struct work_struct *work)
 {
-\tatomic_inc(&work_executed);
+    atomic_inc(&work_executed);
 }
 
 static int
 wq_test36_run(void)
 {
-\tint errors = 0;
-\tbool was_pending;
+    int errors = 0;
+    bool was_pending;
 
-\ttbridge_printf("Test: cancel_delayed_work (non-sync) conditional cleanup...\n");
+    tbridge_printf("Test: cancel_delayed_work (non-sync) conditional cleanup...\n");
 
-\tINIT_DELAYED_WORK(&test_dwork, test_work_fn);
+    INIT_DELAYED_WORK(&test_dwork, test_work_fn);
 
 \t/* Subtest 1: cancel pending work should return true and cleanup */
-\tatomic_set(&work_executed, 0);
-\tatomic_set(&cleanup_count, 0);
-\tschedule_delayed_work(&test_dwork, hz * 5);
-\tpause("wqwait", hz / 100);
+    atomic_set(&work_executed, 0);
+    atomic_set(&cleanup_count, 0);
+    schedule_delayed_work(&test_dwork, hz * 5);
+    pause("wqwait", hz / 100);
 
-\twas_pending = cancel_delayed_work(&test_dwork);
-\tif (was_pending)
-\t\tatomic_inc(&cleanup_count);
+    was_pending = cancel_delayed_work(&test_dwork);
+    if (was_pending)
+        atomic_inc(&cleanup_count);
 
-\tif (was_pending) {
-\t\ttbridge_printf("PASS: cancel_delayed_work returned true for pending\n");
-\t} else {
-\t\ttbridge_printf("FAIL: cancel_delayed_work returned false for pending\n");
-\t\terrors++;
-\t}
+    if (was_pending) {
+        tbridge_printf("PASS: cancel_delayed_work returned true for pending\n");
+    } else {
+        tbridge_printf("FAIL: cancel_delayed_work returned false for pending\n");
+        errors++;
+    }
 
-\tif (atomic_read(&cleanup_count) == 1) {
-\t\ttbridge_printf("PASS: cleanup executed when cancelled\n");
-\t} else {
-\t\ttbridge_printf("FAIL: cleanup not executed as expected\n");
-\t\terrors++;
-\t}
+    if (atomic_read(&cleanup_count) == 1) {
+        tbridge_printf("PASS: cleanup executed when cancelled\n");
+    } else {
+        tbridge_printf("FAIL: cleanup not executed as expected\n");
+        errors++;
+    }
 
-\tcancel_delayed_work_sync(&test_dwork);
+    cancel_delayed_work_sync(&test_dwork);
 
-\tif (atomic_read(&work_executed) != 0) {
-\t\ttbridge_printf("FAIL: work executed despite cancel\n");
-\t\terrors++;
-\t}
+    if (atomic_read(&work_executed) != 0) {
+        tbridge_printf("FAIL: work executed despite cancel\n");
+        errors++;
+    }
 
 \t/* Subtest 2: cancel non-pending work should return false */
-\tatomic_set(&cleanup_count, 0);
-\twas_pending = cancel_delayed_work(&test_dwork);
+    atomic_set(&cleanup_count, 0);
+    was_pending = cancel_delayed_work(&test_dwork);
 
-\tif (!was_pending) {
-\t\ttbridge_printf("PASS: cancel_delayed_work returned false for non-pending\n");
-\t} else {
-\t\ttbridge_printf("FAIL: cancel_delayed_work returned true for non-pending\n");
-\t\terrors++;
-\t}
+    if (!was_pending) {
+        tbridge_printf("PASS: cancel_delayed_work returned false for non-pending\n");
+    } else {
+        tbridge_printf("FAIL: cancel_delayed_work returned true for non-pending\n");
+        errors++;
+    }
 
-\tif (atomic_read(&cleanup_count) == 0) {
-\t\ttbridge_printf("PASS: cleanup not executed for non-pending\n");
-\t} else {
-\t\ttbridge_printf("FAIL: cleanup executed unexpectedly\n");
-\t\terrors++;
-\t}
+    if (atomic_read(&cleanup_count) == 0) {
+        tbridge_printf("PASS: cleanup not executed for non-pending\n");
+    } else {
+        tbridge_printf("FAIL: cleanup executed unexpectedly\n");
+        errors++;
+    }
 
-\treturn errors;
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test36, "cancel_delayed_work non-sync conditional cleanup");

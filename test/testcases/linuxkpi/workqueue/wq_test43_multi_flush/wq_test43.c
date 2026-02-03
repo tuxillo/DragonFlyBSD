@@ -43,76 +43,76 @@ static atomic_t wq3_count = ATOMIC_INIT(0);
 static void
 test_wq1_fn(struct work_struct *work)
 {
-\tatomic_inc(&wq1_count);
+    atomic_inc(&wq1_count);
 }
 
 static void
 test_wq2_fn(struct work_struct *work)
 {
-\tatomic_inc(&wq2_count);
+    atomic_inc(&wq2_count);
 }
 
 static void
 test_wq3_fn(struct work_struct *work)
 {
-\tatomic_inc(&wq3_count);
+    atomic_inc(&wq3_count);
 }
 
 static int
 wq_test43_run(void)
 {
-\tstruct workqueue_struct *wq1;
-\tstruct workqueue_struct *wq2;
-\tstruct workqueue_struct *wq3;
-\tstruct work_struct work1, work2, work3;
-\tint errors = 0;
+    struct workqueue_struct *wq1;
+    struct workqueue_struct *wq2;
+    struct workqueue_struct *wq3;
+    struct work_struct work1, work2, work3;
+    int errors = 0;
 
-\ttbridge_printf("Test: multiple workqueue flush sequence...\n");
+    tbridge_printf("Test: multiple workqueue flush sequence...\n");
 
-\twq1 = alloc_ordered_workqueue("wq1", 0);
-\twq2 = alloc_workqueue("wq2", WQ_UNBOUND, 0);
-\twq3 = alloc_workqueue("wq3", WQ_HIGHPRI, 0);
-\tif (wq1 == NULL || wq2 == NULL || wq3 == NULL) {
-\t\ttbridge_printf("FAIL: alloc_workqueue() failed\n");
-\t\tif (wq1)
-\t\t\tdestroy_workqueue(wq1);
-\t\tif (wq2)
-\t\t\tdestroy_workqueue(wq2);
-\t\tif (wq3)
-\t\t\tdestroy_workqueue(wq3);
-\t\treturn 1;
-\t}
+    wq1 = alloc_ordered_workqueue("wq1", 0);
+    wq2 = alloc_workqueue("wq2", WQ_UNBOUND, 0);
+    wq3 = alloc_workqueue("wq3", WQ_HIGHPRI, 0);
+    if (wq1 == NULL || wq2 == NULL || wq3 == NULL) {
+        tbridge_printf("FAIL: alloc_workqueue() failed\n");
+        if (wq1)
+            destroy_workqueue(wq1);
+        if (wq2)
+            destroy_workqueue(wq2);
+        if (wq3)
+            destroy_workqueue(wq3);
+        return 1;
+    }
 
-\tatomic_set(&wq1_count, 0);
-\tatomic_set(&wq2_count, 0);
-\tatomic_set(&wq3_count, 0);
+    atomic_set(&wq1_count, 0);
+    atomic_set(&wq2_count, 0);
+    atomic_set(&wq3_count, 0);
 
-\tINIT_WORK(&work1, test_wq1_fn);
-\tINIT_WORK(&work2, test_wq2_fn);
-\tINIT_WORK(&work3, test_wq3_fn);
+    INIT_WORK(&work1, test_wq1_fn);
+    INIT_WORK(&work2, test_wq2_fn);
+    INIT_WORK(&work3, test_wq3_fn);
 
-\tqueue_work(wq1, &work1);
-\tqueue_work(wq2, &work2);
-\tqueue_work(wq3, &work3);
+    queue_work(wq1, &work1);
+    queue_work(wq2, &work2);
+    queue_work(wq3, &work3);
 
-\tflush_workqueue(wq1);
-\tflush_workqueue(wq2);
-\tflush_workqueue(wq3);
+    flush_workqueue(wq1);
+    flush_workqueue(wq2);
+    flush_workqueue(wq3);
 
-\tif (atomic_read(&wq1_count) != 1 || atomic_read(&wq2_count) != 1 ||
-\t    atomic_read(&wq3_count) != 1) {
-\t\ttbridge_printf("FAIL: counts wq1=%d wq2=%d wq3=%d\n",
-\t\t    atomic_read(&wq1_count), atomic_read(&wq2_count),
-\t\t    atomic_read(&wq3_count));
-\t\terrors++;
-\t} else {
-\t\ttbridge_printf("PASS: all workqueues flushed in sequence\n");
-\t}
+    if (atomic_read(&wq1_count) != 1 || atomic_read(&wq2_count) != 1 ||
+        atomic_read(&wq3_count) != 1) {
+        tbridge_printf("FAIL: counts wq1=%d wq2=%d wq3=%d\n",
+            atomic_read(&wq1_count), atomic_read(&wq2_count),
+            atomic_read(&wq3_count));
+        errors++;
+    } else {
+        tbridge_printf("PASS: all workqueues flushed in sequence\n");
+    }
 
-\tdestroy_workqueue(wq1);
-\tdestroy_workqueue(wq2);
-\tdestroy_workqueue(wq3);
-\treturn errors;
+    destroy_workqueue(wq1);
+    destroy_workqueue(wq2);
+    destroy_workqueue(wq3);
+    return errors;
 }
 
 DEFINE_WQ_TEST(wq_test43, "multiple workqueue flush sequence");
