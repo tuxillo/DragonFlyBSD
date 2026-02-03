@@ -35,6 +35,8 @@
 #include <sys/param.h>
 #include <sys/systm.h>
 #include <sys/malloc.h>
+#include <sys/pcpu.h>
+#include <sys/cpuset.h>
 #include <sys/kernel.h>
 #include <sys/sysctl.h>
 #include <sys/proc.h>
@@ -144,6 +146,36 @@ int linuxkpi_warn_dump_stack = 0;
 SYSCTL_INT(_compat_linuxkpi, OID_AUTO, warn_dump_stack, CTLFLAG_RWTUN,
     &linuxkpi_warn_dump_stack, 0,
     "Set to enable stack traces from WARN_ON(). Clear to disable.");
+
+struct pcpu *pcpu_base;
+
+static void
+lkpi_pcpu_init(void *arg __unused)
+{
+	int i;
+
+	pcpu_base = malloc(sizeof(*pcpu_base) * ncpus, M_TEMP,
+	    M_WAITOK | M_ZERO);
+	for (i = 0; i < ncpus; i++) {
+		pcpu_base[i].pc_cpuid = i;
+		pcpu_base[i].pc_domain = 0;
+		CPU_ZERO(&pcpu_base[i].pc_cpumask);
+		CPU_SET(i, &pcpu_base[i].pc_cpumask);
+		pcpu_base[i].pc_dynamic = NULL;
+	}
+}
+SYSINIT(lkpi_pcpu, SI_SUB_CPU, SI_ORDER_ANY, lkpi_pcpu_init, NULL);
+
+static void
+lkpi_pcpu_uninit(void *arg __unused)
+{
+
+	if (pcpu_base != NULL) {
+		free(pcpu_base, M_TEMP);
+		pcpu_base = NULL;
+	}
+}
+SYSUNINIT(lkpi_pcpu, SI_SUB_CPU, SI_ORDER_ANY, lkpi_pcpu_uninit, NULL);
 
 static struct timeval lkpi_net_lastlog;
 static int lkpi_net_curpps;

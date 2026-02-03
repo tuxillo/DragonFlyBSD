@@ -1041,6 +1041,7 @@ ls -la /dev/drm*
 - ✓ Basic taskqueue and workqueue infrastructure in place
 - ✓ Eventfd support added (required for syncobj)
 - ✓ UMA compatibility shim updated to use objcache-backed zones with ctor/dtor and reserve/prealloc
+- ✓ LKPI per-CPU storage backed by a dedicated pcpu array (no td_pcpu reliance)
 
 ### In Progress
 - ⏳ DRM runtime validation (device node + mmap path)

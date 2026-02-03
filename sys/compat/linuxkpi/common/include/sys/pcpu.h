@@ -30,7 +30,10 @@
 /* DragonFly per-CPU data compatibility for LinuxKPI (FreeBSD pcpu) */
 
 #include <sys/types.h>
+#include <sys/param.h>
+#include <sys/malloc.h>
 #include <sys/cpuset.h>
+#include <sys/thread.h>
 
 /* 
  * FreeBSD-style per-CPU data structure for LinuxKPI compatibility.
@@ -45,23 +48,46 @@ struct pcpu {
     void *pc_dynamic;       /* Dynamic data pointer */
 };
 
-/* Global pcpu array stub - would be properly initialized at runtime */
-#define MAXCPU  256
+/* Global pcpu array - initialized at runtime */
 extern struct pcpu *pcpu_base;
 
 /* PCPU pointer - returns pointer to this CPU's pcpu structure */
-#define pcpu_find(cpu)  (&pcpu_base[cpu])
+static __inline struct pcpu *
+pcpu_find(int cpu)
+{
+    if (pcpu_base == NULL || cpu < 0 || cpu >= ncpus)
+        return NULL;
+    return (&pcpu_base[cpu]);
+}
 
 /* PCPU data access macros - compatibility with FreeBSD */
-#define PCPU_PTR(member)        (&curthread->td_pcpu->member)
-#define PCPU_GET(member)        (curthread->td_pcpu->member)
-#define PCPU_SET(member, val)   (curthread->td_pcpu->member = (val))
-#define PCPU_ADD(member, val)   (curthread->td_pcpu->member += (val))
-#define PCPU_INC(member)        (++curthread->td_pcpu->member)
-#define PCPU_DEC(member)        (--curthread->td_pcpu->member)
+#ifdef PCPU_PTR
+#undef PCPU_PTR
+#endif
+#ifdef PCPU_GET
+#undef PCPU_GET
+#endif
+#ifdef PCPU_SET
+#undef PCPU_SET
+#endif
+#ifdef PCPU_ADD
+#undef PCPU_ADD
+#endif
+#ifdef PCPU_INC
+#undef PCPU_INC
+#endif
+#ifdef PCPU_DEC
+#undef PCPU_DEC
+#endif
+#define PCPU_PTR(member)        (pcpu_base != NULL ? &pcpu_base[mycpuid].member : NULL)
+#define PCPU_GET(member)        (pcpu_base != NULL ? pcpu_base[mycpuid].member : 0)
+#define PCPU_SET(member, val)   do { if (pcpu_base != NULL) pcpu_base[mycpuid].member = (val); } while (0)
+#define PCPU_ADD(member, val)   do { if (pcpu_base != NULL) pcpu_base[mycpuid].member += (val); } while (0)
+#define PCPU_INC(member)        do { if (pcpu_base != NULL) ++pcpu_base[mycpuid].member; } while (0)
+#define PCPU_DEC(member)        do { if (pcpu_base != NULL) --pcpu_base[mycpuid].member; } while (0)
 
 /* CPU ID macros */
-#define PCPU_CPUNO()    PCPU_GET(pc_cpuid)
+#define PCPU_CPUNO()    mycpuid
 
 /* CPU counter helpers - stubs */
 static __inline uint64_t
@@ -102,7 +128,7 @@ pcpu_zero(struct pcpu *pc)
 static __inline struct pcpu *
 pcpu_alloc(void)
 {
-    return NULL;
+    return pcpu_base;
 }
 
 static __inline void
@@ -124,12 +150,22 @@ pcpu_init(struct pcpu *pc, int cpu, size_t size)
 static __inline void *
 pcpu_malloc(size_t size)
 {
-    return NULL;
+    size_t stride;
+    size_t total;
+
+    if (size == 0)
+        return NULL;
+
+    stride = roundup2(size, CACHE_LINE_SIZE);
+    total = stride * ncpus;
+    return malloc(total, M_TEMP, M_WAITOK | M_ZERO);
 }
 
 static __inline void
 pcpu_free_data(void *ptr)
 {
+    if (ptr != NULL)
+        free(ptr, M_TEMP);
 }
 
 /* pcpu_for_each macro - iterate over all CPUs */
@@ -142,7 +178,7 @@ pcpu_free_data(void *ptr)
         if (CPU_ISSET(__cpu, mask) && ((pcp) = pcpu_find(__cpu), 1))
 
 /* Current CPU pcpu pointer */
-#define curpcpu curthread->td_pcpu
+#define curpcpu pcpu_find(mycpuid)
 
 /* NUMA domain helpers */
 static __inline int
@@ -164,12 +200,15 @@ pcpu_get_cpuid(struct pcpu *pc)
 static __inline void *
 dpcpu_alloc(size_t size, int domain)
 {
-    return NULL;
+    (void)domain;
+    return pcpu_malloc(size);
 }
 
 static __inline void
 dpcpu_free(void *ptr, size_t size)
 {
+    (void)size;
+    pcpu_free_data(ptr);
 }
 
 #endif /* _SYS_PCPU_H_ */
