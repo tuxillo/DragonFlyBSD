@@ -3204,12 +3204,7 @@ __unregister_chrdev(unsigned int major, unsigned int baseminor,
 void
 linux_dump_stack(void)
 {
-#ifdef STACK
-	struct stack st;
-
-	stack_save(&st);
-	stack_print(&st);
-#endif
+	print_backtrace(-1);
 }
 
 int

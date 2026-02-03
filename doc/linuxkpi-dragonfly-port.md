@@ -39,7 +39,7 @@ ad8f587d67 linuxkpi: Add rman_res_t for DragonFly
 ### Build Status
 
 **Last tested:** 2026-02-03
-**Result:** PASS (`quickkernel` on X86_64_GENERIC)
+**Result:** PASS (`quickkernel` on X86_64_GENERIC) - includes Phase 3D.2 per-CPU
 
 LinuxKPI now builds cleanly in the DragonFly kernel. Remaining work is
 functional validation (drm-kmod build and runtime) and reducing stubbed
@@ -946,6 +946,8 @@ If DragonFly doesn't have equivalent functionality, DRM drivers might work with 
 3) **VGA arbitration (minimal lock-based arb)**
    - Context: `linux/vgaarb.h` is no-op unless `CONFIG_VGA_ARB` is defined;
      multi-GPU systems may need coordination.
+   - Status: Deferred. drm-kmod references vgaarb (`i915`, `amdgpu`, `radeon`),
+     but we are not enabling `CONFIG_VGA_ARB` yet and single-GPU is acceptable.
    - Plan (step-by-step):
      1. Implement a minimal global arb with a mutex and per-device counters.
      2. Provide `vga_get`, `vga_tryget`, `vga_put`, `vga_set_legacy_decoding`

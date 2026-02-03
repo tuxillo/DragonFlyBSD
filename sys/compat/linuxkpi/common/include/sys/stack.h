@@ -30,6 +30,7 @@
 /* DragonFly stack compatibility for LinuxKPI (FreeBSD stack tracing) */
 
 #include <sys/types.h>
+#include <sys/systm.h>
 
 /* Stack structure - simplified for DragonFly */
 /* NOTE: Renamed from 'stack_t' to 'lkpi_stack_t' to avoid conflict
@@ -97,7 +98,7 @@ stack_cmp(lkpi_stack_t *s1, lkpi_stack_t *s2)
 static __inline void
 stack_print(lkpi_stack_t *st)
 {
-    /* Stub - would print stack trace */
+    print_backtrace(-1);
 }
 
 static __inline void
