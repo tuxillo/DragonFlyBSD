@@ -68,7 +68,8 @@ wq_test34_run(void)
         errors++;
     }
 
-    flush_rcu_work(&rwork);
+    rcu_barrier();
+    flush_work(&rwork.work);
 
     if (atomic_read(&rcu_count) == 1) {
         tbridge_printf("PASS: rcu work executed\n");
