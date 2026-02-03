@@ -38,8 +38,8 @@ ad8f587d67 linuxkpi: Add rman_res_t for DragonFly
 
 ### Build Status
 
-**Last tested:** 2026-01-31
-**Result:** PASS (full `buildkernel` on X86_64_GENERIC)
+**Last tested:** 2026-02-03
+**Result:** PASS (`quickkernel` on X86_64_GENERIC)
 
 LinuxKPI now builds cleanly in the DragonFly kernel. Remaining work is
 functional validation (drm-kmod build and runtime) and reducing stubbed
@@ -813,26 +813,20 @@ taskqueue_poll_is_busy(struct taskqueue *tq __unused, struct task *t __unused)
 
 **Approach (Detailed Plan):**
 1. **sf_buf_* (must-fix before DRM runtime)**
-   - Current LinuxKPI stub in `sys/compat/linuxkpi/common/include/sys/sf_buf.h`
-     returns `0` for `sf_buf_kva()` and uses dummy alloc/free.
+   - LinuxKPI stub replaced by a DMAP-first compatibility shim.
    - LinuxKPI paths that rely on it:
      - `sys/compat/linuxkpi/common/include/linux/highmem.h`
      - `sys/compat/linuxkpi/common/include/linux/scatterlist.h`
    - DragonFly already has a real sfbuf subsystem:
      - API: `sys/sys/sfbuf.h` (uses lwbuf)
      - Impl: `sys/kern/kern_sfbuf.c`
-   - Plan:
-     - Replace the LinuxKPI sf_buf stub with a compatibility bridge to
-       DragonFly’s sfbuf (lwbuf) implementation.
-     - Provide wrappers with the FreeBSD-style LinuxKPI signature
-       (`sf_buf_alloc(vm_page_t, int flags)`), while routing to DragonFly
-       `sf_buf_alloc(struct vm_page *)`.
-     - Ensure `sf_buf_kva()` returns a valid kernel mapping and that
-       `sf_buf_free()`/`sf_buf_ref()` map to DragonFly semantics.
+   - Implemented:
+     - DMAP-first compatibility shim for `sf_buf_alloc/free/ref/kva` in
+       `sys/compat/linuxkpi/common/include/sys/sf_buf.h`.
 
 2. **vm_radix_* (required for i915)**
-   - Current LinuxKPI `sys/compat/linuxkpi/common/include/vm/vm_radix.h` is
-     a stub that returns NULL/0 and fakes iteration.
+   - LinuxKPI `sys/compat/linuxkpi/common/include/vm/vm_radix.h` now provides
+     a real iterator surface over DragonFly’s `rb_memq`.
    - drm-kmod i915 uses `vm_object_set_memattr()` and may iterate pages using
      `VM_RADIX_FORALL` or FreeBSD-style page iterators.
    - DragonFly’s `vm_page_next()` only walks consecutive pages, not a full
@@ -840,23 +834,17 @@ taskqueue_poll_is_busy(struct taskqueue *tq __unused, struct task *t __unused)
    - DragonFly resident pages are stored in an RB tree on the object:
      - `struct vm_object::rb_memq` in `sys/vm/vm_object.h`
      - RB tree helpers in `sys/vm/vm_page.h` / `sys/vm/vm_page.c`
-   - Plan:
-     - Implement a real radix-like container for LinuxKPI (RB-tree or
-       existing DragonFly tree primitives), with correct lookup/insert/remove
-       and iteration semantics.
-     - Define and document locking expectations (caller holds object/lock).
-     - Keep the API shape compatible with FreeBSD’s vm_radix use sites.
+   - Implemented:
+     - RB-tree backed iterator helpers with FreeBSD-like macros and
+       documented locking expectations.
 
 3. **vm_object_set_memattr() runtime behavior**
-   - A minimal DragonFly wrapper was added for LinuxKPI to set `memattr` only
-     when `resident_page_count == 0`.
+   - DragonFly wrapper now updates resident pages when present.
    - i915 has a fallback path that iterates pages to update memattr when
      `vm_object_set_memattr()` fails; on DragonFly that iteration is currently
      not reliable.
-   - Plan:
-     - Prefer extending the wrapper to update existing resident pages’
-       memattr using RB-tree iteration over `rb_memq`, so i915 does not need
-       the fallback per-page loop.
+   - Implemented:
+     - `vm_object_set_memattr()` updates resident pages via RB-tree iteration.
 
 4. **vm_reserv_***
    - Current LinuxKPI `sys/compat/linuxkpi/common/include/vm/vm_reserv.h` is
@@ -913,6 +901,71 @@ If DragonFly doesn't have equivalent functionality, DRM drivers might work with 
 - Per-CPU alloc: ensure non-NULL allocations for drm-kmod paths; perf tuning can follow.
 - VGA arbitration: defer unless multi-GPU testing is planned.
 - Stack save: keep as low-priority, but ensure panic/debug paths do not crash.
+
+**Detailed Implementation Plan:**
+
+1) **UMA (correctness first, then perf)**
+   - Context:
+     - UMA is already used on critical LKPI paths:
+       - `sys/compat/linuxkpi/common/src/linux_slab.c` (kmem caches + RCU)
+       - `sys/compat/linuxkpi/common/src/linux_pci.c` (DMA pctrie/object pools)
+       - `sys/compat/linuxkpi/common/src/linux_current.c` (task/mm reserve)
+     - Current shim ignores ctor/dtor/zinit/zfini and reserve/prealloc.
+   - Plan (step-by-step):
+     1. Define UMA callback types (FreeBSD-compatible signatures) and store
+        them in `struct uma_zone` in `sys/compat/linuxkpi/common/include/vm/uma.h`.
+     2. Back UMA with DragonFly `objcache` (`sys/sys/objcache.h`):
+        - wrap alloc/free to use `_kmalloc`/`_kfree`
+        - run UMA ctor/dtor explicitly in `uma_zalloc[_arg]` and
+          `uma_zfree[_arg]` so ctor gets the arg.
+     3. Implement `uma_zone_reserve()` + `uma_prealloc()` to actually
+        pre-populate a reserved pool for `M_NOWAIT` paths.
+     4. Honor alignment flags (`UMA_ALIGN_PTR`, `UMA_ALIGN_CACHE`) and
+        `SLAB_HWCACHE_ALIGN` from LKPI slab caches.
+     5. Keep `vm/uma_int.h` minimal; only expand internals if a concrete
+        LKPI path requires it.
+   - Acceptance:
+     - `M_NOWAIT` allocations are safe on DMA/RCU paths.
+     - ctors run reliably (RCU cache pointer wiring works).
+     - prealloc improves non-sleepable allocation success rate.
+
+2) **Per-CPU allocation (avoid NULL, avoid td_pcpu misuse)**
+   - Context: LKPI `sys/pcpu.h` stubs return NULL; current macros should
+     not dereference DragonFly `td_pcpu` as a FreeBSD `struct pcpu`.
+   - Plan (step-by-step):
+     1. Add a dedicated LKPI per-cpu array (`lkpi_pcpu_base[ncpus]`) with
+        initialization at boot or LKPI init.
+     2. Route `pcpu_find()`/`PCPU_GET/SET/PTR` macros to the LKPI array.
+     3. Implement `pcpu_alloc()`/`pcpu_malloc()`/`dpcpu_alloc()` to return
+        non-NULL for WAITOK paths (domain ignored initially).
+     4. Keep `PCPU_CPUNO()` consistent with `PCPU_GET(cpuid)`.
+   - Acceptance:
+     - No NULL dereferences in LKPI uses.
+     - Future LKPI code gets sane per-cpu storage.
+
+3) **VGA arbitration (minimal lock-based arb)**
+   - Context: `linux/vgaarb.h` is no-op unless `CONFIG_VGA_ARB` is defined;
+     multi-GPU systems may need coordination.
+   - Plan (step-by-step):
+     1. Implement a minimal global arb with a mutex and per-device counters.
+     2. Provide `vga_get`, `vga_tryget`, `vga_put`, `vga_set_legacy_decoding`
+        as bookkeeping only (no hardware routing yet).
+     3. Keep it disabled by default (compile-time or sysctl), enable when
+        multi-GPU validation begins.
+   - Acceptance:
+     - No deadlocks; arbitration prevents conflicting legacy VGA access when enabled.
+
+4) **Stack tracing (debug value)**
+   - Context: LKPI `stack_save` is a stub; `linux_dump_stack()` uses it.
+   - Plan (step-by-step):
+     1. Implement `stack_print()` to call DragonFly `print_backtrace()`.
+     2. Keep `stack_save()` minimal (depth=0) unless a full capture API is needed.
+   - Acceptance:
+     - `linux_dump_stack()` produces a backtrace on DragonFly.
+
+**Validation:**
+- quickkernel after each batch
+- focused LKPI smoke tests where possible (e.g., allocations in `linux_slab.c`)
 
 ### Testing and Validation
 
@@ -980,25 +1033,26 @@ ls -la /dev/drm*
 
 ---
 
-## Current Implementation Status (as of 2026-02-01)
+## Current Implementation Status (as of 2026-02-03)
 
 ### Completed
 - ✓ LinuxKPI core imported and building
 - ✓ Non-GPU code removed (12,530+ lines)
 - ✓ Basic taskqueue and workqueue infrastructure in place
 - ✓ Eventfd support added (required for syncobj)
+- ✓ UMA compatibility shim updated to use objcache-backed zones with ctor/dtor and reserve/prealloc
 
 ### In Progress
-- ⏳ Device operations implementation (Phase 3B)
+- ⏳ DRM runtime validation (device node + mmap path)
 
 ### Blocked/Pending
-- ⏸ VM radix/reserv implementation (Phase 3C) - investigate if DRM actually needs these
-- ⏸ DRM-KMOD build attempt - blocked until Phase 3B (device ops) complete
+- ⏸ VM reserv implementation (Phase 3C) - only if required by DRM
+- ⏸ DRM-KMOD build attempt - pending validation gate
 
 ### Next Steps
 1. ✓ ~~Phase 3A: Taskqueue drain implementation~~ (COMPLETED 2026-02-01)
-2. **Phase 3B: Device operations implementation** - Implement `linuxdev_ops` in `linux_compat.c`
-3. **Phase 3C: VM/Memory stubs** - Investigate if DRM actually needs `vm_radix_*` and `vm_reserv_*`
+2. **Phase 3B: Device operations validation** - Verify devfs node + ioctl/mmap paths
+3. **Phase 3C: VM/Memory stubs** - Track `vm_reserv_*` only if required
 4. **DRM-KMOD build attempt** - Once device ops are functional
 5. **Testing** - Load drm-kmod modules in QEMU, verify GPU detection
 

@@ -291,8 +291,8 @@ Plan:
 
 ### Validation Checklist
 
-1) Build kernel (quickkernel) after adding the wrappers. (Pending)
-2) Confirm `linux_compat.c` no longer references missing symbols. (Pending)
+1) Build kernel (quickkernel) after adding the wrappers. (PASS 2026-02-03)
+2) Confirm `linux_compat.c` no longer references missing symbols. (PASS 2026-02-03)
 3) Run workqueue tests only if unrelated changes did not destabilize build.
 4) When drm-kmod is ready, validate:
 - device mapping via DRM nodes works
