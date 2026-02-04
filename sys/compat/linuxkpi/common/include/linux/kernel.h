@@ -130,6 +130,9 @@ extern int linuxkpi_warn_dump_stack;
 #undef PTR_ALIGN
 #define	PTR_ALIGN(p, a)		((__typeof(p))ALIGN((uintptr_t)(p), (a)))
 #define	IS_ALIGNED(x, a)	(((x) & ((__typeof(x))(a) - 1)) == 0)
+#ifndef __is_aligned
+#define	__is_aligned(x, a)	IS_ALIGNED((x), (a))
+#endif
 #define	__KERNEL_DIV_ROUND_UP(x, n)	howmany(x, n)
 #define	FIELD_SIZEOF(t, f)	sizeof(((t *)0)->f)
 
