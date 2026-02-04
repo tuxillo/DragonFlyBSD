@@ -59,15 +59,15 @@ refcount_dec(refcount_t *ref)
 }
 
 static inline unsigned int
-refcount_read(refcount_t *ref)
+refcount_read(const refcount_t *ref)
 {
-	return atomic_read(ref);
+	return atomic_read(__DECONST(refcount_t *, ref));
 }
 
 static inline unsigned int
-refcount_load(refcount_t *ref)
+refcount_load(const refcount_t *ref)
 {
-	return atomic_read(ref);
+	return atomic_read(__DECONST(refcount_t *, ref));
 }
 
 static inline bool

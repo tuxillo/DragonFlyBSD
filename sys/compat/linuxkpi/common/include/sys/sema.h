@@ -32,6 +32,8 @@
 #include <sys/types.h>
 #include <sys/mutex.h>
 #include <sys/mutex2.h>
+#include <sys/systm.h>
+#include <sys/errno.h>
 
 /* 
  * FreeBSD style semaphore for kernel use.

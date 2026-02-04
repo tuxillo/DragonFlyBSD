@@ -54,7 +54,7 @@ kref_init(struct kref *kref)
 static inline unsigned int
 kref_read(const struct kref *kref)
 {
-	return (refcount_read((refcount_t *)&kref->refcount));
+	return (refcount_read(&kref->refcount));
 }
 
 static inline void
@@ -113,7 +113,7 @@ static inline int kref_put_mutex(struct kref *kref,
     void (*release)(struct kref *kref), struct mutex *lock)
 {
 	WARN_ON(release == NULL);
-	if (unlikely(!refcount_release_if_not_last((refcount_t *)&kref->refcount))) {
+	if (unlikely(!refcount_release_if_not_last(&kref->refcount))) {
 		mutex_lock(lock);
 		if (unlikely(!refcount_release((uint32_t *)&kref->refcount))) {
 			mutex_unlock(lock);
