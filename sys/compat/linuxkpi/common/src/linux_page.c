@@ -137,14 +137,13 @@ linux_alloc_pages(gfp_t flags, unsigned int order)
 					int err = vm_page_reclaim_contig(req,
 					    npages, 0, pmax, PAGE_SIZE, 0);
 					if (err == ENOMEM)
-						vm_wait(NULL);
+						vm_wait(0);
 					else if (err != 0)
 						return (NULL);
 					flags &= ~M_WAITOK;
 					goto retry;
 				}
 				return (NULL);
-			}
 			}
 			for (unsigned long x = 0; x != npages; x++) {
 				vm_page_t pgo = page + x;
