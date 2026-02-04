@@ -97,7 +97,7 @@ vm_radix_rb_lookup_ge(vm_object_t obj, vm_pindex_t index)
 	vm_page_t res;
 
 	res = NULL;
-	for (node = RB_ROOT(&obj->rb_memq); node != NULL;) {
+	for (node = obj->rb_memq.rbh_root; node != NULL;) {
 		if (index <= node->pindex) {
 			res = node;
 			node = RB_LEFT(node, rb_entry);
@@ -115,7 +115,7 @@ vm_radix_rb_lookup_le(vm_object_t obj, vm_pindex_t index)
 	vm_page_t res;
 
 	res = NULL;
-	for (node = RB_ROOT(&obj->rb_memq); node != NULL;) {
+	for (node = obj->rb_memq.rbh_root; node != NULL;) {
 		if (index < node->pindex) {
 			node = RB_LEFT(node, rb_entry);
 		} else {
