@@ -1502,6 +1502,19 @@ linux_file_kqfilter_poll(struct linux_file *filp, int kqflags)
 	spin_unlock(&filp->f_kqlock);
 }
 
+static int linux_file_read_filp(struct file *file, struct linux_file *filp,
+    struct uio *uio, struct ucred *active_cred, int flags, struct thread *td);
+static int linux_file_write_filp(struct file *file, struct linux_file *filp,
+    struct uio *uio, struct ucred *active_cred, int flags, struct thread *td);
+static int linux_file_ioctl_filp(struct file *fp, struct linux_file *filp,
+    u_long cmd, void *data, struct ucred *cred, struct thread *td);
+static int linux_file_close_filp(struct linux_file *filp, struct thread *td);
+static int linux_file_kqfilter_filp(struct file *file, struct linux_file *filp,
+    struct knote *kn);
+static int linux_file_mmap_single_filp(struct file *fp, struct linux_file *filp,
+    const struct file_operations *fop, vm_ooffset_t *offset, vm_size_t size,
+    struct vm_object **object, int nprot, bool is_shared, struct thread *td);
+
 static int
 linux_file_kqfilter(struct file *file, struct knote *kn)
 {
@@ -1800,19 +1813,6 @@ static int linux_file_ioctl(struct file *fp, u_long cmd, void *data,
 static int linux_file_close(struct file *file, struct thread *td);
 static int linux_file_kqfilter(struct file *file, struct knote *kn);
 static int linux_file_mmap_single(struct file *fp,
-    const struct file_operations *fop, vm_ooffset_t *offset, vm_size_t size,
-    struct vm_object **object, int nprot, bool is_shared, struct thread *td);
-
-static int linux_file_read_filp(struct file *file, struct linux_file *filp,
-    struct uio *uio, struct ucred *active_cred, int flags, struct thread *td);
-static int linux_file_write_filp(struct file *file, struct linux_file *filp,
-    struct uio *uio, struct ucred *active_cred, int flags, struct thread *td);
-static int linux_file_ioctl_filp(struct file *fp, struct linux_file *filp,
-    u_long cmd, void *data, struct ucred *cred, struct thread *td);
-static int linux_file_close_filp(struct linux_file *filp, struct thread *td);
-static int linux_file_kqfilter_filp(struct file *file, struct linux_file *filp,
-    struct knote *kn);
-static int linux_file_mmap_single_filp(struct file *fp, struct linux_file *filp,
     const struct file_operations *fop, vm_ooffset_t *offset, vm_size_t size,
     struct vm_object **object, int nprot, bool is_shared, struct thread *td);
 
