@@ -7,23 +7,23 @@ DragonFly LinuxKPI port.
 
 1) **Workqueues**
 - File: `test/testcases/README.linuxkpi-workqueues.md`
-- Run: `dfregress -r linuxkpi_workqueue.run`
+- Run: `dfregress test/testcases/linuxkpi_workqueue.run`
 
 2) **LKPI cdev/devfs + fileops bridge**
 - File: `test/testcases/README.linuxkpi-cdev.md`
-- Run: `dfregress -r linuxkpi_cdev.run`
+- Run: `dfregress test/testcases/linuxkpi_cdev.run`
 
 3) **VM mapping (SG pager + memattr)**
 - File: `test/testcases/README.linuxkpi-mmap.md`
-- Run: `dfregress -r linuxkpi_mmap.run` (planned)
+- Run: `dfregress test/testcases/linuxkpi_mmap.run` (planned)
 
 4) **sf_buf + highmem + scatterlist**
 - File: `test/testcases/README.linuxkpi-scatterlist.md`
-- Run: `dfregress -r linuxkpi_scatterlist.run` (planned)
+- Run: `dfregress test/testcases/linuxkpi_scatterlist.run` (planned)
 
 5) **vm_radix iterator surface**
 - File: `test/testcases/README.linuxkpi-vm_radix.md`
-- Run: `dfregress -r linuxkpi_vm_radix.run` (planned)
+- Run: `dfregress test/testcases/linuxkpi_vm_radix.run` (planned)
 
 ## Notes
 

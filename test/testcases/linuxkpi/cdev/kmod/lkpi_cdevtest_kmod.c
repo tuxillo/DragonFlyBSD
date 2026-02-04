@@ -39,6 +39,8 @@
 
 #include "../../../../sys/compat/linuxkpi/common/include/linux/cdev.h"
 #include "../../../../sys/compat/linuxkpi/common/include/linux/fs.h"
+#include "../../../../sys/compat/linuxkpi/common/include/linux/poll.h"
+#include "../../../../sys/compat/linuxkpi/common/include/linux/slab.h"
 #include "../../../../sys/compat/linuxkpi/common/include/asm/uaccess.h"
 
 #include "../lkpi_cdevtest.h"
@@ -50,15 +52,32 @@ static char lkpi_cdev_buf[LKPI_CDEVTEST_BUFSZ];
 static size_t lkpi_cdev_len;
 static uint32_t lkpi_cdev_value;
 
+struct lkpi_cdevtest_priv {
+	int ready_read;
+	int ready_write;
+};
+
 static int
 lkpi_cdev_open(struct inode *inode, struct file *filp)
 {
+	struct lkpi_cdevtest_priv *priv;
+
+	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
+	if (priv == NULL)
+		return -ENOMEM;
+	filp->private_data = priv;
 	return 0;
 }
 
 static int
 lkpi_cdev_release(struct inode *inode, struct file *filp)
 {
+	struct lkpi_cdevtest_priv *priv;
+
+	priv = filp->private_data;
+	filp->private_data = NULL;
+	if (priv != NULL)
+		kfree(priv);
 	return 0;
 }
 
@@ -105,6 +124,8 @@ static long
 lkpi_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	struct lkpi_cdevtest_ioctl ioc;
+	struct lkpi_cdevtest_poll pollcfg;
+	struct lkpi_cdevtest_priv *priv;
 
 	switch (cmd) {
 	case LKPI_CDEVTEST_IOC_SET:
@@ -117,9 +138,57 @@ lkpi_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (copy_to_user((void __user *)arg, &ioc, sizeof(ioc)) != 0)
 			return -EFAULT;
 		return 0;
+	case LKPI_CDEVTEST_IOC_POLL_SET:
+		if (copy_from_user(&pollcfg, (void __user *)arg, sizeof(pollcfg)) != 0)
+			return -EFAULT;
+		priv = filp->private_data;
+		if (priv == NULL)
+			return -EINVAL;
+		if (pollcfg.flags & LKPI_CDEVTEST_POLL_READ)
+			priv->ready_read = 1;
+		if (pollcfg.flags & LKPI_CDEVTEST_POLL_WRITE)
+			priv->ready_write = 1;
+		linux_poll_wakeup(filp);
+		return 0;
+	case LKPI_CDEVTEST_IOC_POLL_CLR:
+		if (copy_from_user(&pollcfg, (void __user *)arg, sizeof(pollcfg)) != 0)
+			return -EFAULT;
+		priv = filp->private_data;
+		if (priv == NULL)
+			return -EINVAL;
+		if (pollcfg.flags == 0) {
+			priv->ready_read = 0;
+			priv->ready_write = 0;
+		} else {
+			if (pollcfg.flags & LKPI_CDEVTEST_POLL_READ)
+				priv->ready_read = 0;
+			if (pollcfg.flags & LKPI_CDEVTEST_POLL_WRITE)
+				priv->ready_write = 0;
+		}
+		linux_poll_wakeup(filp);
+		return 0;
 	default:
 		return -EINVAL;
 	}
+}
+
+static unsigned int
+lkpi_cdev_poll(struct file *filp, poll_table *wait)
+{
+	struct lkpi_cdevtest_priv *priv;
+	unsigned int mask;
+
+	(void)wait;
+
+	priv = filp->private_data;
+	if (priv == NULL)
+		return 0;
+	mask = 0;
+	if (priv->ready_read)
+		mask |= POLLIN | POLLRDNORM;
+	if (priv->ready_write)
+		mask |= POLLOUT | POLLWRNORM;
+	return mask;
 }
 
 static const struct file_operations lkpi_cdev_fops = {
@@ -128,6 +197,7 @@ static const struct file_operations lkpi_cdev_fops = {
 	.release = lkpi_cdev_release,
 	.read = lkpi_cdev_read,
 	.write = lkpi_cdev_write,
+	.poll = lkpi_cdev_poll,
 	.unlocked_ioctl = lkpi_cdev_ioctl,
 };
 

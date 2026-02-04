@@ -1,6 +1,9 @@
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/stat.h>
+#include <sys/event.h>
+#include <sys/time.h>
+#include <sys/wait.h>
 int kldload(const char *);
 int kldunload(int);
 int kldfind(const char *);
@@ -113,11 +116,20 @@ static int
 run_test(void)
 {
 	struct lkpi_cdevtest_ioctl ioc;
+	struct lkpi_cdevtest_poll pollcfg;
 	const char *msg = "lkpi-cdevtest";
 	char buf[64];
 	ssize_t len;
 	ssize_t nread;
+	int kq;
+	int n;
+	int status;
 	int fd;
+	int fd2;
+	pid_t pid;
+	struct kevent changelist[2];
+	struct kevent eventlist[2];
+	struct timespec ts;
 
 	fd = open(LKPI_CDEVTEST_DEVPATH, O_RDWR);
 	if (fd < 0)
@@ -133,6 +145,62 @@ run_test(void)
 
 	if (ioc.value != 0x1234abcdU)
 		errx(1, "ioctl round-trip mismatch (0x%x)", ioc.value);
+
+	fd2 = dup(fd);
+	if (fd2 < 0)
+		err(1, "dup");
+	if (ioctl(fd2, LKPI_CDEVTEST_IOC_GET, &ioc) < 0)
+		err(1, "ioctl(LKPI_CDEVTEST_IOC_GET) via dup");
+	close(fd2);
+
+	pid = fork();
+	if (pid < 0)
+		err(1, "fork");
+	if (pid == 0) {
+		if (ioctl(fd, LKPI_CDEVTEST_IOC_GET, &ioc) < 0)
+			_exit(1);
+		_exit(0);
+	}
+	if (waitpid(pid, &status, 0) < 0)
+		err(1, "waitpid");
+	if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+		errx(1, "fork child failed");
+
+	kq = kqueue();
+	if (kq < 0)
+		err(1, "kqueue");
+
+	EV_SET(&changelist[0], fd, EVFILT_READ, EV_ADD | EV_ENABLE, 0, 0, NULL);
+	EV_SET(&changelist[1], fd, EVFILT_WRITE, EV_ADD | EV_ENABLE, 0, 0, NULL);
+	ts.tv_sec = 0;
+	ts.tv_nsec = 0;
+	if (kevent(kq, changelist, 2, eventlist, 2, &ts) < 0)
+		err(1, "kevent register");
+
+	n = kevent(kq, NULL, 0, eventlist, 2, &ts);
+	if (n != 0)
+		errx(1, "unexpected kqueue readiness before poll set (%d)", n);
+
+	pollcfg.flags = LKPI_CDEVTEST_POLL_READ | LKPI_CDEVTEST_POLL_WRITE;
+	if (ioctl(fd, LKPI_CDEVTEST_IOC_POLL_SET, &pollcfg) < 0)
+		err(1, "ioctl(LKPI_CDEVTEST_IOC_POLL_SET)");
+
+	ts.tv_sec = 1;
+	ts.tv_nsec = 0;
+	n = kevent(kq, NULL, 0, eventlist, 2, &ts);
+	if (n != 2)
+		errx(1, "kqueue readiness mismatch after poll set (%d)", n);
+
+	pollcfg.flags = 0;
+	if (ioctl(fd, LKPI_CDEVTEST_IOC_POLL_CLR, &pollcfg) < 0)
+		err(1, "ioctl(LKPI_CDEVTEST_IOC_POLL_CLR)");
+
+	ts.tv_sec = 0;
+	ts.tv_nsec = 0;
+	n = kevent(kq, NULL, 0, eventlist, 2, &ts);
+	if (n != 0)
+		errx(1, "unexpected kqueue readiness after poll clear (%d)", n);
+	close(kq);
 
 	len = (ssize_t)strlen(msg);
 	if (write(fd, msg, (size_t)len) != len)
@@ -151,6 +219,11 @@ run_test(void)
 		errx(1, "read length mismatch (%zd)", nread);
 	if (memcmp(buf, msg, (size_t)len) != 0)
 		errx(1, "read content mismatch");
+
+	if (ioctl(fd, _IO(LKPI_CDEVTEST_IOC_MAGIC, 0xff), &ioc) == 0)
+		errx(1, "unexpected ioctl success");
+	if (errno != EINVAL)
+		err(1, "unexpected ioctl errno");
 
 	close(fd);
 	printf("cdev test passed\n");
