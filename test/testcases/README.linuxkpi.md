@@ -15,7 +15,7 @@ DragonFly LinuxKPI port.
 
 3) **VM mapping (SG pager + memattr)**
 - File: `test/testcases/README.linuxkpi-mmap.md`
-- Run: `dfregress test/testcases/linuxkpi_mmap.run` (planned)
+- Run: `dfregress test/testcases/linuxkpi_mmap.run`
 
 4) **sf_buf + highmem + scatterlist**
 - File: `test/testcases/README.linuxkpi-scatterlist.md`

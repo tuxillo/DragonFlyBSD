@@ -1,0 +1,4 @@
+# LinuxKPI mmap bridge tests
+# Run with: dfregress test/testcases/linuxkpi_mmap.run
+
+linuxkpi/mmap/linuxkpi_mmap	userland	intpre,intpost,timeout=60

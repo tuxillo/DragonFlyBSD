@@ -162,18 +162,24 @@ phases:
 ## Memattr verification (required)
 
 The test must verify that cache-mode settings are actually reflected in the
-VM object memattr.
+VM object memattr. The kmod normalizes the kernel memattr into the userland
+`LKPI_MMAP_CACHE_*` enum for comparison.
 
 Kmod implements `GET_MEMATTR(handle)`:
 
 - `obj = cdev_pager_lookup(handle)`
-- return `obj->memattr` to userland
+- read `obj->memattr` and map it to:
+  - `LKPI_MMAP_CACHE_WB` for default/write-back
+  - `LKPI_MMAP_CACHE_WC` for write-combining
+  - `LKPI_MMAP_CACHE_UC` for uncacheable
+- return the normalized value to userland
 
-Expected mapping:
+Expected mapping in userland:
 
-- WB -> `VM_MEMATTR_DEFAULT`
-- WC -> `VM_MEMATTR_WRITE_COMBINING` (or UC if WC unavailable)
-- UC -> `VM_MEMATTR_UNCACHEABLE`
+- WB request -> `LKPI_MMAP_CACHE_WB`
+- UC request -> `LKPI_MMAP_CACHE_UC`
+- WC request -> `LKPI_MMAP_CACHE_WC` (or `LKPI_MMAP_CACHE_UC` if WC is not
+  available on the platform)
 
 ## Pass criteria
 
@@ -184,7 +190,7 @@ Expected mapping:
 - `MAP_PRIVATE` fails with `EINVAL`.
 - unload is clean (no leaks/panics/hangs).
 
-## Run (planned)
+## Run
 
 ```sh
 dfregress test/testcases/linuxkpi_mmap.run
