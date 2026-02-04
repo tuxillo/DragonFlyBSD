@@ -1419,20 +1419,34 @@ static int
 linux_file_kqfilter_read_event(struct knote *kn, long hint)
 {
 	struct linux_file *filp = kn->kn_hook;
+	int ready;
 
+#ifdef __DragonFly__
+	spin_lock(&filp->f_kqlock);
+	ready = (filp->f_kqflags & LINUX_KQ_FLAG_NEED_READ) ? 1 : 0;
+	spin_unlock(&filp->f_kqlock);
+#else
 	assert_spin_locked(&filp->f_kqlock);
-
-	return ((filp->f_kqflags & LINUX_KQ_FLAG_NEED_READ) ? 1 : 0);
+	ready = (filp->f_kqflags & LINUX_KQ_FLAG_NEED_READ) ? 1 : 0;
+#endif
+	return (ready);
 }
 
 static int
 linux_file_kqfilter_write_event(struct knote *kn, long hint)
 {
 	struct linux_file *filp = kn->kn_hook;
+	int ready;
 
+#ifdef __DragonFly__
+	spin_lock(&filp->f_kqlock);
+	ready = (filp->f_kqflags & LINUX_KQ_FLAG_NEED_WRITE) ? 1 : 0;
+	spin_unlock(&filp->f_kqlock);
+#else
 	assert_spin_locked(&filp->f_kqlock);
-
-	return ((filp->f_kqflags & LINUX_KQ_FLAG_NEED_WRITE) ? 1 : 0);
+	ready = (filp->f_kqflags & LINUX_KQ_FLAG_NEED_WRITE) ? 1 : 0;
+#endif
+	return (ready);
 }
 
 #ifdef __DragonFly__
