@@ -19,14 +19,14 @@ critical LKPI mmap plumbing on DragonFly.
   the resulting VM object memattr (WC/UC/WB).
 - Mappings are shared; `MAP_PRIVATE` is rejected for these device mappings.
 
-## Components (new)
+## Components
 
 - Userland driver: `test/testcases/linuxkpi/mmap/linuxkpi_mmap`
 - Shared ABI: `test/testcases/linuxkpi/mmap/lkpi_mmaptest.h`
 - Kernel module: `test/testcases/linuxkpi/mmap/kmod/lkpi_mmaptest_kmod.ko`
 - Runlist: `test/testcases/linuxkpi_mmap.run`
 
-## IOCTL ABI (proposed)
+## IOCTL ABI
 
 All ioctls are ASCII stable and return `-errno` semantics in kernel.
 
@@ -71,7 +71,7 @@ struct lkpi_mmap_memattr {
 };
 ```
 
-## Kernel module behavior (required)
+## Kernel module behavior (implemented)
 
 The kernel module simulates a drm-kmod GEM-style mapping flow without touching
 drm-kmod. It maintains a small map of mmap objects keyed by `mmap_off`/handle.
@@ -90,8 +90,8 @@ drm-kmod. It maintains a small map of mmap objects keyed by `mmap_off`/handle.
 
 - Validates size (page aligned, non-zero, sane upper bound).
 - Allocates backing memory for SG mode:
-  - Use contig/phys allocator (simple, deterministic PFN base).
-  - Fill with a known pattern (`0x5a`, `0xa5`, or increasing bytes).
+  - Use contig allocator (simple, deterministic PFN base).
+  - Fill with a known pattern (`0x5a` + byte offset).
 - Assigns a new `mmap_off` (page-aligned fake offset).
 - Returns `handle` and `mmap_off` to userland.
 
@@ -108,18 +108,19 @@ drm-kmod. It maintains a small map of mmap objects keyed by `mmap_off`/handle.
   - UC: `pgprot_noncached(vm_get_page_prot(vma->vm_flags))`
 - Choose one of the two mapping modes below.
 
-### Mapping mode A: SG pager path (mandatory)
+### Mapping mode A: SG pager path (implemented)
 
 This exercises the existing LKPI SG pager path and memattr propagation on
 DragonFly.
 
 - Set `vma->vm_pfn` to the backing PFN base.
 - Set `vma->vm_len = obj->size`.
-- Set `vma->vm_ops = NULL`.
+- Set `vma->vm_ops` to a no-op table (open/close stubs, fault NULL) so the
+  LKPI cdev pager path is used.
 
-Result: LKPI `linux_file_mmap_single()` takes the SG path and calls
-`cdev_pager_allocate()` with `lkpi_sg_pager_ops`. The resulting object should
-have `memattr` updated based on `vma->vm_page_prot`.
+Result: LKPI `linux_file_mmap_single()` takes the cdev pager path and calls
+`cdev_pager_allocate()` with `linux_cdev_pager_ops[1]` (fault-based). The
+resulting object has `memattr` updated based on `vma->vm_page_prot`.
 
 ### Mapping mode B: vm_ops fault path (DRM-like, planned)
 
@@ -135,11 +136,11 @@ Note: DragonFly's device pager uses `cdev_pg_fault` and currently does not
 invoke `vm_ops->fault` from the pager fault path. Suite 3 should land in two
 phases:
 
-1) SG pager mode first (expected to work immediately).
+1) SG/cdev pager mode first (implemented).
 2) vm_ops mode after LKPI pager fault behavior is extended on DragonFly to call
    the LinuxKPI vm_ops->fault handler. That change must be validated here.
 
-## Userland test flow (required)
+## Userland test flow (implemented)
 
 ### Main success path
 
@@ -159,7 +160,7 @@ phases:
 - invalid offset (non-existing `mmap_off`) must fail with `EINVAL`.
 - unaligned offset must fail with `EINVAL`.
 
-## Memattr verification (required)
+## Memattr verification (implemented)
 
 The test must verify that cache-mode settings are actually reflected in the
 VM object memattr. The kmod normalizes the kernel memattr into the userland

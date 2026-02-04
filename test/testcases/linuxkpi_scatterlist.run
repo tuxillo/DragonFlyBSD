@@ -1,0 +1,4 @@
+# LinuxKPI scatterlist/highmem tests
+# Run with: dfregress test/testcases/linuxkpi_scatterlist.run
+
+linuxkpi/scatterlist/linuxkpi_scatterlist	userland	intpre,intpost,timeout=60

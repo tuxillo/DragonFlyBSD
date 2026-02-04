@@ -19,7 +19,7 @@ DragonFly LinuxKPI port.
 
 4) **sf_buf + highmem + scatterlist**
 - File: `test/testcases/README.linuxkpi-scatterlist.md`
-- Run: `dfregress test/testcases/linuxkpi_scatterlist.run` (planned)
+- Run: `dfregress test/testcases/linuxkpi_scatterlist.run`
 
 5) **vm_radix iterator surface**
 - File: `test/testcases/README.linuxkpi-vm_radix.md`
