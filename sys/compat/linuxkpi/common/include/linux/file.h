@@ -34,6 +34,7 @@
 #include <sys/filedesc.h>
 #include <sys/refcount.h>
 #ifdef __DragonFly__
+#include <sys/devfs.h>
 #include <linux/dragonfly_compat.h>
 #else
 #include <sys/capsicum.h>
@@ -68,6 +69,26 @@ linux_fget(unsigned int fd)
 		return (NULL);
 
 	/* check if file handle really belongs to us */
+	if (file->f_ops == &linuxfileops && file->f_data != NULL)
+		return ((struct linux_file *)file->f_data);
+
+#ifdef __DragonFly__
+	/*
+	 * DragonFly LKPI cdev fds remain vnode-shaped; the linux_file is stored
+	 * in devfs per-open private storage.
+	 */
+	if (file->f_type == DTYPE_VNODE) {
+		struct lkpi_cdevpriv *cpriv;
+		void *priv;
+
+		if (devfs_get_cdevpriv(file, &priv) == 0 && priv != NULL) {
+			cpriv = priv;
+			if (cpriv->magic == LKPI_CDEVPRIV_MAGIC && cpriv->data != NULL)
+				return ((struct linux_file *)cpriv->data);
+		}
+	}
+#endif
+
 	if (file->f_data == NULL ||
 	    file->f_ops != &linuxfileops) {
 #ifdef __DragonFly__

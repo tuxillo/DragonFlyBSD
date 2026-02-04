@@ -50,6 +50,9 @@
 #include <sys/eventhandler.h>
 #include <sys/fcntl.h>
 #include <sys/file.h>
+#ifdef __DragonFly__
+#include <sys/devfs.h>
+#endif
 #include <sys/filio.h>
 #include <sys/rwlock.h>
 #include <sys/mman.h>
@@ -947,6 +950,14 @@ linux_drop_fop(struct linux_cdev *ldev)
 }
 
 #ifdef __DragonFly__
+static void
+lkpi_cdevpriv_dtor(void *data)
+{
+	kfree(data);
+}
+#endif
+
+#ifdef __DragonFly__
 /*
  * DragonFly doesn't have td_fpop (file pointer operand tracking).
  * Provide a simplified macro that just executes the code.
@@ -977,6 +988,7 @@ linux_dev_fdopen(struct cdev *dev, int fflags, struct thread *td,
 {
 	struct linux_cdev *ldev;
 	struct linux_file *filp;
+	struct lkpi_cdevpriv *cpriv;
 	const struct file_operations *fop;
 	int error;
 
@@ -1016,10 +1028,27 @@ linux_dev_fdopen(struct cdev *dev, int fflags, struct thread *td,
 	/* hold on to the vnode - used for fstat() */
 	vref(filp->f_vnode);
 
-	/* release the file from devfs */
-lkpi_finit(file, filp->f_mode, DTYPE_DEV, filp, &linuxfileops);
+#ifdef __DragonFly__
+	/*
+	 * Keep vnode-shaped fd for DragonFly.
+	 * Store the linux_file in devfs per-open private storage.
+	 */
+	cpriv = kzalloc(sizeof(*cpriv), GFP_KERNEL);
+	cpriv->magic = LKPI_CDEVPRIV_MAGIC;
+	cpriv->data = filp;
+	error = devfs_set_cdevpriv(file, cpriv, lkpi_cdevpriv_dtor);
+	if (error != 0) {
+		linux_drop_fop(ldev);
+		linux_cdev_deref(filp->f_cdev);
+		if (filp->f_vnode != NULL)
+			vrele(filp->f_vnode);
+		kfree(cpriv);
+		kfree(filp);
+		return (error);
+	}
+#endif
 	linux_drop_fop(ldev);
-	return (ENXIO);
+	return (0);
 }
 
 #define	LINUX_IOCTL_MIN_PTR 0x10000UL
@@ -1477,11 +1506,21 @@ static int
 linux_file_kqfilter(struct file *file, struct knote *kn)
 {
 	struct linux_file *filp;
+
+	filp = (struct linux_file *)file->f_data;
+	if (filp == NULL)
+		return (EINVAL);
+	return (linux_file_kqfilter_filp(file, filp, kn));
+}
+
+static int
+linux_file_kqfilter_filp(struct file *file, struct linux_file *filp,
+    struct knote *kn)
+{
 	struct thread *td;
 	int error;
 
 	td = curthread;
-	filp = (struct linux_file *)file->f_data;
 	filp->f_flags = file->f_flag;
 	if (filp->f_op->poll == NULL)
 		return (EINVAL);
@@ -1523,14 +1562,26 @@ linux_file_mmap_single(struct file *fp, const struct file_operations *fop,
     vm_ooffset_t *offset, vm_size_t size, struct vm_object **object,
     int nprot, bool is_shared, struct thread *td)
 {
+	struct linux_file *filp;
+
+	filp = (struct linux_file *)fp->f_data;
+	if (filp == NULL)
+		return (EINVAL);
+	return (linux_file_mmap_single_filp(fp, filp, fop, offset, size, object,
+	    nprot, is_shared, td));
+}
+
+static int
+linux_file_mmap_single_filp(struct file *fp, struct linux_file *filp,
+    const struct file_operations *fop, vm_ooffset_t *offset, vm_size_t size,
+    struct vm_object **object, int nprot, bool is_shared, struct thread *td)
+{
 	struct task_struct *task;
 	struct vm_area_struct *vmap;
 	struct mm_struct *mm;
-	struct linux_file *filp;
 	vm_memattr_t attr;
 	int error;
 
-	filp = (struct linux_file *)fp->f_data;
 	filp->f_flags = fp->f_flag;
 
 	if (fop->mmap == NULL)
@@ -1752,6 +1803,19 @@ static int linux_file_mmap_single(struct file *fp,
     const struct file_operations *fop, vm_ooffset_t *offset, vm_size_t size,
     struct vm_object **object, int nprot, bool is_shared, struct thread *td);
 
+static int linux_file_read_filp(struct file *file, struct linux_file *filp,
+    struct uio *uio, struct ucred *active_cred, int flags, struct thread *td);
+static int linux_file_write_filp(struct file *file, struct linux_file *filp,
+    struct uio *uio, struct ucred *active_cred, int flags, struct thread *td);
+static int linux_file_ioctl_filp(struct file *fp, struct linux_file *filp,
+    u_long cmd, void *data, struct ucred *cred, struct thread *td);
+static int linux_file_close_filp(struct linux_file *filp, struct thread *td);
+static int linux_file_kqfilter_filp(struct file *file, struct linux_file *filp,
+    struct knote *kn);
+static int linux_file_mmap_single_filp(struct file *fp, struct linux_file *filp,
+    const struct file_operations *fop, vm_ooffset_t *offset, vm_size_t size,
+    struct vm_object **object, int nprot, bool is_shared, struct thread *td);
+
 #ifdef __DragonFly__
 static int linux_file_read_dfly(struct file *file, struct uio *uio,
     struct ucred *active_cred, int flags);
@@ -1773,53 +1837,95 @@ linux_dev_open(struct dev_open_args *ap)
 
 	fp = *ap->a_fpp;
 	error = linux_dev_fdopen(ap->a_head.a_dev, ap->a_oflags, curthread, fp);
-	if (error == ENXIO)
-		return (EALREADY);
 	return (error);
 }
 
 static int
 linux_dev_close(struct dev_close_args *ap)
 {
+	struct lkpi_cdevpriv *cpriv;
+	struct linux_file *filp;
+	int error;
+
 	if (ap->a_fp == NULL)
 		return (EINVAL);
-	return (linux_file_close(ap->a_fp, curthread));
+	filp = NULL;
+	cpriv = NULL;
+	if (devfs_get_cdevpriv(ap->a_fp, (void **)&cpriv) == 0 &&
+	    cpriv != NULL && cpriv->magic == LKPI_CDEVPRIV_MAGIC) {
+		filp = (struct linux_file *)cpriv->data;
+	}
+	if (filp == NULL)
+		return (EINVAL);
+
+	error = linux_file_close_filp(filp, curthread);
+	if (cpriv != NULL)
+		cpriv->data = NULL;
+	return (error);
 }
 
 static int
 linux_dev_read(struct dev_read_args *ap)
 {
 	struct ucred *cred;
+	struct lkpi_cdevpriv *cpriv;
+	struct linux_file *filp;
 
 	if (ap->a_fp == NULL)
 		return (EINVAL);
 	cred = ap->a_fp->f_cred != NULL ? ap->a_fp->f_cred : curthread->td_ucred;
-	return (linux_file_read(ap->a_fp, ap->a_uio, cred, ap->a_ioflag, curthread));
+	if (devfs_get_cdevpriv(ap->a_fp, (void **)&cpriv) != 0 ||
+	    cpriv == NULL || cpriv->magic != LKPI_CDEVPRIV_MAGIC)
+		return (EINVAL);
+	filp = (struct linux_file *)cpriv->data;
+	if (filp == NULL)
+		return (EINVAL);
+	return (linux_file_read_filp(ap->a_fp, filp, ap->a_uio, cred,
+	    ap->a_ioflag, curthread));
 }
 
 static int
 linux_dev_write(struct dev_write_args *ap)
 {
 	struct ucred *cred;
+	struct lkpi_cdevpriv *cpriv;
+	struct linux_file *filp;
 
 	if (ap->a_fp == NULL)
 		return (EINVAL);
 	cred = ap->a_fp->f_cred != NULL ? ap->a_fp->f_cred : curthread->td_ucred;
-	return (linux_file_write(ap->a_fp, ap->a_uio, cred, ap->a_ioflag, curthread));
+	if (devfs_get_cdevpriv(ap->a_fp, (void **)&cpriv) != 0 ||
+	    cpriv == NULL || cpriv->magic != LKPI_CDEVPRIV_MAGIC)
+		return (EINVAL);
+	filp = (struct linux_file *)cpriv->data;
+	if (filp == NULL)
+		return (EINVAL);
+	return (linux_file_write_filp(ap->a_fp, filp, ap->a_uio, cred,
+	    ap->a_ioflag, curthread));
 }
 
 static int
 linux_dev_ioctl(struct dev_ioctl_args *ap)
 {
+	struct lkpi_cdevpriv *cpriv;
+	struct linux_file *filp;
+
 	if (ap->a_fp == NULL)
 		return (EINVAL);
-	return (linux_file_ioctl(ap->a_fp, ap->a_cmd, ap->a_data, ap->a_cred,
-	    curthread));
+	if (devfs_get_cdevpriv(ap->a_fp, (void **)&cpriv) != 0 ||
+	    cpriv == NULL || cpriv->magic != LKPI_CDEVPRIV_MAGIC)
+		return (EINVAL);
+	filp = (struct linux_file *)cpriv->data;
+	if (filp == NULL)
+		return (EINVAL);
+	return (linux_file_ioctl_filp(ap->a_fp, filp, ap->a_cmd, ap->a_data,
+	    ap->a_cred, curthread));
 }
 
 static int
 linux_dev_mmap_single(struct dev_mmap_single_args *ap)
 {
+	struct lkpi_cdevpriv *cpriv;
 	struct linux_file *filp;
 	const struct file_operations *fop;
 	struct linux_cdev *ldev;
@@ -1827,13 +1933,16 @@ linux_dev_mmap_single(struct dev_mmap_single_args *ap)
 
 	if (ap->a_fp == NULL)
 		return (EINVAL);
-	filp = (struct linux_file *)ap->a_fp->f_data;
+	if (devfs_get_cdevpriv(ap->a_fp, (void **)&cpriv) != 0 ||
+	    cpriv == NULL || cpriv->magic != LKPI_CDEVPRIV_MAGIC)
+		return (EINVAL);
+	filp = (struct linux_file *)cpriv->data;
 	if (filp == NULL)
 		return (EINVAL);
 
 	linux_get_fop(filp, &fop, &ldev);
-	error = linux_file_mmap_single(ap->a_fp, fop, ap->a_offset, ap->a_size,
-	    ap->a_object, ap->a_nprot, true, curthread);
+	error = linux_file_mmap_single_filp(ap->a_fp, filp, fop, ap->a_offset,
+	    ap->a_size, ap->a_object, ap->a_nprot, true, curthread);
 	linux_drop_fop(ldev);
 
 	return (error);
@@ -1843,13 +1952,21 @@ static int
 linux_dev_kqfilter(struct dev_kqfilter_args *ap)
 {
 	int error;
+	struct lkpi_cdevpriv *cpriv;
+	struct linux_file *filp;
 
 	if (ap->a_fp == NULL)
 		return (EINVAL);
 	if (ap->a_kn == NULL)
 		return (EINVAL);
+	if (devfs_get_cdevpriv(ap->a_fp, (void **)&cpriv) != 0 ||
+	    cpriv == NULL || cpriv->magic != LKPI_CDEVPRIV_MAGIC)
+		return (EINVAL);
+	filp = (struct linux_file *)cpriv->data;
+	if (filp == NULL)
+		return (EINVAL);
 
-	error = linux_file_kqfilter(ap->a_fp, ap->a_kn);
+	error = linux_file_kqfilter_filp(ap->a_fp, filp, ap->a_kn);
 	if (error == 0)
 		ap->a_result = 0;
 	return (error);
@@ -1880,35 +1997,63 @@ linux_file_read(struct file *file, struct uio *uio, struct ucred *active_cred,
     int flags, struct thread *td)
 {
 	struct linux_file *filp;
+
+	filp = (struct linux_file *)file->f_data;
+	if (filp == NULL)
+		return (EINVAL);
+	return (linux_file_read_filp(file, filp, uio, active_cred, flags, td));
+}
+
+static int
+linux_file_read_filp(struct file *file, struct linux_file *filp,
+    struct uio *uio, struct ucred *active_cred, int flags, struct thread *td)
+{
 	const struct file_operations *fop;
 	struct linux_cdev *ldev;
 	ssize_t bytes;
+	loff_t pos;
+	loff_t *ppos;
 	int error;
 
+	(void)active_cred;
+
 	error = 0;
-	filp = (struct linux_file *)file->f_data;
 	filp->f_flags = file->f_flag;
 	/* XXX no support for I/O vectors currently */
 	if (uio->uio_iovcnt != 1)
 		return (EOPNOTSUPP);
 	if (uio->uio_resid > DEVFS_IOSIZE_MAX)
 		return (EINVAL);
+
+	if (uio->uio_offset == (off_t)-1) {
+		pos = file->f_offset;
+		ppos = &pos;
+	} else {
+		ppos = &uio->uio_offset;
+	}
+
 	linux_set_current(td);
 	linux_get_fop(filp, &fop, &ldev);
 	if (fop->read != NULL) {
 		bytes = OPW(file, td, fop->read(filp,
 		    uio->uio_iov->iov_base,
-		    uio->uio_iov->iov_len, &uio->uio_offset));
+		    uio->uio_iov->iov_len, ppos));
 		if (bytes >= 0) {
 			uio->uio_iov->iov_base =
 			    ((uint8_t *)uio->uio_iov->iov_base) + bytes;
 			uio->uio_iov->iov_len -= bytes;
 			uio->uio_resid -= bytes;
+			if ((flags & O_FOFFSET) == 0) {
+				if (ppos == &pos)
+					uio->uio_offset = *ppos;
+				file->f_offset = *ppos;
+			}
 		} else {
 			error = linux_get_error(current, -bytes);
 		}
-	} else
+	} else {
 		error = ENXIO;
+	}
 
 	/* update kqfilter status, if any */
 	linux_file_kqfilter_poll(filp, LINUX_KQ_FLAG_HAS_READ);
@@ -1922,35 +2067,63 @@ linux_file_write(struct file *file, struct uio *uio, struct ucred *active_cred,
     int flags, struct thread *td)
 {
 	struct linux_file *filp;
+
+	filp = (struct linux_file *)file->f_data;
+	if (filp == NULL)
+		return (EINVAL);
+	return (linux_file_write_filp(file, filp, uio, active_cred, flags, td));
+}
+
+static int
+linux_file_write_filp(struct file *file, struct linux_file *filp,
+    struct uio *uio, struct ucred *active_cred, int flags, struct thread *td)
+{
 	const struct file_operations *fop;
 	struct linux_cdev *ldev;
 	ssize_t bytes;
+	loff_t pos;
+	loff_t *ppos;
 	int error;
 
-	filp = (struct linux_file *)file->f_data;
+	(void)active_cred;
+
 	filp->f_flags = file->f_flag;
 	/* XXX no support for I/O vectors currently */
 	if (uio->uio_iovcnt != 1)
 		return (EOPNOTSUPP);
 	if (uio->uio_resid > DEVFS_IOSIZE_MAX)
 		return (EINVAL);
+
+	if (uio->uio_offset == (off_t)-1) {
+		pos = file->f_offset;
+		ppos = &pos;
+	} else {
+		ppos = &uio->uio_offset;
+	}
+
 	linux_set_current(td);
 	linux_get_fop(filp, &fop, &ldev);
 	if (fop->write != NULL) {
 		bytes = OPW(file, td, fop->write(filp,
 		    uio->uio_iov->iov_base,
-		    uio->uio_iov->iov_len, &uio->uio_offset));
+		    uio->uio_iov->iov_len, ppos));
 		if (bytes >= 0) {
 			uio->uio_iov->iov_base =
 			    ((uint8_t *)uio->uio_iov->iov_base) + bytes;
 			uio->uio_iov->iov_len -= bytes;
 			uio->uio_resid -= bytes;
 			error = 0;
+			if ((flags & O_FOFFSET) == 0) {
+				if (ppos == &pos)
+					uio->uio_offset = *ppos;
+				file->f_offset = *ppos;
+			}
 		} else {
 			error = linux_get_error(current, -bytes);
 		}
-	} else
+	} else {
 		error = ENXIO;
+	}
 
 	/* update kqfilter status, if any */
 	linux_file_kqfilter_poll(filp, LINUX_KQ_FLAG_HAS_WRITE);
@@ -1987,12 +2160,25 @@ static int
 linux_file_close(struct file *file, struct thread *td)
 {
 	struct linux_file *filp;
+
+	filp = (struct linux_file *)file->f_data;
+	if (filp == NULL)
+		return (EINVAL);
+	return (linux_file_close_filp(filp, td));
+}
+
+static int
+linux_file_close_filp(struct linux_file *filp, struct thread *td)
+{
+	struct file *file;
 	int (*release)(struct inode *, struct linux_file *);
 	const struct file_operations *fop;
 	struct linux_cdev *ldev;
 	int error;
 
-	filp = (struct linux_file *)file->f_data;
+	file = filp->_file;
+	if (file == NULL)
+		return (EINVAL);
 
 	KASSERT(file_count(filp) == 0,
 	    ("File refcount(%d) is not zero", file_count(filp)));
@@ -2030,14 +2216,26 @@ linux_file_ioctl(struct file *fp, u_long cmd, void *data, struct ucred *cred,
     struct thread *td)
 {
 	struct linux_file *filp;
+
+	filp = (struct linux_file *)fp->f_data;
+	if (filp == NULL)
+		return (EINVAL);
+	return (linux_file_ioctl_filp(fp, filp, cmd, data, cred, td));
+}
+
+static int
+linux_file_ioctl_filp(struct file *fp, struct linux_file *filp, u_long cmd,
+    void *data, struct ucred *cred, struct thread *td)
+{
 	const struct file_operations *fop;
 	struct linux_cdev *ldev;
 	struct fiodgname_arg *fgn;
 	const char *p;
 	int error, i;
 
+	(void)cred;
+
 	error = 0;
-	filp = (struct linux_file *)fp->f_data;
 	filp->f_flags = fp->f_flag;
 	linux_get_fop(filp, &fop, &ldev);
 
@@ -2262,11 +2460,41 @@ linux_file_kcmp(struct file *fp1, struct file *fp2, struct thread *td)
 {
 	struct linux_file *filp1, *filp2;
 
+#ifdef __DragonFly__
+	struct lkpi_cdevpriv *cpriv;
+
+	(void)td;
+
+	filp1 = NULL;
+	filp2 = NULL;
+
+	if (fp1->f_ops == &linuxfileops && fp1->f_data != NULL) {
+		filp1 = fp1->f_data;
+	} else if (fp1->f_type == DTYPE_VNODE &&
+	    devfs_get_cdevpriv(fp1, (void **)&cpriv) == 0 &&
+	    cpriv != NULL && cpriv->magic == LKPI_CDEVPRIV_MAGIC) {
+		filp1 = (struct linux_file *)cpriv->data;
+	}
+
+	if (fp2->f_ops == &linuxfileops && fp2->f_data != NULL) {
+		filp2 = fp2->f_data;
+	} else if (fp2->f_type == DTYPE_VNODE &&
+	    devfs_get_cdevpriv(fp2, (void **)&cpriv) == 0 &&
+	    cpriv != NULL && cpriv->magic == LKPI_CDEVPRIV_MAGIC) {
+		filp2 = (struct linux_file *)cpriv->data;
+	}
+
+	if (filp1 == NULL || filp2 == NULL)
+		return (3);
+#else
 	if (fp2->f_type != DTYPE_DEV)
 		return (3);
 
 	filp1 = fp1->f_data;
 	filp2 = fp2->f_data;
+#endif
+	if (filp1->f_cdev == NULL || filp2->f_cdev == NULL)
+		return (3);
 	return (kcmp_cmp((uintptr_t)filp1->f_cdev, (uintptr_t)filp2->f_cdev));
 }
 

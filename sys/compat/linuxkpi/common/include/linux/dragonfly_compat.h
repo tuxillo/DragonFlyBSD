@@ -1,4 +1,4 @@
-/*-
+sys/compat/linuxkpi/common/include/linux/dragonfly_compat.h/*-
  * Copyright (c) 2026 The DragonFly Project
  * All rights reserved.
  *
@@ -1115,6 +1115,21 @@ lkpi_falloc(struct thread *td __unused, struct file **resultfp, int *resultfd,
 /* DTYPE_DEV - DragonFly doesn't have this, use DTYPE_VNODE or custom */
 #ifndef DTYPE_DEV
 #define DTYPE_DEV DTYPE_DMABUF  /* Use DMA buffer type for DRM devices */
+#endif
+
+/*
+ * LKPI devfs per-open private storage.
+ *
+ * DragonFly requires vnode-shaped fds for mmap(2) and various vnode paths.
+ * For LKPI cdev nodes we keep fp->f_type == DTYPE_VNODE and fp->f_data == vnode
+ * and store the associated LKPI linux_file pointer in devfs cdevpriv.
+ */
+#ifndef LKPI_CDEVPRIV_MAGIC
+#define LKPI_CDEVPRIV_MAGIC	0x4c4b5049U	/* 'LKPI' */
+struct lkpi_cdevpriv {
+	uint32_t	magic;
+	void		*data;
+};
 #endif
 
 /*
