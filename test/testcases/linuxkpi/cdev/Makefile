@@ -4,6 +4,8 @@ NOMAN=
 
 .MAIN: all
 
+.PHONY: kmod kmod-clean
+
 .include <bsd.prog.mk>
 
 all: kmod
