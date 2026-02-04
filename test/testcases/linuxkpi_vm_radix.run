@@ -1,0 +1,4 @@
+# LinuxKPI vm_radix iterator tests
+# Run with: dfregress test/testcases/linuxkpi_vm_radix.run
+
+linuxkpi/vm_radix/linuxkpi_vm_radix	userland	intpre,intpost,timeout=60

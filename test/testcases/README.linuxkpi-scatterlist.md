@@ -50,6 +50,11 @@ scatterlist helpers such as `sg_alloc_table_from_pages()` and
 - RUN ioctl reports success for all subtests
 - No leaks/panics/hangs on unload
 
+## Status
+
+- Sufficient baseline coverage for Phase 3 scatterlist/highmem work.
+- DMA-mapping and additional iterator/stress coverage can be added later.
+
 ## Run
 
 ```sh

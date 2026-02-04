@@ -23,7 +23,7 @@ DragonFly LinuxKPI port.
 
 5) **vm_radix iterator surface**
 - File: `test/testcases/README.linuxkpi-vm_radix.md`
-- Run: `dfregress test/testcases/linuxkpi_vm_radix.run` (planned)
+- Run: `dfregress test/testcases/linuxkpi_vm_radix.run`
 
 ## Notes
 
