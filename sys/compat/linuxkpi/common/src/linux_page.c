@@ -106,7 +106,9 @@ linux_alloc_pages(gfp_t flags, unsigned int order)
 
 	if (PMAP_HAS_DMAP) {
 		unsigned long npages = 1UL << order;
-		int req = VM_ALLOC_WIRED;
+		int req;
+
+		req = (flags & M_WAITOK) ? VM_ALLOC_NORMAL : VM_ALLOC_QUICK;
 
 		if ((flags & M_ZERO) != 0)
 			req |= VM_ALLOC_ZERO;
