@@ -73,9 +73,21 @@ static uint64_t next_handle = 1;
 static uint64_t next_off = PAGE_SIZE;
 static uint32_t obj_count;
 
+static void
+lkpi_mmaptest_vma_open(struct vm_area_struct *vma)
+{
+	(void)vma;
+}
+
+static void
+lkpi_mmaptest_vma_close(struct vm_area_struct *vma)
+{
+	(void)vma;
+}
+
 static const struct vm_operations_struct lkpi_mmap_vm_ops = {
-	.open = NULL,
-	.close = NULL,
+	.open = lkpi_mmaptest_vma_open,
+	.close = lkpi_mmaptest_vma_close,
 	.fault = NULL,
 	.access = NULL,
 };
@@ -136,7 +148,7 @@ lkpi_mmaptest_mmap(struct linux_file *filp, struct vm_area_struct *vma)
 	if (len == 0)
 		return -EINVAL;
 
-	if ((vma->vm_start & PAGE_MASK) || (vma->vm_end & PAGE_MASK))
+	if (!PAGE_ALIGNED(vma->vm_start) || !PAGE_ALIGNED(vma->vm_end))
 		return -EINVAL;
 
 	if ((vma->vm_flags & VM_SHARED) == 0)
@@ -194,8 +206,8 @@ lkpi_mmaptest_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	case LKPI_MMAPTEST_ALLOC:
 		if (copy_from_user(&alloc, (void __user *)arg, sizeof(alloc)) != 0)
 			return -EFAULT;
-		if (alloc.size == 0 || (alloc.size & PAGE_MASK) != 0)
-			return -EINVAL;
+	if (alloc.size == 0 || !PAGE_ALIGNED(alloc.size))
+		return -EINVAL;
 		if (alloc.size > LKPI_MMAPTEST_MAX_SIZE)
 			return -EINVAL;
 		if (alloc.cache > LKPI_MMAP_CACHE_UC)
