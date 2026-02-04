@@ -64,6 +64,26 @@ refcount_read(refcount_t *ref)
 	return atomic_read(ref);
 }
 
+static inline unsigned int
+refcount_load(refcount_t *ref)
+{
+	return atomic_read(ref);
+}
+
+static inline bool
+refcount_release_if_not_last(refcount_t *ref)
+{
+	int c;
+
+	for (;;) {
+		c = atomic_read(ref);
+		if (c == 1)
+			return false;
+		if (atomic_fcmpset_int(&ref->counter, &c, c - 1))
+			return true;
+	}
+}
+
 static inline bool
 refcount_dec_and_lock_irqsave(refcount_t *ref, spinlock_t *lock,
     unsigned long *flags)

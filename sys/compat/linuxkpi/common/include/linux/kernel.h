@@ -280,7 +280,9 @@ extern int linuxkpi_debug;
 #define offsetofend(t, m)	\
         (offsetof(t, m) + sizeof((((t *)0)->m)))
 
+#ifndef smp_processor_id
 #define	smp_processor_id()	PCPU_GET(cpuid)
+#endif
 #define	num_possible_cpus()	mp_ncpus
 #define	num_online_cpus()	mp_ncpus
 

@@ -58,7 +58,7 @@ typedef struct sx {
 #define sx_sunlock(sx) lockmgr(&(sx)->lk, LK_RELEASE)
 #define sx_try_xlock(sx) (lockmgr(&(sx)->lk, LK_EXCLUSIVE|LK_NOWAIT) == 0)
 #define sx_try_slock(sx) (lockmgr(&(sx)->lk, LK_SHARED|LK_NOWAIT) == 0)
-#define sx_xlocked(sx) lockstatus(&(sx)->lk, LK_EXCLUSIVE)
+#define sx_xlocked(sx) (lockstatus(&(sx)->lk, curthread) == LK_EXCLUSIVE)
 #define sx_assert(sx, what)
 #define sx_xlock_sig(sx) (sx_xlock(sx), 0)
 #define sx_slock_sig(sx) (sx_slock(sx), 0)

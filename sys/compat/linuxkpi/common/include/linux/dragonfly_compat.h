@@ -1082,10 +1082,10 @@ static __inline void
 lkpi_finit(struct file *fp, int flags, int type, void *data,
     const struct fileops *ops)
 {
-    fp->f_flag = flags;
-    fp->f_type = type;
-    fp->f_data = data;
-    fp->f_ops = ops;
+	fp->f_flag = flags;
+	fp->f_type = type;
+	fp->f_data = data;
+	fp->f_ops = __DECONST(struct fileops *, ops);
 }
 
 /*

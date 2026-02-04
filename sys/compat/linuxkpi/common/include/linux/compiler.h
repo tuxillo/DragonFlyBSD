@@ -66,6 +66,14 @@
 
 #define	barrier()			__asm__ __volatile__("": : :"memory")
 
+#ifndef __compiler_membar
+#define	__compiler_membar()	__asm__ __volatile__("": : :"memory")
+#endif
+
+#ifndef __compiler_membar
+#define	__compiler_membar()	__asm__ __volatile__("": : :"memory")
+#endif
+
 #define	lower_32_bits(n)		((u32)(n))
 #define	upper_32_bits(n)		((u32)(((n) >> 16) >> 16))
 

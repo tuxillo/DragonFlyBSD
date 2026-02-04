@@ -37,7 +37,9 @@ typedef struct rwlock {
 } rwlock_t;
 
 /* RW lock operations - map to DragonFly's lockmgr */
+#ifndef rw_init
 #define rw_init(rw, name) lockinit(&(rw)->lk, name, 0, LK_CANRECURSE)
+#endif
 #define rw_destroy(rw) lockuninit(&(rw)->lk)
 #define rw_wlock(rw) lockmgr(&(rw)->lk, LK_EXCLUSIVE)
 #define rw_wunlock(rw) lockmgr(&(rw)->lk, LK_RELEASE)

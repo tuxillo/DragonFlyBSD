@@ -106,10 +106,12 @@ extern void linux_file_free(struct linux_file *filp);
 static inline void
 fput(struct linux_file *filp)
 {
-	if (refcount_release(filp->_file == NULL ?
-	    &filp->f_count : &filp->_file->f_count)) {
-		linux_file_free(filp);
+	if (filp->_file != NULL) {
+		fdrop(filp->_file);
+		return;
 	}
+	if (refcount_release(&filp->f_count))
+		linux_file_free(filp);
 }
 
 static inline unsigned int

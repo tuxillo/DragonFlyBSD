@@ -29,3 +29,4 @@ DragonFly LinuxKPI port.
 
 - Suites 3–5 are Phase 3 coverage for LinuxKPI compatibility work.
 - Each suite uses per-test kernel modules for isolation and debugging.
+- Suites 1–5 are runnable on the current port-linuxkpi tree.

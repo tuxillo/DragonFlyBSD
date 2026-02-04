@@ -35,12 +35,18 @@
 #include <linux/build_bug.h>
 #include <linux/stddef.h>
 
+#ifndef container_of
+#ifndef container_of
 #define	container_of(ptr, type, member)				\
 ({								\
 	const __typeof(((type *)0)->member) *__p = (ptr);	\
 	(type *)((uintptr_t)__p - offsetof(type, member));	\
 })
+#endif
+#endif
 
+#ifndef container_of_const
+#ifndef container_of_const
 #define	container_of_const(ptr, type, member)			\
     _Generic(ptr,						\
 	const typeof(*(ptr)) *:					\
@@ -48,6 +54,8 @@
 	default:						\
 	    container_of(ptr, type, member)			\
     )
+#endif
+#endif
 
 #define	typeof_member(type, member)	__typeof(((type *)0)->member)
 

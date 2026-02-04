@@ -265,8 +265,10 @@ extern unsigned int linux_iminor(struct inode *);
 static inline struct linux_file *
 get_file(struct linux_file *f)
 {
-
-	refcount_acquire(f->_file == NULL ? &f->f_count : &f->_file->f_count);
+	if (f->_file != NULL)
+		fhold(f->_file);
+	else
+		refcount_acquire(&f->f_count);
 	return (f);
 }
 
@@ -276,8 +278,9 @@ struct linux_file * get_file_active(struct linux_file **f);
 static inline bool
 get_file_rcu(struct linux_file *f)
 {
-	return (refcount_acquire_if_not_zero(
-	    f->_file == NULL ? &f->f_count : &f->_file->f_count));
+	if (f->_file != NULL)
+		return (fhold(f->_file), true);
+	return (refcount_acquire_if_not_zero(&f->f_count));
 }
 #else
 #define	get_file_rcu(f)	linux_get_file_rcu(f)

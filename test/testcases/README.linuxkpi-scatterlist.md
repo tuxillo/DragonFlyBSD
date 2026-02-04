@@ -55,6 +55,11 @@ scatterlist helpers such as `sg_alloc_table_from_pages()` and
 - Sufficient baseline coverage for Phase 3 scatterlist/highmem work.
 - DMA-mapping and additional iterator/stress coverage can be added later.
 
+## Notes
+
+- Depends on correct LKPI page allocation/free semantics on DragonFly
+  (`linux_alloc_pages()`/`linux_free_pages()` correctness).
+
 ## Run
 
 ```sh

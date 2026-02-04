@@ -58,48 +58,112 @@
 #endif
 
 /* Bus read/write stream operations - aliases for regular operations */
+#ifndef bus_space_read_stream_1
 #define bus_space_read_stream_1 bus_space_read_1
+#endif
+#ifndef bus_space_read_stream_2
 #define bus_space_read_stream_2 bus_space_read_2
+#endif
+#ifndef bus_space_read_stream_4
 #define bus_space_read_stream_4 bus_space_read_4
+#endif
+#ifndef bus_space_read_stream_8
 #define bus_space_read_stream_8 bus_space_read_8
+#endif
 
+#ifndef bus_space_write_stream_1
 #define bus_space_write_stream_1 bus_space_write_1
+#endif
+#ifndef bus_space_write_stream_2
 #define bus_space_write_stream_2 bus_space_write_2
+#endif
+#ifndef bus_space_write_stream_4
 #define bus_space_write_stream_4 bus_space_write_4
+#endif
+#ifndef bus_space_write_stream_8
 #define bus_space_write_stream_8 bus_space_write_8
+#endif
 
 /* Bus multi-stream operations */
+#ifndef bus_space_read_multi_stream_1
 #define bus_space_read_multi_stream_1 bus_space_read_multi_1
+#endif
+#ifndef bus_space_read_multi_stream_2
 #define bus_space_read_multi_stream_2 bus_space_read_multi_2
+#endif
+#ifndef bus_space_read_multi_stream_4
 #define bus_space_read_multi_stream_4 bus_space_read_multi_4
+#endif
+#ifndef bus_space_read_multi_stream_8
 #define bus_space_read_multi_stream_8 bus_space_read_multi_8
+#endif
 
+#ifndef bus_space_write_multi_stream_1
 #define bus_space_write_multi_stream_1 bus_space_write_multi_1
+#endif
+#ifndef bus_space_write_multi_stream_2
 #define bus_space_write_multi_stream_2 bus_space_write_multi_2
+#endif
+#ifndef bus_space_write_multi_stream_4
 #define bus_space_write_multi_stream_4 bus_space_write_multi_4
+#endif
+#ifndef bus_space_write_multi_stream_8
 #define bus_space_write_multi_stream_8 bus_space_write_multi_8
+#endif
 
 /* Bus region stream operations */
+#ifndef bus_space_read_region_stream_1
 #define bus_space_read_region_stream_1 bus_space_read_region_1
+#endif
+#ifndef bus_space_read_region_stream_2
 #define bus_space_read_region_stream_2 bus_space_read_region_2
+#endif
+#ifndef bus_space_read_region_stream_4
 #define bus_space_read_region_stream_4 bus_space_read_region_4
+#endif
+#ifndef bus_space_read_region_stream_8
 #define bus_space_read_region_stream_8 bus_space_read_region_8
+#endif
 
+#ifndef bus_space_write_region_stream_1
 #define bus_space_write_region_stream_1 bus_space_write_region_1
+#endif
+#ifndef bus_space_write_region_stream_2
 #define bus_space_write_region_stream_2 bus_space_write_region_2
+#endif
+#ifndef bus_space_write_region_stream_4
 #define bus_space_write_region_stream_4 bus_space_write_region_4
+#endif
+#ifndef bus_space_write_region_stream_8
 #define bus_space_write_region_stream_8 bus_space_write_region_8
+#endif
 
 /* Bus set region stream operations */
+#ifndef bus_space_set_region_stream_1
 #define bus_space_set_region_stream_1 bus_space_set_region_1
+#endif
+#ifndef bus_space_set_region_stream_2
 #define bus_space_set_region_stream_2 bus_space_set_region_2
+#endif
+#ifndef bus_space_set_region_stream_4
 #define bus_space_set_region_stream_4 bus_space_set_region_4
+#endif
+#ifndef bus_space_set_region_stream_8
 #define bus_space_set_region_stream_8 bus_space_set_region_8
+#endif
 
 /* Bus copy region stream operations */
+#ifndef bus_space_copy_region_stream_1
 #define bus_space_copy_region_stream_1 bus_space_copy_region_1
+#endif
+#ifndef bus_space_copy_region_stream_2
 #define bus_space_copy_region_stream_2 bus_space_copy_region_2
+#endif
+#ifndef bus_space_copy_region_stream_4
 #define bus_space_copy_region_stream_4 bus_space_copy_region_4
+#endif
+#ifndef bus_space_copy_region_stream_8
 #define bus_space_copy_region_stream_8 bus_space_copy_region_8
+#endif
 
 #endif /* _MACHINE_BUS_H_ */

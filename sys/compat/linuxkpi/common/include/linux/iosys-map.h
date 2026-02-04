@@ -28,9 +28,9 @@ static inline void
 iosys_map_incr(struct iosys_map *ism, size_t n)
 {
 	if (ism->is_iomem)
-		ism->vaddr_iomem += n;
+		ism->vaddr_iomem = (void *)((char *)ism->vaddr_iomem + n);
 	else
-		ism->vaddr += n;
+		ism->vaddr = (void *)((char *)ism->vaddr + n);
 }
 
 static inline void
@@ -38,9 +38,9 @@ iosys_map_memcpy_to(struct iosys_map *ism, size_t off, const void *src,
     size_t len)
 {
 	if (ism->is_iomem)
-		memcpy_toio(ism->vaddr_iomem + off, src, len);
+		memcpy_toio((void *)((char *)ism->vaddr_iomem + off), src, len);
 	else
-		memcpy(ism->vaddr + off, src, len);
+		memcpy((void *)((char *)ism->vaddr + off), src, len);
 }
 
 static inline bool
@@ -103,9 +103,9 @@ static inline void
 iosys_map_memset(struct iosys_map *ism, size_t off, int value, size_t len)
 {
 	if (ism->is_iomem)
-		memset_io(ism->vaddr_iomem + off, value, len);
+		memset_io((void *)((char *)ism->vaddr_iomem + off), value, len);
 	else
-		memset(ism->vaddr + off, value, len);
+		memset((void *)((char *)ism->vaddr + off), value, len);
 }
 
 #ifdef __LP64__
@@ -124,27 +124,27 @@ iosys_map_memset(struct iosys_map *ism, size_t off, int value, size_t len)
 #define	iosys_map_rd(_ism, _off, _type) ({				\
 	_type val;							\
 	if ((_ism)->is_iomem) {						\
-		void *addr = (_ism)->vaddr_iomem + (_off);		\
+		void *addr = (void *)((char *)(_ism)->vaddr_iomem + (_off));	\
 		val = _Generic(val,					\
 		    uint8_t : readb(addr),				\
 		    uint16_t: readw(addr),				\
 		    uint32_t: readl(addr),				\
 		    uint64_t: _iosys_map_readq(addr));			\
 	} else								\
-		val = READ_ONCE(*(_type *)((_ism)->vaddr + (_off)));	\
+		val = READ_ONCE(*(_type *)((char *)(_ism)->vaddr + (_off)));	\
 	val;								\
 })
 #define	iosys_map_wr(_ism, _off, _type, _val) ({			\
 	_type val = (_val);						\
 	if ((_ism)->is_iomem) {						\
-		void *addr = (_ism)->vaddr_iomem + (_off);		\
+		void *addr = (void *)((char *)(_ism)->vaddr_iomem + (_off));	\
 		_Generic(val,						\
 		    uint8_t : writeb(val, addr),			\
 		    uint16_t: writew(val, addr),			\
 		    uint32_t: writel(val, addr),			\
 		    uint64_t: _iosys_map_writeq(val, addr));		\
 	} else								\
-		WRITE_ONCE(*(_type *)((_ism)->vaddr + (_off)), val);	\
+		WRITE_ONCE(*(_type *)((char *)(_ism)->vaddr + (_off)), val);	\
 })
 
 #define	iosys_map_rd_field(_ism, _off, _type, _field) ({		\

@@ -10,7 +10,7 @@ The tests use the DragonFly `tbridge` (test bridge) framework and are run via `d
 
 ```bash
 cd /usr/src/test/testcases
-dfregress -r linuxkpi_workqueue.run
+dfregress test/testcases/linuxkpi_workqueue.run
 ```
 
 ---
@@ -756,7 +756,7 @@ for d in wq_test*/; do (cd "$d" && make); done
 
 # Run all workqueue tests
 cd /usr/src/test/testcases
-dfregress -r linuxkpi_workqueue.run
+dfregress test/testcases/linuxkpi_workqueue.run
 
 # Run a single test manually
 kldload linuxkpi/workqueue/wq_test16_delayed_requeue/wq_test16.ko
