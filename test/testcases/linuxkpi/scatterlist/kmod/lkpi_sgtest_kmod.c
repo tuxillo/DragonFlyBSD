@@ -159,8 +159,8 @@ lkpi_sgtest_sg_table(void)
 	}
 
 	bzero(&sgt, sizeof(sgt));
-	error = sg_alloc_table_from_pages(&sgt, pages, 3, 128,
-	    PAGE_SIZE * 2 + 256, PAGE_SIZE);
+	error = sg_alloc_table_from_pages_segment(&sgt, pages, 3, 128,
+	    PAGE_SIZE * 2 + 256, PAGE_SIZE, GFP_KERNEL);
 	if (error != 0)
 		goto out;
 
@@ -175,7 +175,7 @@ lkpi_sgtest_sg_table(void)
 		goto out_free;
 	}
 
-	expected_total = (PAGE_SIZE - 128) + PAGE_SIZE + 256;
+	expected_total = (PAGE_SIZE - 128) + PAGE_SIZE + 384;
 	total = 0;
 	for_each_sg(sgt.sgl, sg, sgt.orig_nents, i) {
 		switch (i) {
@@ -195,7 +195,7 @@ lkpi_sgtest_sg_table(void)
 			break;
 		case 2:
 			if (sg_page(sg) != pages[2] || sg->offset != 0 ||
-			    sg->length != 256 || !sg_is_last(sg)) {
+			    sg->length != 384 || !sg_is_last(sg)) {
 				error = EINVAL;
 				goto out_free;
 			}
@@ -332,14 +332,14 @@ lkpi_sgtest_sg_chain(void)
 		sg_set_page(sg, page, 16, 0);
 
 	count = 0;
-	for_each_sg(sgt.sgl, sg, sgt.orig_nents, i)
+	for_each_sg(sgt.sgl, sg, sgt.orig_nents, i) {
 		count++;
-	if (count != nents) {
-		error = EINVAL;
-		goto out_free;
+		if (i == sgt.orig_nents - 1 && !sg_is_last(sg)) {
+			error = EINVAL;
+			goto out_free;
+		}
 	}
-
-	if (!sg_is_last(&sgt.sgl[nents - 1])) {
+	if (count != nents) {
 		error = EINVAL;
 		goto out_free;
 	}

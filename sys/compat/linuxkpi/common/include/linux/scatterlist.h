@@ -674,6 +674,13 @@ sg_pcopy_to_buffer(struct scatterlist *sgl, unsigned int nents,
 	return (total);
 }
 
+static inline size_t
+sg_copy_to_buffer(struct scatterlist *sgl, unsigned int nents,
+    void *buf, size_t buflen)
+{
+	return (sg_pcopy_to_buffer(sgl, nents, buf, buflen, 0));
+}
+
 static inline void
 sg_set_folio(struct scatterlist *sg, struct folio *folio, size_t len,
     size_t offset)
