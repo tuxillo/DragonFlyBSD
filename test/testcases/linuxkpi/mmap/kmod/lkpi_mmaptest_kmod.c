@@ -44,6 +44,7 @@
 #include <vm/vm.h>
 #include <vm/vm_param.h>
 #include <vm/vm_object.h>
+#include <vm/vm_pager.h>
 
 #include "../../../../sys/compat/linuxkpi/common/include/linux/cdev.h"
 #include "../../../../sys/compat/linuxkpi/common/include/linux/fs.h"
