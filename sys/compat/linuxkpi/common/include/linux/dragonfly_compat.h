@@ -1,4 +1,4 @@
-sys/compat/linuxkpi/common/include/linux/dragonfly_compat.h/*-
+/*-
  * Copyright (c) 2026 The DragonFly Project
  * All rights reserved.
  *
