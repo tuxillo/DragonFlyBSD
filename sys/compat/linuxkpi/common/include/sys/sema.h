@@ -83,7 +83,7 @@ sema_wait(struct sema *sema)
     mtx_lock(&sema->sem_mtx);
     while (sema->sem_value == 0) {
         sema->sem_waiters++;
-        mtx_sleep(&sema->sem_value, &sema->sem_mtx, 0, "semawait", 0);
+		mtxsleep(&sema->sem_value, &sema->sem_mtx, 0, "semawait", 0);
         sema->sem_waiters--;
     }
     sema->sem_value--;
@@ -97,7 +97,7 @@ sema_timedwait(struct sema *sema, int timo)
     mtx_lock(&sema->sem_mtx);
     while (sema->sem_value == 0) {
         sema->sem_waiters++;
-        if (mtx_sleep(&sema->sem_value, &sema->sem_mtx, 0, "semawait", timo)) {
+		if (mtxsleep(&sema->sem_value, &sema->sem_mtx, 0, "semawait", timo)) {
             sema->sem_waiters--;
             mtx_unlock(&sema->sem_mtx);
             return EWOULDBLOCK;
