@@ -156,16 +156,25 @@ lkpi_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		priv = filp->private_data;
 		if (priv == NULL)
 			return -EINVAL;
+		spin_lock(&filp->f_kqlock);
 		if (pollcfg.flags == 0) {
 			priv->ready_read = 0;
 			priv->ready_write = 0;
+			filp->f_kqflags &= ~(LINUX_KQ_FLAG_NEED_READ |
+			    LINUX_KQ_FLAG_NEED_WRITE);
 		} else {
-			if (pollcfg.flags & LKPI_CDEVTEST_POLL_READ)
+			if (pollcfg.flags & LKPI_CDEVTEST_POLL_READ) {
 				priv->ready_read = 0;
-			if (pollcfg.flags & LKPI_CDEVTEST_POLL_WRITE)
+				filp->f_kqflags &= ~LINUX_KQ_FLAG_NEED_READ;
+			}
+			if (pollcfg.flags & LKPI_CDEVTEST_POLL_WRITE) {
 				priv->ready_write = 0;
+				filp->f_kqflags &= ~LINUX_KQ_FLAG_NEED_WRITE;
+			}
 		}
-		linux_poll_wakeup(filp);
+		spin_unlock(&filp->f_kqlock);
+		selwakeup(&filp->f_selinfo);
+		KNOTE_UNLOCKED(&filp->f_selinfo.si_note, 1);
 		return 0;
 	default:
 		return -EINVAL;

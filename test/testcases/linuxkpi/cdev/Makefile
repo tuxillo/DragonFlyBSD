@@ -2,6 +2,8 @@ PROG= 	linuxkpi_cdev
 SRCS= 	linuxkpi_cdev.c
 NOMAN=
 
+.MAIN: all
+
 .include <bsd.prog.mk>
 
 all: kmod
