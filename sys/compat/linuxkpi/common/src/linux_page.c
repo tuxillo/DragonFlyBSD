@@ -107,6 +107,7 @@ linux_alloc_pages(gfp_t flags, unsigned int order)
 	if (PMAP_HAS_DMAP) {
 		unsigned long npages = 1UL << order;
 		int req;
+		int aflags;
 
 		req = (flags & M_WAITOK) ? VM_ALLOC_NORMAL : VM_ALLOC_QUICK;
 
@@ -114,7 +115,10 @@ linux_alloc_pages(gfp_t flags, unsigned int order)
 			req |= VM_ALLOC_ZERO;
 
 		if (order == 0 && (flags & GFP_DMA32) == 0) {
-			page = vm_page_alloc_noobj(req);
+			aflags = req;
+			if ((flags & M_WAITOK) != 0)
+				aflags |= VM_ALLOC_RETRY;
+			page = vm_page_alloczwq(0, aflags);
 			if (page == NULL)
 				return (NULL);
 		} else {
@@ -140,6 +144,18 @@ linux_alloc_pages(gfp_t flags, unsigned int order)
 					goto retry;
 				}
 				return (NULL);
+			}
+			}
+			for (unsigned long x = 0; x != npages; x++) {
+				vm_page_t pgo = page + x;
+
+				if ((req & VM_ALLOC_ZERO) != 0) {
+					pmap_zero_page(VM_PAGE_TO_PHYS(pgo));
+					pgo->valid = VM_PAGE_BITS_ALL;
+				}
+				if (pgo->wire_count == 0)
+					vm_page_wire(pgo);
+				vm_page_wakeup(pgo);
 			}
 		}
 	} else {
