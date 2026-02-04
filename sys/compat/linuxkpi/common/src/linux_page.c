@@ -218,10 +218,11 @@ linux_free_pages(struct page *page, unsigned int order)
 			 * If no PG_UNQUEUED flag exists, check if object is NULL.
 			 */
 			if (pgo->object != NULL) {
+				vm_page_busy_wait(pgo, FALSE, "lkpifp");
 				vm_page_unwire(pgo, PQ_ACTIVE);
+				vm_page_wakeup(pgo);
 			} else {
-				if (vm_page_unwire_noq(pgo))
-					vm_page_free(pgo);
+				vm_page_freezwq(pgo);
 			}
 #else
 			if ((pgo->oflags & VPO_UNMANAGED) == 0) {
