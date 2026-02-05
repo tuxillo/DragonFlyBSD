@@ -67,15 +67,28 @@ typedef __ptrdiff_t ptrdiff_t;
 #define ALIGN(p) (((unsigned long)(p) + ALIGNBYTES) & ~ALIGNBYTES)
 #endif
 
-/* Container of macro - useful for kernel code */
+/*
+ * Container of macro - matches FreeBSD's linuxkpi version.
+ * Always returns non-const; use container_of_const for const preservation.
+ */
 #ifndef container_of
-#define container_of(ptr, type, member) \
-    _Generic((ptr), \
-        const typeof(((type *)0)->member) *: \
-            (const type *)((uintptr_t)(ptr) - offsetof(type, member)), \
-        default: \
-            (type *)((uintptr_t)(ptr) - offsetof(type, member)) \
+#define	container_of(ptr, type, member)				\
+({								\
+	const __typeof(((type *)0)->member) *__p = (ptr);	\
+	(type *)((uintptr_t)__p - offsetof(type, member));	\
+})
+#endif
+
+#ifndef container_of_const
+#define	container_of_const(ptr, type, member)			\
+    _Generic(ptr,						\
+	const typeof(*(ptr)) *:					\
+	    (const type *)container_of(ptr, type, member),	\
+	default:						\
+	    container_of(ptr, type, member)			\
     )
 #endif
+
+#define	typeof_member(type, member)	__typeof(((type *)0)->member)
 
 #endif /* _SYS_STDDEF_H_ */

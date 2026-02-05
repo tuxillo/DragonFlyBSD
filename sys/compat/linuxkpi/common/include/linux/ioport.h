@@ -34,18 +34,30 @@
 #include <sys/rman.h>
 #endif
 
+/*
+ * Linux uses 'struct resource' with 'start' and 'end' members.
+ * DragonFly's struct resource uses 'r_start' and 'r_end'.
+ * We define accessor macros instead of redefining 'start'/'end'
+ * which would break other code (e.g., drm_mm_node.start).
+ */
 #ifdef __DragonFly__
-#ifndef start
-#define	start			r_start
-#endif
-#ifndef end
-#define	end			r_end
-#endif
 #define DEFINE_RES_MEM(_start, _size)		\
 	(struct resource) {			\
 		.r_start = (_start),		\
 		.r_end = (_start) + (_size) - 1,	\
 	}
+
+static inline resource_size_t
+resource_start(const struct resource *r)
+{
+	return (r->r_start);
+}
+
+static inline resource_size_t
+resource_end(const struct resource *r)
+{
+	return (r->r_end);
+}
 #else
 #define DEFINE_RES_MEM(_start, _size)		\
 	(struct resource) {			\
@@ -58,18 +70,31 @@ struct resource {
 	resource_size_t end;
 	const char *name;
 };
+
+static inline resource_size_t
+resource_start(const struct resource *r)
+{
+	return (r->start);
+}
+
+static inline resource_size_t
+resource_end(const struct resource *r)
+{
+	return (r->end);
+}
 #endif
 
 static inline resource_size_t
 resource_size(const struct resource *r)
 {
-	return (r->end - r->start + 1);
+	return (resource_end(r) - resource_start(r) + 1);
 }
 
 static inline bool
 resource_contains(struct resource *a, struct resource *b)
 {
-	return (a->start <= b->start && a->end >= b->end);
+	return (resource_start(a) <= resource_start(b) &&
+		resource_end(a) >= resource_end(b));
 }
 
 #endif
