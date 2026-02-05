@@ -35,7 +35,7 @@
 
 #define	sort(base, num, size, cmp, swap)	do {	\
 	BUILD_BUG_ON_ZERO(swap);			\
-	qsort(base, num, size, cmp);			\
+	kqsort(base, num, size, cmp);			\
 } while (0)
 
 #endif	/* _LINUXKPI_LINUX_SORT_H_ */
