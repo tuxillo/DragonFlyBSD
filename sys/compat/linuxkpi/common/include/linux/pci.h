@@ -1485,8 +1485,7 @@ pci_rescan_bus(struct pci_bus *pbus)
 {
 #ifdef __DragonFly__
 	return (0);
-#endif
-
+#else
 	device_t *devlist, parent;
 	int devcount, error;
 
@@ -1505,6 +1504,7 @@ pci_rescan_bus(struct pci_bus *pbus)
 		free(devlist, M_TEMP);
 
 	return (devcount);
+#endif
 }
 
 /*
