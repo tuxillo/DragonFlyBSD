@@ -46,6 +46,7 @@
  * DragonFly: Include headers that use BSD's LIST_HEAD(name, type) BEFORE
  * we undef it below. This prevents macro conflicts.
  */
+#include <sys/file.h>
 #include <sys/rman.h>
 #else
 #include <sys/jail.h>
