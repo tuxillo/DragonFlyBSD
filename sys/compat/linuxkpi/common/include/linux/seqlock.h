@@ -126,7 +126,7 @@ seqlock_init(struct seqlock *seqlock)
 static inline void
 lkpi_write_seqlock(struct seqlock *seqlock, const bool irqsave)
 {
-	mtx_lock(&seqlock->seql_lock);
+	_mtx_lock_ex(&seqlock->seql_lock, 0, 0);
 	if (irqsave)
 		critical_enter();
 	write_seqcount_begin(&seqlock->seql_count);
@@ -144,7 +144,7 @@ lkpi_write_sequnlock(struct seqlock *seqlock, const bool irqsave)
 	write_seqcount_end(&seqlock->seql_count);
 	if (irqsave)
 		critical_exit();
-	mtx_unlock(&seqlock->seql_lock);
+	_mtx_unlock(&seqlock->seql_lock);
 }
 
 static inline void
