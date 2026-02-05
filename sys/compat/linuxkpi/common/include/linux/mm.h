@@ -39,6 +39,7 @@
 #include <linux/pfn.h>
 #include <linux/list.h>
 #include <linux/mmap_lock.h>
+#include <linux/preempt.h>
 
 #include <vm/vm_page.h>
 #include <vm/vm_object.h>
