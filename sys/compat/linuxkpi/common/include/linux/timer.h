@@ -55,6 +55,9 @@ extern unsigned long linux_timer_hz_mask;
 #else
 #define	timer_container_of(var, arg, field)				\
     container_of(arg, typeof(*(var)), field)
+#ifndef from_timer
+#define	from_timer(var, arg, field)		timer_container_of(var, arg, field)
+#endif
 #endif
 
 #define	timer_setup(timer, func, flags) do {				\
