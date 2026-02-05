@@ -46,6 +46,10 @@ ilog2(unsigned long n)
 }
 #endif
 
+#ifndef order_base_2
+#define	order_base_2(n)	ilog2(n)
+#endif
+
 #ifndef roundup_pow_of_two
 #define	roundup_pow_of_two(n) ({			\
 	__typeof(n) _n = (n);			\
