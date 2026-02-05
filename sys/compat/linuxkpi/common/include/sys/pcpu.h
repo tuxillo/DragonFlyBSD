@@ -33,7 +33,7 @@
 #include <sys/param.h>
 #include <sys/cpuset.h>
 #include <sys/thread.h>
-#include <sys/globaldata.h>  /* For ncpus */
+#include <sys/globaldata.h>
 
 #ifdef _KERNEL
 #include <sys/malloc.h>      /* For kernel malloc/kfree */
@@ -58,6 +58,7 @@ struct pcpu {
 
 /* Global pcpu array - initialized at runtime */
 extern struct pcpu *pcpu_base;
+extern int ncpus;  /* Total number of CPUs (from sys/systm.h) */
 
 /* PCPU pointer - returns pointer to this CPU's pcpu structure */
 static __inline struct pcpu *
