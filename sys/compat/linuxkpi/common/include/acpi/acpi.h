@@ -141,7 +141,7 @@ static inline ACPI_STATUS
 lkpi_acpi_get_handle(ACPI_HANDLE Parent, const char *Pathname,
     ACPI_HANDLE *RetHandle)
 {
-	return (AcpiGetHandle(Parent, Pathname, RetHandle));
+	return (AcpiGetHandle(Parent, (ACPI_STRING)Pathname, RetHandle));
 }
 
 static inline ACPI_STATUS
