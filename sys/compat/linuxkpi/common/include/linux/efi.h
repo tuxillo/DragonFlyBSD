@@ -45,12 +45,16 @@ __efi_enabled(int feature)
 
 	switch (feature) {
 	case EFI_BOOT:
+#ifdef __DragonFly__
+		enabled = false;
+#else
 #ifdef __amd64__
 		/* Use cached value on amd64 */
 		enabled = efi_boot;
 #elif defined(MODINFOMD_EFI_MAP)
 		enabled = preload_search_info(preload_kmdp,
 		    MODINFO_METADATA | MODINFOMD_EFI_MAP) != NULL;
+#endif
 #endif
 		break;
 	default:

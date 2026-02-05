@@ -62,6 +62,7 @@ typedef struct sx {
 #define sx_assert(sx, what)
 #define sx_xlock_sig(sx) (sx_xlock(sx), 0)
 #define sx_slock_sig(sx) (sx_slock(sx), 0)
+#define sx_downgrade(sx) lockmgr(&(sx)->lk, LK_DOWNGRADE)
 
 /* 
  * sx_xholder - get the thread holding the exclusive lock.
