@@ -1047,7 +1047,11 @@ pci_reset_function(struct pci_dev *pdev)
 /* XXX This should not be necessary. */
 #define	pcix_set_mmrbc(d, v)	0
 #define	pcix_get_max_mmrbc(d)	0
+#ifdef __DragonFly__
+#define	pcie_set_readrq(d, v)	pcie_set_max_readrq((d)->dev.bsddev, (v))
+#else
 #define	pcie_set_readrq(d, v)	pci_set_max_read_req((d)->dev.bsddev, (v))
+#endif
 
 #define	PCI_DMA_BIDIRECTIONAL	0
 #define	PCI_DMA_TODEVICE	1
