@@ -41,7 +41,7 @@ int	linux_wbinvd_on_all_cpus(void);
 
 #define	get_cpu() ({			\
 	critical_enter();		\
-	PCPU_GET(cpuid);		\
+	mycpuid;			\
 })
 
 #define	put_cpu()			\
