@@ -58,6 +58,10 @@
 #include <linux/types.h>
 #include <linux/typecheck.h>
 #include <linux/jiffies.h>
+
+#ifdef __DragonFly__
+#define	snprintf	ksnprintf
+#endif
 #include <linux/log2.h>
 #include <linux/kconfig.h>
 
