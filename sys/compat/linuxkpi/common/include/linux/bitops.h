@@ -84,7 +84,11 @@ ffsll(long long mask)
 #define	HWEIGHT64(x)	(__const_bitcount64((uint64_t)(x)))
 #endif
 
+#ifdef __DragonFly__
+#define	hweight8(x)	(__builtin_constant_p(x) ? HWEIGHT8(x)  : bitcount8((uint8_t)(x)))
+#else
 #define	hweight8(x)	(__builtin_constant_p(x) ? HWEIGHT8(x)  : bitcount((uint8_t)(x)))
+#endif
 #define	hweight16(x)	(__builtin_constant_p(x) ? HWEIGHT16(x) : bitcount16(x))
 #define	hweight32(x)	(__builtin_constant_p(x) ? HWEIGHT32(x) : bitcount32(x))
 #define	hweight64(x)	(__builtin_constant_p(x) ? HWEIGHT64(x) : bitcount64(x))
