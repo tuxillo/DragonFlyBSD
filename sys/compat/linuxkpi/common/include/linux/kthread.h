@@ -110,7 +110,7 @@ task_fn_t lkpi_kthread_worker_init_fn;
 	__w = malloc(sizeof(*__w), M_KMALLOC, M_WAITOK | M_ZERO);	\
 	__w->tq = taskqueue_create("lkpi kthread taskq", M_WAITOK,	\
 	    taskqueue_thread_enqueue, &__w->tq);			\
-	taskqueue_start_threads(&__w->tq, 1, PWAIT, fmt, ##__VA_ARGS__);\
+	taskqueue_start_threads(&__w->tq, 1, PWAIT, -1, fmt, ##__VA_ARGS__);\
 	TASK_INIT(&__task, 0, lkpi_kthread_worker_init_fn, __w);	\
 	taskqueue_enqueue(__w->tq, &__task);				\
 	taskqueue_drain(__w->tq, &__task);				\
