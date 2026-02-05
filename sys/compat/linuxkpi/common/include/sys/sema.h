@@ -70,64 +70,64 @@ static __inline int
 sema_trywait(struct sema *sema)
 {
     int result = 0;
-    mtx_lock(&sema->sem_mtx);
+    _mtx_lock_ex(&sema->sem_mtx, 0, 0);
     if (sema->sem_value > 0) {
         sema->sem_value--;
         result = 1;
     }
-    mtx_unlock(&sema->sem_mtx);
+    _mtx_unlock(&sema->sem_mtx);
     return result;
 }
 
 static __inline int
 sema_wait(struct sema *sema)
 {
-    mtx_lock(&sema->sem_mtx);
+    _mtx_lock_ex(&sema->sem_mtx, 0, 0);
     while (sema->sem_value == 0) {
         sema->sem_waiters++;
 		mtxsleep(&sema->sem_value, &sema->sem_mtx, 0, "semawait", 0);
         sema->sem_waiters--;
     }
     sema->sem_value--;
-    mtx_unlock(&sema->sem_mtx);
+    _mtx_unlock(&sema->sem_mtx);
     return 0;
 }
 
 static __inline int
 sema_timedwait(struct sema *sema, int timo)
 {
-    mtx_lock(&sema->sem_mtx);
+    _mtx_lock_ex(&sema->sem_mtx, 0, 0);
     while (sema->sem_value == 0) {
         sema->sem_waiters++;
 		if (mtxsleep(&sema->sem_value, &sema->sem_mtx, 0, "semawait", timo)) {
             sema->sem_waiters--;
-            mtx_unlock(&sema->sem_mtx);
+            _mtx_unlock(&sema->sem_mtx);
             return EWOULDBLOCK;
         }
         sema->sem_waiters--;
     }
     sema->sem_value--;
-    mtx_unlock(&sema->sem_mtx);
+    _mtx_unlock(&sema->sem_mtx);
     return 0;
 }
 
 static __inline void
 sema_post(struct sema *sema)
 {
-    mtx_lock(&sema->sem_mtx);
+    _mtx_lock_ex(&sema->sem_mtx, 0, 0);
     sema->sem_value++;
     if (sema->sem_waiters > 0)
         wakeup(&sema->sem_value);
-    mtx_unlock(&sema->sem_mtx);
+    _mtx_unlock(&sema->sem_mtx);
 }
 
 static __inline int
 sema_value(struct sema *sema)
 {
     int value;
-    mtx_lock(&sema->sem_mtx);
+    _mtx_lock_ex(&sema->sem_mtx, 0, 0);
     value = sema->sem_value;
-    mtx_unlock(&sema->sem_mtx);
+    _mtx_unlock(&sema->sem_mtx);
     return value;
 }
 

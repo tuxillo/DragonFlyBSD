@@ -32,6 +32,7 @@
 /* Standard definitions that might be needed */
 #include <sys/cdefs.h>
 #include <sys/types.h>
+#include <sys/stdint.h>
 #ifndef NULL
 #define NULL ((void *)0)
 #endif
@@ -68,14 +69,13 @@ typedef __ptrdiff_t ptrdiff_t;
 
 /* Container of macro - useful for kernel code */
 #ifndef container_of
-#define container_of(ptr, type, member) ({ \
-    const typeof(((type *)0)->member) *__mptr = (ptr); \
+#define container_of(ptr, type, member) \
     _Generic((ptr), \
         const typeof(((type *)0)->member) *: \
-            (const type *)((char *)__mptr - offsetof(type, member)), \
+            (const type *)((uintptr_t)(ptr) - offsetof(type, member)), \
         default: \
-            (type *)((char *)__mptr - offsetof(type, member)) \
-    ); })
+            (type *)((uintptr_t)(ptr) - offsetof(type, member)) \
+    )
 #endif
 
 #endif /* _SYS_STDDEF_H_ */
