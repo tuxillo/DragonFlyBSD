@@ -221,8 +221,15 @@ rb_add_cached(struct rb_node *node, struct rb_root_cached *tree,
 	return (leftmost ? node : NULL);
 }
 
+#ifndef __DragonFly__
 #undef RB_ROOT
 #define RB_ROOT		(struct rb_root) { NULL }
 #define	RB_ROOT_CACHED	(struct rb_root_cached) { RB_ROOT, NULL }
+#define	LINUX_RB_ROOT	RB_ROOT
+#define	LINUX_RB_ROOT_CACHED	RB_ROOT_CACHED
+#else
+#define	LINUX_RB_ROOT	(struct rb_root) { NULL }
+#define	LINUX_RB_ROOT_CACHED	(struct rb_root_cached) { LINUX_RB_ROOT, NULL }
+#endif
 
 #endif	/* _LINUXKPI_LINUX_RBTREE_H_ */
