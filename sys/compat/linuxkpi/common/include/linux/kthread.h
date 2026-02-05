@@ -30,6 +30,9 @@
 #define	_LINUXKPI_LINUX_KTHREAD_H_
 
 #include <linux/sched.h>
+#ifdef __DragonFly__
+#include <sys/kthread.h>
+#endif
 
 #include <sys/param.h>
 #include <sys/kernel.h>
@@ -73,6 +76,20 @@ struct kthread_work {
 		__task = linux_kthread_setup_and_run(__td, fn, data);	\
 	__task;								\
 })
+
+#ifdef __DragonFly__
+#undef kthread_run
+#define	kthread_run(fn, data, fmt, ...) ({				\
+	struct task_struct *__task;					\
+	struct thread *__td;						\
+								\
+	if (kthread_create(linux_kthread_fn, NULL, &__td, fmt, ## __VA_ARGS__))	\
+		__task = NULL;						\
+	else								\
+		__task = linux_kthread_setup_and_run(__td, fn, data);	\
+	__task;								\
+})
+#endif
 
 int linux_kthread_stop(struct task_struct *);
 bool linux_kthread_should_stop_task(struct task_struct *);
