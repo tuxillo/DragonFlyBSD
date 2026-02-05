@@ -66,6 +66,18 @@ ffsll(long long mask)
 #define	HWEIGHT64(x)	(__builtin_popcountg((uint64_t)(x)))
 #else
 /* LLVM before 19, gcc before 14. */
+#ifndef __const_bitcount8
+#define	__const_bitcount8(x)	__builtin_popcount((uint8_t)(x))
+#endif
+#ifndef __const_bitcount16
+#define	__const_bitcount16(x)	__builtin_popcount((uint16_t)(x))
+#endif
+#ifndef __const_bitcount32
+#define	__const_bitcount32(x)	__builtin_popcount((uint32_t)(x))
+#endif
+#ifndef __const_bitcount64
+#define	__const_bitcount64(x)	__builtin_popcountll((uint64_t)(x))
+#endif
 #define	HWEIGHT8(x)	(__const_bitcount8((uint8_t)(x)))
 #define	HWEIGHT16(x)	(__const_bitcount16((uint16_t)(x)))
 #define	HWEIGHT32(x)	(__const_bitcount32((uint32_t)(x)))

@@ -38,6 +38,14 @@
 	_n != 0 && (_n & (_n - 1)) == 0;	\
 })
 
+#ifndef ilog2
+static inline int
+ilog2(unsigned long n)
+{
+	return (flsl((long)n) - 1);
+}
+#endif
+
 #ifndef roundup_pow_of_two
 #define	roundup_pow_of_two(n) ({			\
 	__typeof(n) _n = (n);			\
