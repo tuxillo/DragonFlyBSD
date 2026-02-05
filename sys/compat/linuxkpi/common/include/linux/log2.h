@@ -60,4 +60,11 @@ ilog2(unsigned long n)
 })
 #endif
 
+#ifndef rounddown_pow_of_two
+#define	rounddown_pow_of_two(n) ({		\
+	__typeof(n) _n = (n);			\
+	_n == 0 ? 0 : ((__typeof(n))1 << (flsl((long)_n) - 1));	\
+})
+#endif
+
 #endif	/* _LINUXKPI_LINUX_LOG2_H_ */
