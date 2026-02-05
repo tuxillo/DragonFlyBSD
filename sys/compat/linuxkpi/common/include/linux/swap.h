@@ -69,7 +69,6 @@ current_is_kswapd(void)
 	 * DragonFly uses pagethread (thread pointer) instead of
 	 * FreeBSD's pageproc (process pointer).
 	 */
-	extern struct thread *pagethread;
 	return (curthread == pagethread);
 #else
 	return (curproc == pageproc);
