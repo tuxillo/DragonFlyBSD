@@ -35,6 +35,10 @@
 #include <sys/param.h>
 #include <sys/bus.h>
 #include <sys/interrupt.h>
+#ifdef __DragonFly__
+#include <sys/globaldata.h>
+#include <sys/thread.h>
+#endif
 
 #define	synchronize_irq(irq)	_intr_drain((irq))
 
@@ -47,5 +51,15 @@
  * See commit f6d50b7af554e21c380486d6f41c8537b265c777 in drm-kmod.
  */
 #define	synchronize_hardirq(irq) _intr_drain((irq))
+
+#ifndef in_interrupt
+#ifdef __DragonFly__
+#define	in_interrupt() \
+	(mycpu->gd_intr_nesting_level || curthread->td_critcount)
+#else
+#define	in_interrupt() \
+	(curthread->td_intr_nesting_level || curthread->td_critnest)
+#endif
+#endif
 
 #endif	/* _LINUXKPI_LINUX_HARDIRQ_H_ */

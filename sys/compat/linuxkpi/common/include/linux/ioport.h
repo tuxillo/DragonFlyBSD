@@ -30,7 +30,23 @@
 
 #include <linux/compiler.h>
 #include <linux/types.h>
+#ifdef __DragonFly__
+#include <sys/rman.h>
+#endif
 
+#ifdef __DragonFly__
+#ifndef start
+#define	start			r_start
+#endif
+#ifndef end
+#define	end			r_end
+#endif
+#define DEFINE_RES_MEM(_start, _size)		\
+	(struct resource) {			\
+		.r_start = (_start),		\
+		.r_end = (_start) + (_size) - 1,	\
+	}
+#else
 #define DEFINE_RES_MEM(_start, _size)		\
 	(struct resource) {			\
 		.start = (_start),		\
@@ -42,6 +58,7 @@ struct resource {
 	resource_size_t end;
 	const char *name;
 };
+#endif
 
 static inline resource_size_t
 resource_size(const struct resource *r)
