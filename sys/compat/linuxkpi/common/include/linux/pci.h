@@ -1483,12 +1483,12 @@ pci_stop_and_remove_bus_device(struct pci_dev *pdev)
 static inline int
 pci_rescan_bus(struct pci_bus *pbus)
 {
-	device_t *devlist, parent;
-	int devcount, error;
-
 #ifdef __DragonFly__
 	return (0);
 #endif
+
+	device_t *devlist, parent;
+	int devcount, error;
 
 	if (!device_is_attached(pbus->self->dev.bsddev))
 		return (0);
