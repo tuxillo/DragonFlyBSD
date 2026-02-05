@@ -69,7 +69,11 @@
  * module.
  */
 #ifdef KLD_MODULE
+#ifdef __DragonFly__
+#define	THIS_MODULE	((struct module *)0)
+#else
 #define	THIS_MODULE	((struct module *)&__this_linker_file)
+#endif
 #else
 #define	THIS_MODULE	((struct module *)0)
 #endif
