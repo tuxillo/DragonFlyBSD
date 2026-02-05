@@ -412,7 +412,12 @@ pin_user_pages_remote(struct task_struct *task, struct mm_struct *mm,
 #define	unpin_user_page(page) put_page(page)
 #define	unpin_user_pages(pages, npages) release_pages(pages, npages)
 
+#ifdef __DragonFly__
+#define	copy_highpage(to, from)	\
+	pmap_copy_page(VM_PAGE_TO_PHYS(from), VM_PAGE_TO_PHYS(to))
+#else
 #define	copy_highpage(to, from) pmap_copy_page(from, to)
+#endif
 
 static inline pgprot_t
 vm_get_page_prot(unsigned long vm_flags)

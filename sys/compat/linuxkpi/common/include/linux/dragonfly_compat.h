@@ -1441,6 +1441,7 @@ static __inline int _pcpu_get_cpuid(void) { return mycpuid; }
  */
 
 /* Software interrupt priorities - FreeBSD uses SWI_* for interrupt levels */
+#ifndef __DragonFly__
 #ifndef SWI_NET
 #define SWI_NET		4	/* Network software interrupt */
 #endif
@@ -1452,6 +1453,7 @@ static __inline int _pcpu_get_cpuid(void) { return mycpuid; }
 #endif
 #ifndef SWI_TQ
 #define SWI_TQ		6	/* Taskqueue software interrupt */
+#endif
 #endif
 
 /* PI_SWI - Convert software interrupt level to priority */

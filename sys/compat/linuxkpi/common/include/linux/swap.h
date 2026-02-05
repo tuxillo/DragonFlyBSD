@@ -50,11 +50,15 @@
 static inline long
 get_nr_swap_pages(void)
 {
+#ifdef __DragonFly__
+	return 0;
+#else
 	int i, j;
 
 	/* NB: This could be done cheaply by obtaining swap_total directly */
 	swap_pager_status(&i, &j);
 	return i - j;
+#endif
 }
 
 static inline int
