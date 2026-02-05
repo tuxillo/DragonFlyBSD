@@ -61,4 +61,8 @@
 #define smp_store_release(p, v)	do { smp_mb(); WRITE_ONCE(*p, v); } while (0)
 #define smp_load_acquire(p) ({ typeof(*p) _v = READ_ONCE(*p); smp_mb(); _v; })
 
+#ifndef rmb
+#define	rmb()			smp_rmb()
+#endif
+
 #endif	/* _LINUXKPI_ASM_BARRIER_H_ */
