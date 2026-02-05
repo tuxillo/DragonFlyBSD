@@ -65,4 +65,8 @@
 #define	rmb()			smp_rmb()
 #endif
 
+#ifndef mb
+#define	mb()			smp_mb()
+#endif
+
 #endif	/* _LINUXKPI_ASM_BARRIER_H_ */
