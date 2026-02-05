@@ -40,7 +40,17 @@
 #include <sys/thread.h>
 #endif
 
+#ifdef __DragonFly__
+/*
+ * DragonFly doesn't have _intr_drain().
+ * synchronize_irq() waits for currently executing handlers to complete.
+ * For now, we use a memory barrier as a minimal implementation.
+ * TODO: Implement proper interrupt synchronization for DragonFly.
+ */
+#define	synchronize_irq(irq)	do { cpu_sfence(); } while (0)
+#else
 #define	synchronize_irq(irq)	_intr_drain((irq))
+#endif
 
 /*
  * FIXME: In the i915 driver's `intel_engine_cs.c` file,
@@ -50,7 +60,11 @@
  *
  * See commit f6d50b7af554e21c380486d6f41c8537b265c777 in drm-kmod.
  */
+#ifdef __DragonFly__
+#define	synchronize_hardirq(irq) do { cpu_sfence(); } while (0)
+#else
 #define	synchronize_hardirq(irq) _intr_drain((irq))
+#endif
 
 #ifndef in_interrupt
 #ifdef __DragonFly__
