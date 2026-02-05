@@ -162,6 +162,9 @@
 #define PRIV_NETGRAPH_VGETINFG10 120
 
 /* Privilege check function - stub that always returns 0 (privileged) */
+#ifdef __DragonFly__
+struct thread;
+#endif
 static __inline int
 priv_check(struct thread *td, int priv)
 {
