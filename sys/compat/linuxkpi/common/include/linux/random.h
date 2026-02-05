@@ -52,7 +52,7 @@
 static inline void
 lkpi_get_random_bytes(void *buf, size_t nbytes)
 {
-	arc4random_buf(buf, nbytes);
+	karc4random_buf(buf, nbytes);
 }
 #define get_random_bytes(buf, nbytes) lkpi_get_random_bytes(buf, nbytes)
 #endif /* !_NETPROTO_802_11_IEEE80211_DRAGONFLY_H_ */
@@ -128,7 +128,11 @@ get_random_u64(void)
 static inline uint32_t
 get_random_u32_below(uint32_t max)
 {
+	#ifdef __DragonFly__
+	return (karc4random_uniform(max));
+	#else
 	return (arc4random_uniform(max));
+	#endif
 }
 
 static __inline uint32_t
@@ -143,7 +147,11 @@ prandom_u32(void)
 static inline u32
 prandom_u32_max(u32 max)
 {
+	#ifdef __DragonFly__
+	return (karc4random_uniform(max));
+	#else
 	return (arc4random_uniform(max));
+	#endif
 }
 
 #endif /* _LINUXKPI_LINUX_RANDOM_H_ */
