@@ -65,6 +65,10 @@
 #define	rmb()			smp_rmb()
 #endif
 
+#ifndef wmb
+#define	wmb()			smp_wmb()
+#endif
+
 #ifndef mb
 #define	mb()			smp_mb()
 #endif
