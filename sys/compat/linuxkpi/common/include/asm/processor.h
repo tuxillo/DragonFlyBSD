@@ -58,6 +58,9 @@ extern struct cpuinfo_x86	*__cpu_data;
 #define	cpu_data(cpu)	__cpu_data[cpu]
 #endif
 
+#ifndef cpu_spinwait
+#define	cpu_spinwait()	cpu_pause()
+#endif
 #define	cpu_relax()	cpu_spinwait()
 
 #endif	/* _LINUXKPI_ASM_PROCESSOR_H_ */
