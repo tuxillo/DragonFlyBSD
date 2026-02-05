@@ -39,6 +39,9 @@
 #include <sys/proc.h>
 #include <sys/priv.h>
 
+#ifndef PRIV_DRIVER
+#define	PRIV_DRIVER		PRIV_DRIVER_ROOT
+#endif
 #define	CAP_SYS_ADMIN		PRIV_DRIVER
 #define	CAP_SYS_NICE		PRIV_SCHED_SETPRIORITY
 
