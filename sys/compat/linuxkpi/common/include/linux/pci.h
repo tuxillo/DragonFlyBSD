@@ -1396,7 +1396,11 @@ pcie_get_width_cap(struct pci_dev *dev)
 static inline int
 pcie_get_mps(struct pci_dev *dev)
 {
+	#ifdef __DragonFly__
+	return (128);
+	#else
 	return (pci_get_max_payload(dev->dev.bsddev));
+	#endif
 }
 
 static inline uint32_t
@@ -1481,6 +1485,10 @@ pci_rescan_bus(struct pci_bus *pbus)
 {
 	device_t *devlist, parent;
 	int devcount, error;
+
+#ifdef __DragonFly__
+	return (0);
+#endif
 
 	if (!device_is_attached(pbus->self->dev.bsddev))
 		return (0);

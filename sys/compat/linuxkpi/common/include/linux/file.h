@@ -34,6 +34,7 @@
 #include <sys/filedesc.h>
 #include <sys/refcount.h>
 #ifdef __DragonFly__
+#undef file
 #include <sys/devfs.h>
 #include <linux/dragonfly_compat.h>
 #else
