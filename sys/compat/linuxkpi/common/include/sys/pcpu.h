@@ -31,9 +31,13 @@
 
 #include <sys/types.h>
 #include <sys/param.h>
-#include <sys/malloc.h>
 #include <sys/cpuset.h>
 #include <sys/thread.h>
+#include <sys/globaldata.h>  /* For ncpus */
+
+#ifdef _KERNEL
+#include <sys/malloc.h>      /* For kernel malloc/kfree */
+#endif
 
 #ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64
@@ -151,6 +155,7 @@ pcpu_init(struct pcpu *pc, int cpu, size_t size)
 }
 
 /* Allocation zone for pcpu data - stub */
+#ifdef _KERNEL
 static __inline void *
 pcpu_malloc(size_t size)
 {
@@ -162,15 +167,30 @@ pcpu_malloc(size_t size)
 
     stride = roundup2(size, CACHE_LINE_SIZE);
     total = stride * ncpus;
-    return malloc(total, M_TEMP, M_WAITOK | M_ZERO);
+    return _kmalloc(total, M_TEMP, M_WAITOK | M_ZERO);
 }
 
 static __inline void
 pcpu_free_data(void *ptr)
 {
     if (ptr != NULL)
-        free(ptr, M_TEMP);
+        _kfree(ptr, M_TEMP);
 }
+#else
+/* Userspace stubs */
+static __inline void *
+pcpu_malloc(size_t size)
+{
+    (void)size;
+    return NULL;
+}
+
+static __inline void
+pcpu_free_data(void *ptr)
+{
+    (void)ptr;
+}
+#endif /* _KERNEL */
 
 /* pcpu_for_each macro - iterate over all CPUs */
 #define pcpu_foreach(pcp) \

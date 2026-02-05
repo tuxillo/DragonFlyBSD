@@ -146,25 +146,49 @@ domainset_empty(domainset_t *ds)
 static __inline int
 domainset_issingleton(domainset_t *ds)
 {
-    return CPU_SINGLETON(ds);
+    int count = 0;
+    int i;
+    
+    if (ds == NULL)
+        return 0;
+    /* Count set bits - singleton if exactly one */
+    for (i = 0; i < MAXMEMDOM && count < 2; i++) {
+        if (DOMAINSET_ISSET(i, ds))
+            count++;
+    }
+    return (count == 1);
 }
 
 /* Get the first domain in a domainset */
 static __inline int
 domainset_first_domain(domainset_t *ds)
 {
+    int i;
+    
     if (ds == NULL || CPU_EMPTY(ds))
         return (0);  /* Default to domain 0 */
-    return CPU_FIRST(ds);
+    /* Find first set bit */
+    for (i = 0; i < MAXMEMDOM; i++) {
+        if (DOMAINSET_ISSET(i, ds))
+            return i;
+    }
+    return (0);
 }
 
 /* Get the next domain after 'prev' in a domainset */
 static __inline int
 domainset_next_domain(int prev, domainset_t *ds)
 {
+    int i;
+    
     if (ds == NULL)
         return (-1);
-    return CPU_NEXT(prev, ds);
+    /* Find next set bit after prev */
+    for (i = prev + 1; i < MAXMEMDOM; i++) {
+        if (DOMAINSET_ISSET(i, ds))
+            return i;
+    }
+    return (-1);
 }
 
 /* Get the first valid domain, preferring 'prefer' if valid */
