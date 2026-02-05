@@ -85,7 +85,7 @@ ffsll(long long mask)
 #endif
 
 #ifdef __DragonFly__
-#define	hweight8(x)	(__builtin_constant_p(x) ? HWEIGHT8(x)  : bitcount8((uint8_t)(x)))
+#define	hweight8(x)	(__builtin_constant_p(x) ? HWEIGHT8(x)  : bitcount16((uint16_t)(x)))
 #else
 #define	hweight8(x)	(__builtin_constant_p(x) ? HWEIGHT8(x)  : bitcount((uint8_t)(x)))
 #endif
