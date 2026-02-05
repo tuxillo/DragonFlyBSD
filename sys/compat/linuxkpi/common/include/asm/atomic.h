@@ -39,6 +39,10 @@ typedef struct {
 	volatile int counter;
 } atomic_t;
 
+#ifndef atomic_swap_32
+#define	atomic_swap_32(ptr, val)	atomic_swap_int((volatile u_int *)(ptr), (u_int)(val))
+#endif
+
 /*------------------------------------------------------------------------*
  *	32-bit atomic operations
  *------------------------------------------------------------------------*/

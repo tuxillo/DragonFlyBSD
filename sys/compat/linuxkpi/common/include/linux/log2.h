@@ -38,4 +38,14 @@
 	_n != 0 && (_n & (_n - 1)) == 0;	\
 })
 
+#ifndef roundup_pow_of_two
+#define	roundup_pow_of_two(n) ({			\
+	__typeof(n) _n = (n);			\
+	__typeof(n) _r = 1;			\
+	if (_n > 1)				\
+		_r = ((__typeof(n))1 << flsl((long)(_n - 1)));	\
+	_r;					\
+})
+#endif
+
 #endif	/* _LINUXKPI_LINUX_LOG2_H_ */
