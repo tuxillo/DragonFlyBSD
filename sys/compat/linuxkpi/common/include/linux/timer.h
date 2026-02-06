@@ -106,13 +106,14 @@ del_timer_sync(struct timer_list *tl)
 
 /*
  * DragonFly's callout_pending() doesn't take const, but i915 uses
- * timer_pending() with const timer_list. Provide a wrapper.
+ * timer_pending() with const timer_list. Cast through uintptr_t to
+ * avoid -Wcast-qual warning.
  */
 #ifdef __DragonFly__
 static inline int
 lkpi_timer_pending(const struct timer_list *timer)
 {
-	return callout_pending((struct callout *)&timer->callout);
+	return callout_pending((struct callout *)(uintptr_t)&timer->callout);
 }
 #define	timer_pending(timer)	lkpi_timer_pending(timer)
 #else
