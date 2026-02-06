@@ -69,9 +69,6 @@
 
 #include <machine/md_var.h>
 
-#include <linux/slab.h>
-#include <linux/scatterlist.h>
-
 #include "agp_i810.h"
 
 struct agp_i810_match;
@@ -862,7 +859,7 @@ agp_i810_attach(device_t dev)
 	}
 
 	sc->initial_aperture = AGP_GET_APERTURE(dev);
-	sc->gatt = __kmalloc(sizeof(struct agp_gatt), M_DRM, M_WAITOK);
+	sc->gatt = kmalloc(sizeof(struct agp_gatt), M_DRM, M_WAITOK);
 	sc->gatt->ag_entries = AGP_GET_APERTURE(dev) >> AGP_PAGE_SHIFT;
 
 	if ((error = sc->match->driver->get_stolen_size(dev)) != 0 ||
@@ -872,7 +869,7 @@ agp_i810_attach(device_t dev)
 	    (error = sc->match->driver->chipset_flush_setup(dev)) != 0) {
 		bus_release_resources(dev, sc->match->driver->res_spec,
 		    sc->sc_res);
-		_kfree(sc->gatt, M_DRM);
+		kfree(sc->gatt, M_DRM);
 		agp_generic_detach(dev);
 		return (error);
 	}
@@ -922,7 +919,7 @@ agp_i810_detach(device_t dev)
 	/* Put the aperture back the way it started. */
 	AGP_SET_APERTURE(dev, sc->initial_aperture);
 
-	_kfree(sc->gatt, M_DRM);
+	kfree(sc->gatt, M_DRM);
 	bus_release_resources(dev, sc->match->driver->res_spec, sc->sc_res);
 	agp_free_res(dev);
 
@@ -1172,7 +1169,7 @@ agp_i810_alloc_memory(device_t dev, int type, vm_size_t size)
 		}
 	}
 
-	mem = __kmalloc(sizeof *mem, M_DRM, M_INTWAIT);
+	mem = kmalloc(sizeof *mem, M_DRM, M_INTWAIT);
 	mem->am_id = sc->agp.as_nextid++;
 	mem->am_size = size;
 	mem->am_type = type;
@@ -1246,7 +1243,7 @@ agp_i810_free_memory(device_t dev, struct agp_memory *mem)
 	TAILQ_REMOVE(&sc->agp.as_memory, mem, am_link);
 	if (mem->am_obj)
 		vm_object_deallocate(mem->am_obj);
-	_kfree(mem, M_DRM);
+	kfree(mem, M_DRM);
 	return (0);
 }
 
@@ -1405,7 +1402,7 @@ agp_intel_gtt_insert_pages(device_t dev, u_int first_entry, u_int num_entries,
 }
 
 void
-intel_gtt_insert_page(dma_addr_t addr, unsigned int pg, unsigned int flags)
+intel_gtt_insert_page(vm_paddr_t addr, unsigned int pg, unsigned int flags)
 {
 	struct agp_i810_softc *sc = device_get_softc(intel_agp);
 
@@ -1422,29 +1419,6 @@ intel_gtt_install_pte(u_int index, vm_paddr_t addr, u_int flags)
 	struct agp_i810_softc *sc = device_get_softc(intel_agp);
 
 	sc->match->driver->install_gtt_pte(intel_agp, index, addr, flags);
-}
-
-void
-intel_gtt_insert_sg_entries(struct sg_table *st,
-			    unsigned int pg_start,
-			    unsigned int flags)
-{
-	struct agp_i810_softc *sc = device_get_softc(intel_agp);
-	struct scatterlist *sg;
-	dma_addr_t page;
-	int i, j, npages, subpage;
-
-	i = 0;
-	for_each_sg(st->sgl, sg, st->nents, j) {
-		npages = sg_dma_len(sg) / PAGE_SIZE;
-		for (subpage = 0; subpage < npages; subpage++) {
-			page = sg_dma_address(sg) + subpage * PAGE_SIZE;
-			sc->match->driver->install_gtt_pte(intel_agp,
-				pg_start + i, page, flags);
-			i++;
-		}
-	}
-	sc->match->driver->sync_gtt_pte(intel_agp, pg_start + i - 1);
 }
 
 
@@ -1644,9 +1618,9 @@ intel_gtt_clear_range(u_int first_entry, u_int num_entries)
 	agp_intel_gtt_clear_range(intel_agp, first_entry, num_entries);
 }
 
-void intel_gtt_get(u64 *gtt_total,
-		   phys_addr_t *mappable_base,
-		   resource_size_t *mappable_end)
+void intel_gtt_get(uint64_t *gtt_total,
+		   vm_paddr_t *mappable_base,
+		   vm_size_t *mappable_end)
 {
 	struct agp_info ainfo;
 

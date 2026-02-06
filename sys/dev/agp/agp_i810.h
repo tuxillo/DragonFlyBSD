@@ -38,10 +38,6 @@
 #include <vm/vm.h>
 #include <vm/vm_page.h>
 
-#include <linux/types.h>
-
-struct sg_table;
-
 /* Special gtt memory types */
 #define AGP_DCACHE_MEMORY	1
 #define AGP_PHYS_MEMORY		2
@@ -81,14 +77,12 @@ void agp_intel_gtt_insert_pages(device_t dev, u_int first_entry,
     u_int num_entries, vm_page_t *pages, u_int flags);
 
 /* Global convenience wrappers (use cached intel_agp device) */
-void intel_gtt_get(u64 *gtt_total, phys_addr_t *mappable_base,
-    resource_size_t *mappable_end);
+void intel_gtt_get(uint64_t *gtt_total, vm_paddr_t *mappable_base,
+    vm_size_t *mappable_end);
 int intel_gtt_chipset_flush(void);
 void intel_gtt_clear_range(u_int first_entry, u_int num_entries);
 void intel_gtt_install_pte(u_int index, vm_paddr_t addr, u_int flags);
-void intel_gtt_insert_page(dma_addr_t addr, unsigned int pg, unsigned int flags);
-void intel_gtt_insert_sg_entries(struct sg_table *st, unsigned int pg_start,
-    unsigned int flags);
+void intel_gtt_insert_page(vm_paddr_t addr, unsigned int pg, unsigned int flags);
 void intel_gtt_sync_pte(u_int entry);
 void intel_gtt_write(u_int entry, uint32_t val);
 
