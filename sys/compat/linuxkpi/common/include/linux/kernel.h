@@ -335,12 +335,10 @@ linux_ratelimited(linux_ratelimit_t *rl)
  * - The equality comparison to sizeof(int) therefore returns 1 if x was a
  *   constant expression, 0 otherwise.
  *
- * Note: FreeBSD uses __builtin_constant_p which is simpler but less precise.
- * The Martin Uecker trick doesn't work well with DragonFly's GCC 8.3 due to
- * -Wpointer-arith warnings on sizeof(*(void*)).
+ * Note: Uses __extension__ to suppress warnings about sizeof(void) GCC extension.
  */
 #define	__is_constexpr(x) \
-	__builtin_constant_p(x)
+	__extension__ (sizeof(int) == sizeof(*(8 ? ((void *)((long)(x) * 0l)) : (int *)8)))
 
 /*
  * The is_signed() macro below returns true if the passed data type is
