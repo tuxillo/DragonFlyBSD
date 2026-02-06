@@ -71,6 +71,10 @@ struct idr {
 	    idr_init, &(name))
 
 /* NOTE: It is the applications responsibility to destroy the IDA */
+#ifdef __DragonFly__
+void	lkpi_ida_init(struct ida *ida);
+#define	ida_init	lkpi_ida_init
+#endif
 #define	DEFINE_IDA(name)						\
 	struct ida name;						\
 	SYSINIT(name##_ida_sysinit, SI_SUB_DRIVERS, SI_ORDER_FIRST,	\
@@ -114,10 +118,8 @@ int	ida_pre_get(struct ida *ida, gfp_t gfp_mask);
 int	ida_get_new_above(struct ida *ida, int starting_id, int *p_id);
 void	ida_remove(struct ida *ida, int id);
 void	ida_destroy(struct ida *ida);
+#ifndef __DragonFly__
 void	ida_init(struct ida *ida);
-
-#ifdef __DragonFly__
-#define	ida_init	lkpi_ida_init
 #endif
 
 int	ida_simple_get(struct ida *ida, unsigned int start, unsigned int end,
