@@ -33,6 +33,7 @@
 
 #include <sys/lock.h>
 #include <sys/mutex.h>
+#include <sys/mutex2.h>
 
 #define	XA_LIMIT(min, max) \
     ({ CTASSERT((min) == 0); (uint32_t)(max); })
@@ -108,7 +109,7 @@ void *__xa_next(struct xarray *, unsigned long *, bool);
 #define	xa_unlock_irqrestore(xa, flags) \
 	do { \
 		xa_unlock((xa)); \
-		flags == 0; \
+		(void)(flags); \
 	} while (0)
 
 static inline int
