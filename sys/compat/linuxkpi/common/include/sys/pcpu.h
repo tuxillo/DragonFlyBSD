@@ -58,7 +58,6 @@ struct pcpu {
 
 /* Global pcpu array - initialized at runtime */
 extern struct pcpu *pcpu_base;
-extern int ncpus;  /* Total number of CPUs (from sys/systm.h) */
 
 /* PCPU pointer - returns pointer to this CPU's pcpu structure */
 static __inline struct pcpu *
