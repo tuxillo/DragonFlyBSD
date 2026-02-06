@@ -29,6 +29,7 @@
 
 #include <linux/jump_label.h>
 #include <linux/preempt.h>
+#include <asm/barrier.h>
 #include <asm/fpu/api.h>
 
 #if defined(__i386__) || defined(__amd64__)
