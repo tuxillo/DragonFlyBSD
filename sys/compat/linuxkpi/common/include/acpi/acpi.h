@@ -138,10 +138,15 @@ acpi_format_exception(ACPI_STATUS Exception)
 }
 
 static inline ACPI_STATUS
-lkpi_acpi_get_handle(ACPI_HANDLE Parent, const char *Pathname,
+acpi_get_handle(ACPI_HANDLE Parent, const char *Pathname,
     ACPI_HANDLE *RetHandle)
 {
-	return (AcpiGetHandle(Parent, (ACPI_STRING)Pathname, RetHandle));
+	/*
+	 * DragonFly's ACPICA uses non-const ACPI_STRING (char *).
+	 * Cast via uintptr_t to avoid -Wcast-qual warning.
+	 */
+	return (AcpiGetHandle(Parent,
+	    (ACPI_STRING)(uintptr_t)Pathname, RetHandle));
 }
 
 static inline ACPI_STATUS
