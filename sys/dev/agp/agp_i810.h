@@ -85,6 +85,7 @@ void intel_gtt_install_pte(u_int index, vm_paddr_t addr, u_int flags);
 void intel_gtt_insert_page(vm_paddr_t addr, unsigned int pg, unsigned int flags);
 void intel_gtt_sync_pte(u_int entry);
 void intel_gtt_write(u_int entry, uint32_t val);
+uint32_t intel_gtt_read_pte(u_int entry);
 
 bool intel_enable_gtt(void);
 

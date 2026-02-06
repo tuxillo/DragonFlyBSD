@@ -109,6 +109,10 @@ static void agp_i915_sync_gtt_pte(device_t dev, u_int index);
 static void agp_i965_sync_gtt_pte(device_t dev, u_int index);
 static void agp_g4x_sync_gtt_pte(device_t dev, u_int index);
 
+static uint32_t agp_i915_read_gtt_pte(device_t dev, u_int index);
+static uint32_t agp_i965_read_gtt_pte(device_t dev, u_int index);
+static uint32_t agp_g4x_read_gtt_pte(device_t dev, u_int index);
+
 static int agp_i915_set_aperture(device_t dev, u_int32_t aperture);
 
 static int agp_i915_chipset_flush_setup(device_t dev);
@@ -185,6 +189,7 @@ struct agp_i810_driver {
 	void (*write_gtt)(device_t, u_int, uint32_t);
 	void (*install_gtt_pte)(device_t, u_int, vm_offset_t, int);
 	void (*sync_gtt_pte)(device_t, u_int);
+	uint32_t (*read_gtt_pte)(device_t, u_int);
 	int (*set_aperture)(device_t, u_int32_t);
 	int (*chipset_flush_setup)(device_t);
 	void (*chipset_flush_teardown)(device_t);
@@ -211,6 +216,7 @@ static const struct agp_i810_driver agp_i810_i915_driver = {
 	.write_gtt = agp_i915_write_gtt,
 	.install_gtt_pte = agp_i915_install_gtt_pte,
 	.sync_gtt_pte = agp_i915_sync_gtt_pte,
+	.read_gtt_pte = agp_i915_read_gtt_pte,
 	.set_aperture = agp_i915_set_aperture,
 	.chipset_flush_setup = agp_i915_chipset_flush_setup,
 	.chipset_flush_teardown = agp_i915_chipset_flush_teardown,
@@ -233,6 +239,7 @@ static const struct agp_i810_driver agp_i810_g965_driver = {
 	.write_gtt = agp_i965_write_gtt,
 	.install_gtt_pte = agp_i965_install_gtt_pte,
 	.sync_gtt_pte = agp_i965_sync_gtt_pte,
+	.read_gtt_pte = agp_i965_read_gtt_pte,
 	.set_aperture = agp_i915_set_aperture,
 	.chipset_flush_setup = agp_i965_chipset_flush_setup,
 	.chipset_flush_teardown = agp_i965_chipset_flush_teardown,
@@ -255,6 +262,7 @@ static const struct agp_i810_driver agp_i810_g33_driver = {
 	.write_gtt = agp_i915_write_gtt,
 	.install_gtt_pte = agp_i965_install_gtt_pte,
 	.sync_gtt_pte = agp_i915_sync_gtt_pte,
+	.read_gtt_pte = agp_i915_read_gtt_pte,
 	.set_aperture = agp_i915_set_aperture,
 	.chipset_flush_setup = agp_i965_chipset_flush_setup,
 	.chipset_flush_teardown = agp_i965_chipset_flush_teardown,
@@ -277,6 +285,7 @@ static const struct agp_i810_driver pineview_gtt_driver = {
 	.write_gtt = agp_i915_write_gtt,
 	.install_gtt_pte = agp_i965_install_gtt_pte,
 	.sync_gtt_pte = agp_i915_sync_gtt_pte,
+	.read_gtt_pte = agp_i915_read_gtt_pte,
 	.set_aperture = agp_i915_set_aperture,
 	.chipset_flush_setup = agp_i965_chipset_flush_setup,
 	.chipset_flush_teardown = agp_i965_chipset_flush_teardown,
@@ -299,6 +308,7 @@ static const struct agp_i810_driver agp_i810_g4x_driver = {
 	.write_gtt = agp_g4x_write_gtt,
 	.install_gtt_pte = agp_g4x_install_gtt_pte,
 	.sync_gtt_pte = agp_g4x_sync_gtt_pte,
+	.read_gtt_pte = agp_g4x_read_gtt_pte,
 	.set_aperture = agp_i915_set_aperture,
 	.chipset_flush_setup = agp_i965_chipset_flush_setup,
 	.chipset_flush_teardown = agp_i965_chipset_flush_teardown,
@@ -1115,6 +1125,33 @@ agp_g4x_sync_gtt_pte(device_t dev, u_int index)
 	bus_read_4(sc->sc_res[0], index * 4 + (2 * 1024 * 1024));
 }
 
+static uint32_t
+agp_i915_read_gtt_pte(device_t dev, u_int index)
+{
+	struct agp_i810_softc *sc;
+
+	sc = device_get_softc(dev);
+	return (bus_read_4(sc->sc_res[1], index * 4));
+}
+
+static uint32_t
+agp_i965_read_gtt_pte(device_t dev, u_int index)
+{
+	struct agp_i810_softc *sc;
+
+	sc = device_get_softc(dev);
+	return (bus_read_4(sc->sc_res[0], index * 4 + (512 * 1024)));
+}
+
+static uint32_t
+agp_g4x_read_gtt_pte(device_t dev, u_int index)
+{
+	struct agp_i810_softc *sc;
+
+	sc = device_get_softc(dev);
+	return (bus_read_4(sc->sc_res[0], index * 4 + (2 * 1024 * 1024)));
+}
+
 /*
  * Writing via memory mapped registers already flushes all TLBs.
  */
@@ -1651,6 +1688,18 @@ intel_gtt_sync_pte(u_int entry)
 
 	sc = device_get_softc(intel_agp);
 	sc->match->driver->sync_gtt_pte(intel_agp, entry);
+}
+
+/*
+ * Read a GTT PTE value - used for flushing/sync
+ */
+uint32_t
+intel_gtt_read_pte(u_int entry)
+{
+	struct agp_i810_softc *sc;
+
+	sc = device_get_softc(intel_agp);
+	return (sc->match->driver->read_gtt_pte(intel_agp, entry));
 }
 
 /*
