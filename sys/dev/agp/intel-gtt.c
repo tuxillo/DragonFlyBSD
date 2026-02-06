@@ -862,7 +862,7 @@ agp_i810_attach(device_t dev)
 	}
 
 	sc->initial_aperture = AGP_GET_APERTURE(dev);
-	sc->gatt = kmalloc(sizeof(struct agp_gatt), M_DRM, M_WAITOK);
+	sc->gatt = __kmalloc(sizeof(struct agp_gatt), M_DRM, M_WAITOK);
 	sc->gatt->ag_entries = AGP_GET_APERTURE(dev) >> AGP_PAGE_SHIFT;
 
 	if ((error = sc->match->driver->get_stolen_size(dev)) != 0 ||
@@ -872,7 +872,7 @@ agp_i810_attach(device_t dev)
 	    (error = sc->match->driver->chipset_flush_setup(dev)) != 0) {
 		bus_release_resources(dev, sc->match->driver->res_spec,
 		    sc->sc_res);
-		kfree(sc->gatt);
+		_kfree(sc->gatt, M_DRM);
 		agp_generic_detach(dev);
 		return (error);
 	}
@@ -922,7 +922,7 @@ agp_i810_detach(device_t dev)
 	/* Put the aperture back the way it started. */
 	AGP_SET_APERTURE(dev, sc->initial_aperture);
 
-	kfree(sc->gatt);
+	_kfree(sc->gatt, M_DRM);
 	bus_release_resources(dev, sc->match->driver->res_spec, sc->sc_res);
 	agp_free_res(dev);
 
@@ -1172,7 +1172,7 @@ agp_i810_alloc_memory(device_t dev, int type, vm_size_t size)
 		}
 	}
 
-	mem = kmalloc(sizeof *mem, M_DRM, M_INTWAIT);
+	mem = __kmalloc(sizeof *mem, M_DRM, M_INTWAIT);
 	mem->am_id = sc->agp.as_nextid++;
 	mem->am_size = size;
 	mem->am_type = type;
@@ -1246,7 +1246,7 @@ agp_i810_free_memory(device_t dev, struct agp_memory *mem)
 	TAILQ_REMOVE(&sc->agp.as_memory, mem, am_link);
 	if (mem->am_obj)
 		vm_object_deallocate(mem->am_obj);
-	kfree(mem);
+	_kfree(mem, M_DRM);
 	return (0);
 }
 
