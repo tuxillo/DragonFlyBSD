@@ -39,6 +39,9 @@
 #include <sys/malloc.h>      /* For kernel malloc/kfree */
 #endif
 
+/* ncpus is declared in sys/systm.h but may not be included before us */
+extern int ncpus;
+
 #ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64
 #endif
