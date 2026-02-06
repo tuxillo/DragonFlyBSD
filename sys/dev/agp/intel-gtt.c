@@ -1411,6 +1411,18 @@ intel_gtt_insert_page(dma_addr_t addr, unsigned int pg, unsigned int flags)
 	sc->match->driver->install_gtt_pte(intel_agp, addr, pg, flags);
 }
 
+/*
+ * FreeBSD-compatible wrapper for drm-kmod (Linux 6.6).
+ * Parameter order matches FreeBSD's agp_i810.c: (index, addr, flags)
+ */
+void
+intel_gtt_install_pte(u_int index, vm_paddr_t addr, u_int flags)
+{
+	struct agp_i810_softc *sc = device_get_softc(intel_agp);
+
+	sc->match->driver->install_gtt_pte(intel_agp, index, addr, flags);
+}
+
 void
 intel_gtt_insert_sg_entries(struct sg_table *st,
 			    unsigned int pg_start,
