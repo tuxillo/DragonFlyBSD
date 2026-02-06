@@ -58,6 +58,18 @@ resource_end(const struct resource *r)
 {
 	return (r->r_end);
 }
+
+static inline void
+resource_set_start(struct resource *r, resource_size_t val)
+{
+	r->r_start = val;
+}
+
+static inline void
+resource_set_end(struct resource *r, resource_size_t val)
+{
+	r->r_end = val;
+}
 #else
 #define DEFINE_RES_MEM(_start, _size)		\
 	(struct resource) {			\
@@ -81,6 +93,18 @@ static inline resource_size_t
 resource_end(const struct resource *r)
 {
 	return (r->end);
+}
+
+static inline void
+resource_set_start(struct resource *r, resource_size_t val)
+{
+	r->start = val;
+}
+
+static inline void
+resource_set_end(struct resource *r, resource_size_t val)
+{
+	r->end = val;
 }
 #endif
 
