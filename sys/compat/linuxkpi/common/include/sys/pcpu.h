@@ -40,7 +40,9 @@
 #endif
 
 /* ncpus is declared in sys/systm.h but may not be included before us */
+#ifndef _SYS_SYSTM_H_
 extern int ncpus;
+#endif
 
 #ifndef CACHE_LINE_SIZE
 #define CACHE_LINE_SIZE 64
