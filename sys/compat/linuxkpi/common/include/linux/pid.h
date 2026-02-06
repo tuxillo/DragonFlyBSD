@@ -38,31 +38,49 @@ enum pid_type {
 	PIDTYPE_MAX
 };
 
-#define	pid_nr(n) (n)
-#define	pid_vnr(n) (n)
+/*
+ * Linux uses struct pid as a reference-counted PID container.
+ * On DragonFly we use a simple wrapper around the integer PID.
+ * Since we don't do reference counting, get_task_pid/put_pid are
+ * essentially no-ops for memory management.
+ */
+struct pid {
+	pid_t	pid_id;
+};
+
+static inline pid_t
+pid_nr(struct pid *pid)
+{
+	return (pid != NULL ? pid->pid_id : 0);
+}
+
+static inline pid_t
+pid_vnr(struct pid *pid)
+{
+	return (pid_nr(pid));
+}
+
 #define	from_kuid_munged(a, uid) (uid)
 
 #define	pid_task(pid, type) ({			\
 	struct task_struct *__ts;		\
 	CTASSERT((type) == PIDTYPE_PID);	\
-	__ts = linux_pid_task(pid);		\
+	__ts = linux_pid_task((pid)->pid_id);	\
 	__ts;					\
 })
 
 #define	get_pid_task(pid, type) ({		\
 	struct task_struct *__ts;		\
 	CTASSERT((type) == PIDTYPE_PID);	\
-	__ts = linux_get_pid_task(pid);		\
+	__ts = linux_get_pid_task((pid)->pid_id);	\
 	__ts;					\
-})
-
-#define	get_task_pid(task, type) ({		\
-	CTASSERT((type) == PIDTYPE_PID);	\
-	(task)->task_thread->td_tid;		\
 })
 
 struct task_struct;
 extern struct task_struct *linux_pid_task(pid_t);
 extern struct task_struct *linux_get_pid_task(pid_t);
+extern struct pid *linux_get_task_pid(struct task_struct *, enum pid_type);
+
+#define	get_task_pid(task, type)	linux_get_task_pid(task, type)
 
 #endif					/* _LINUXKPI_LINUX_PID_H_ */

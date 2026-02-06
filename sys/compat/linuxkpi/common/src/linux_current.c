@@ -36,6 +36,8 @@
 #include <linux/mm.h>
 #include <linux/kthread.h>
 #include <linux/moduleparam.h>
+#include <linux/pid.h>
+#include <linux/slab.h>
 
 #ifdef __DragonFly__
 #include <linux/dragonfly_compat.h>
@@ -277,6 +279,22 @@ struct task_struct *
 linux_get_pid_task(pid_t pid)
 {
 	return (linux_get_pid_task_int(pid, true));
+}
+
+/*
+ * Allocate and return a struct pid wrapper for the given task.
+ * On DragonFly, we allocate a small struct and fill in the pid_id.
+ * The caller is responsible for calling put_pid() when done (which frees it).
+ */
+struct pid *
+linux_get_task_pid(struct task_struct *task, enum pid_type type)
+{
+	struct pid *pid;
+
+	pid = kmalloc(sizeof(*pid), GFP_KERNEL);
+	if (pid != NULL)
+		pid->pid_id = task->task_thread->td_proc->p_pid;
+	return (pid);
 }
 
 bool

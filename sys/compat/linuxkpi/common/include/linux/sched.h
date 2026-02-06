@@ -103,7 +103,7 @@ struct task_struct {
 #define	task_pid_nr(task)	((task)->pid)
 #define	task_pid_vnr(task)	((task)->pid)
 #define	get_pid(x)		(x)
-#define	put_pid(x)		do { } while (0)
+#define	put_pid(x)		kfree(x)
 #define	current_euid()	(curthread->td_ucred->cr_uid)
 #define	task_euid(task)	((task)->task_thread->td_ucred->cr_uid)
 

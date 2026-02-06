@@ -160,6 +160,7 @@
 #define PRIV_NETGRAPH_VGETINFG8 118
 #define PRIV_NETGRAPH_VGETINFG9 119
 #define PRIV_NETGRAPH_VGETINFG10 120
+#define PRIV_SCHED_SETPRIORITY 121
 
 /* Privilege check function - stub that always returns 0 (privileged) */
 struct thread;
