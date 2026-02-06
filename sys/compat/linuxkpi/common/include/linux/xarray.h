@@ -30,10 +30,7 @@
 #include <linux/radix-tree.h>
 #include <linux/err.h>
 #include <linux/kconfig.h>
-
-#include <sys/lock.h>
-#include <sys/mutex.h>
-#include <sys/mutex2.h>
+#include <linux/mutex.h>
 
 #define	XA_LIMIT(min, max) \
     ({ CTASSERT((min) == 0); (uint32_t)(max); })
@@ -50,13 +47,13 @@
 
 #define	xa_limit_32b XA_LIMIT(0, 0xFFFFFFFF)
 
-#define	XA_ASSERT_LOCKED(xa) mtx_assert(&(xa)->xa_lock, MA_OWNED)
-#define	xa_lock(xa) mtx_lock(&(xa)->xa_lock)
-#define	xa_unlock(xa) mtx_unlock(&(xa)->xa_lock)
+#define	XA_ASSERT_LOCKED(xa) KKASSERT(mutex_is_owned(&(xa)->xa_lock))
+#define	xa_lock(xa) mutex_lock(&(xa)->xa_lock)
+#define	xa_unlock(xa) mutex_unlock(&(xa)->xa_lock)
 
 struct xarray {
 	struct radix_tree_root xa_head;
-	struct mtx xa_lock;	/* internal mutex */
+	struct mutex xa_lock;	/* LinuxKPI mutex (sleepable) */
 	uint32_t xa_flags;	/* see XA_FLAGS_XXX */
 };
 

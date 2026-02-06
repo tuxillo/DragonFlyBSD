@@ -347,7 +347,7 @@ xa_init_flags(struct xarray *xa, uint32_t flags)
 {
 	memset(xa, 0, sizeof(*xa));
 
-	mtx_init(&xa->xa_lock, "lkpi-xarray", NULL, MTX_DEF | MTX_RECURSE);
+	mutex_init(&xa->xa_lock);
 	xa->xa_head.gfp_mask = GFP_NOWAIT;
 	xa->xa_flags = flags;
 }
