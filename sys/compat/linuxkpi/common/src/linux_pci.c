@@ -2444,7 +2444,7 @@ linux_backlight_device_register(const char *name, struct device *dev,
 	dev->bd->props.power = props->power;
 	dev->bd->data = data;
 	dev->bd->dev = dev;
-	dev->bd->name = strdup(name, M_DEVBUF);
+	dev->bd->name = kstrdup(name, GFP_KERNEL);
 
 	dev->backlight_dev = backlight_register(name, dev->bsddev);
 
@@ -2456,6 +2456,6 @@ linux_backlight_device_unregister(struct backlight_device *bd)
 {
 
 	backlight_destroy(bd->dev->backlight_dev);
-	free(bd->name, M_DEVBUF);
+	kfree(bd->name);
 	free(bd, M_DEVBUF);
 }
