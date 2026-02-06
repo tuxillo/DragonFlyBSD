@@ -71,7 +71,8 @@
 
 #include <linux/slab.h>
 #include <linux/scatterlist.h>
-#include <drm/intel-gtt.h>
+
+#include "agp_i810.h"
 
 struct agp_i810_match;
 
