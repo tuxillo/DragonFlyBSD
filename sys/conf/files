@@ -141,6 +141,8 @@ compat/linuxkpi/common/src/linuxkpi_hdmikmod.c		standard \
 	compile-with "${LINUXKPI_C}"
 compat/linuxkpi/common/src/linuxkpi_mem.c		standard \
 	compile-with "${LINUXKPI_C}"
+compat/linuxkpi/common/src/linux_debugfs.c		standard \
+	compile-with "${LINUXKPI_C}"
 
 dev/disk/dm/device-mapper.c		optional dm
 dev/disk/dm/dm_dev.c			optional dm
