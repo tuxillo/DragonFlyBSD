@@ -216,12 +216,9 @@ static pci_iov_init_t linux_pci_iov_init;
 static pci_iov_uninit_t linux_pci_iov_uninit;
 static pci_iov_add_vf_t linux_pci_iov_add_vf;
 #endif
-#ifndef __DragonFly__
-/* DragonFly doesn't have the backlight device interface */
 static int linux_backlight_get_status(device_t dev, struct backlight_props *props);
 static int linux_backlight_update_status(device_t dev, struct backlight_props *props);
 static int linux_backlight_get_info(device_t dev, struct backlight_info *info);
-#endif
 static void lkpi_pcim_iomap_table_release(struct device *, void *);
 
 static device_method_t pci_methods[] = {
@@ -241,13 +238,10 @@ static device_method_t pci_methods[] = {
 	/* Bus interface. */
 	DEVMETHOD(bus_add_child, bus_generic_add_child),
 
-#ifndef __DragonFly__
-	/* DragonFly doesn't have the backlight device interface */
 	/* backlight interface */
 	DEVMETHOD(backlight_update_status, linux_backlight_update_status),
 	DEVMETHOD(backlight_get_status, linux_backlight_get_status),
 	DEVMETHOD(backlight_get_info, linux_backlight_get_info),
-#endif
 	DEVMETHOD_END
 };
 
@@ -2393,8 +2387,7 @@ linux_dma_pool_free(struct dma_pool *pool, void *vaddr, dma_addr_t dma_addr)
 	uma_zfree_arg(pool->pool_zone, obj, pool);
 }
 
-#ifndef __DragonFly__
-/* DragonFly doesn't have the backlight device interface */
+/* Backlight device interface */
 static int
 linux_backlight_get_status(device_t dev, struct backlight_props *props)
 {
@@ -2466,4 +2459,3 @@ linux_backlight_device_unregister(struct backlight_device *bd)
 	free(bd->name, M_DEVBUF);
 	free(bd, M_DEVBUF);
 }
-#endif /* !__DragonFly__ */

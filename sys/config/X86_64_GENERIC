@@ -59,6 +59,7 @@ device		isa
 device		acpi
 device		pci
 device		agp		# AGP support (required for i915 DRM)
+device		backlight	# Backlight support (for DRM drivers)
 device		iicbus
 device		iicbb
 
