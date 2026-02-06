@@ -306,13 +306,13 @@ linux_ratelimited(linux_ratelimit_t *rl)
 /*
  * This returns a constant expression while determining if an argument is
  * a constant expression, most importantly without evaluating the argument.
- * Glory to Martin Uecker <Martin.Uecker@med.uni-goettingen.de>
  *
- * The previous __builtin_constant_p() version doesn't work correctly in
- * BUILD_BUG_ON_ZERO() contexts where the result must be a compile-time constant.
+ * Use __builtin_constant_p() which works correctly with GCC and avoids
+ * -Wpointer-arith warnings from the sizeof(void) trick used in other
+ * implementations.
  */
 #define	__is_constexpr(x) \
-	(sizeof(int) == sizeof(*(8 ? ((void *)((long)(x) * 0l)) : (int *)8)))
+	__builtin_constant_p(x)
 
 /*
  * The is_signed() macro below returns true if the passed data type is
