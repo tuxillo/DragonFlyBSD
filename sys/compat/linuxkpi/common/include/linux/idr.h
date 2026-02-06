@@ -117,7 +117,7 @@ void	ida_destroy(struct ida *ida);
 void	ida_init(struct ida *ida);
 
 #ifdef __DragonFly__
-#define	lkpi_ida_init	ida_init
+#define	ida_init	lkpi_ida_init
 #endif
 
 int	ida_simple_get(struct ida *ida, unsigned int start, unsigned int end,
