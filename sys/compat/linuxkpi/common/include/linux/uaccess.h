@@ -73,6 +73,29 @@ extern int linux_access_ok(const void *uaddr, size_t len);
  * temporary variable and closes the block. Failure to balance the
  * calls will result in a compile-time error.
  */
+#ifdef __DragonFly__
+/*
+ * DragonFly BSD implementation using td_pflags (added for LinuxKPI).
+ * TDP_NOFAULTING is defined as TDF_NOFAULT in sys/thread.h.
+ */
+static inline int
+vm_fault_disable_pagefaults(void)
+{
+	struct thread *td = curthread;
+	int save = td->td_pflags & TDP_NOFAULTING;
+	td->td_pflags |= TDP_NOFAULTING;
+	return (save);
+}
+
+static inline void
+vm_fault_enable_pagefaults(int save)
+{
+	struct thread *td = curthread;
+	if (save == 0)
+		td->td_pflags &= ~TDP_NOFAULTING;
+}
+#endif /* __DragonFly__ */
+
 #define	pagefault_disable(void) do {		\
 	int __saved_pflags =			\
 	    vm_fault_disable_pagefaults()
