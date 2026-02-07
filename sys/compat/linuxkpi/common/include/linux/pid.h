@@ -39,23 +39,12 @@ enum pid_type {
 };
 
 /*
- * Linux uses struct pid as a reference-counted PID container.
- * On DragonFly, for compatibility with drm-kmod which stores pid_t
- * directly in struct drm_file, we use identity macros like FreeBSD.
- * Some other linuxkpi code may still use struct pid for APIs like
- * get_task_pid().
- */
-struct pid {
-	pid_t	pid_id;
-};
-
-/*
- * For compatibility with code that stores pid_t directly (like drm_file),
- * these are identity macros matching FreeBSD's approach.
+ * Identity macros matching FreeBSD's approach.
+ * drm-kmod stores pid_t directly in struct drm_file and i915_gem_context,
+ * so these macros work directly with pid_t values.
  */
 #define	pid_nr(n) (n)
 #define	pid_vnr(n) (n)
-
 #define	from_kuid_munged(a, uid) (uid)
 
 #define	pid_task(pid, type) ({			\
@@ -72,11 +61,17 @@ struct pid {
 	__ts;					\
 })
 
+/*
+ * get_task_pid returns pid_t directly (the lwp's tid).
+ * This matches FreeBSD's approach for drm-kmod compatibility.
+ */
+#define	get_task_pid(task, type) ({		\
+	CTASSERT((type) == PIDTYPE_PID);	\
+	(task)->task_thread->td_tid;		\
+})
+
 struct task_struct;
 extern struct task_struct *linux_pid_task(pid_t);
 extern struct task_struct *linux_get_pid_task(pid_t);
-extern struct pid *linux_get_task_pid(struct task_struct *, enum pid_type);
-
-#define	get_task_pid(task, type)	linux_get_task_pid(task, type)
 
 #endif					/* _LINUXKPI_LINUX_PID_H_ */
