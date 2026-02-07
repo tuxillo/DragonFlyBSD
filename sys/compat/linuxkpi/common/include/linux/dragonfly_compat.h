@@ -262,9 +262,10 @@ strchrnul(const char *s, int c)
 
 /*
  * bitcountl - number of set bits in unsigned long.
+ * Use bitcount64 to avoid __popcountdi2 linker errors when -mno-popcnt is used.
  */
 #ifndef bitcountl
-#define bitcountl(x)	__builtin_popcountl((unsigned long)(x))
+#define bitcountl(x)	bitcount64((uint64_t)(x))
 #endif
 
 #ifndef PROC_LOCK

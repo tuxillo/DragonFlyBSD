@@ -109,15 +109,16 @@ typedef cpumask_t cpu_set_t;	/* Linux compatibility */
 /*
  * CPU_COUNT - count number of bits set in cpuset.
  * DragonFly cpumask_t has 4 x 64-bit words.
+ * Use bitcount64 to avoid __popcountdi2 linker errors when -mno-popcnt is used.
  */
 #ifndef CPU_COUNT
 static __inline int
 _lkpi_cpu_count(const cpuset_t *cpuset)
 {
-	return __builtin_popcountl(cpuset->ary[0]) +
-	       __builtin_popcountl(cpuset->ary[1]) +
-	       __builtin_popcountl(cpuset->ary[2]) +
-	       __builtin_popcountl(cpuset->ary[3]);
+	return bitcount64(cpuset->ary[0]) +
+	       bitcount64(cpuset->ary[1]) +
+	       bitcount64(cpuset->ary[2]) +
+	       bitcount64(cpuset->ary[3]);
 }
 #define CPU_COUNT(cpuset)	_lkpi_cpu_count(cpuset)
 #endif
