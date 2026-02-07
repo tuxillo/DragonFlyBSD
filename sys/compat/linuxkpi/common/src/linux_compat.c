@@ -191,6 +191,10 @@ MALLOC_DEFINE(M_KMALLOC, "lkpikmalloc", "Linux kmalloc compat");
 #ifdef __DragonFly__
 MALLOC_DEFINE(M_LKPI_FICT_PAGES, "lkpifake", "LinuxKPI fictitious pages");
 MALLOC_DEFINE(M_LKPI_SG_HANDLE, "lkpisg", "LinuxKPI sg handle");
+
+/* Static list of linux_cdev structures for linux_find_cdev() */
+static TAILQ_HEAD(, linux_cdev) linux_cdev_head = TAILQ_HEAD_INITIALIZER(linux_cdev_head);
+static struct lock linux_cdev_lock;
 #endif
 
 #include <linux/rbtree.h>
@@ -3436,6 +3440,32 @@ linux_find_cdev(const char *name, unsigned major, unsigned minor)
 #endif
 }
 
+#ifdef __DragonFly__
+/*
+ * Add a linux_cdev to the global tracking list.
+ * Called from cdev_add() and cdev_add_ext() in cdev.h.
+ */
+void
+linux_cdev_list_add(struct linux_cdev *cdev)
+{
+	lockmgr(&linux_cdev_lock, LK_EXCLUSIVE);
+	TAILQ_INSERT_TAIL(&linux_cdev_head, cdev, cdev_list);
+	lockmgr(&linux_cdev_lock, LK_RELEASE);
+}
+
+/*
+ * Remove a linux_cdev from the global tracking list.
+ * Called from cdev_del() in cdev.h.
+ */
+void
+linux_cdev_list_remove(struct linux_cdev *cdev)
+{
+	lockmgr(&linux_cdev_lock, LK_EXCLUSIVE);
+	TAILQ_REMOVE(&linux_cdev_head, cdev, cdev_list);
+	lockmgr(&linux_cdev_lock, LK_RELEASE);
+}
+#endif
+
 int
 __register_chrdev(unsigned int major, unsigned int baseminor,
     unsigned int count, const char *name,
@@ -3647,6 +3677,9 @@ linux_compat_init(void *arg)
 	}
 #endif
 	rw_init(&linux_vma_lock, "lkpi-vma-lock");
+#ifdef __DragonFly__
+	lockinit(&linux_cdev_lock, "lkpi-cdev-lock", 0, 0);
+#endif
 
 	rootoid = SYSCTL_ADD_ROOT_NODE(NULL,
 	    OID_AUTO, "sys", CTLFLAG_RD|CTLFLAG_MPSAFE, NULL, "sys");

@@ -48,9 +48,9 @@ struct module;
 #ifdef __DragonFly__
 #include <sys/device.h>
 extern struct dev_ops linuxdev_ops;
-TAILQ_HEAD(linux_cdev_list, linux_cdev);
-extern struct linux_cdev_list linux_cdev_head;
-extern struct lock linux_cdev_lock;
+/* Helper functions in linux_compat.c for cdev list management */
+void linux_cdev_list_add(struct linux_cdev *cdev);
+void linux_cdev_list_remove(struct linux_cdev *cdev);
 #else
 extern struct cdevsw linuxcdevsw;
 #endif
@@ -108,9 +108,7 @@ cdev_add(struct linux_cdev *cdev, dev_t dev, unsigned count)
 	if (cdev->kobj.parent != NULL)
 		kobject_get(cdev->kobj.parent);
 	/* Add to global list for linux_find_cdev */
-	lockmgr(&linux_cdev_lock, LK_EXCLUSIVE);
-	TAILQ_INSERT_TAIL(&linux_cdev_head, cdev, cdev_list);
-	lockmgr(&linux_cdev_lock, LK_RELEASE);
+	linux_cdev_list_add(cdev);
 	return (0);
 #else
 	struct make_dev_args args;
@@ -158,9 +156,7 @@ cdev_add_ext(struct linux_cdev *cdev, dev_t dev, uid_t uid, gid_t gid, int mode)
 	if (cdev->kobj.parent != NULL)
 		kobject_get(cdev->kobj.parent);
 	/* Add to global list for linux_find_cdev */
-	lockmgr(&linux_cdev_lock, LK_EXCLUSIVE);
-	TAILQ_INSERT_TAIL(&linux_cdev_head, cdev, cdev_list);
-	lockmgr(&linux_cdev_lock, LK_RELEASE);
+	linux_cdev_list_add(cdev);
 	return (0);
 #else
 	struct make_dev_args args;
@@ -191,9 +187,7 @@ cdev_del(struct linux_cdev *cdev)
 {
 #ifdef __DragonFly__
 	/* Remove from global list */
-	lockmgr(&linux_cdev_lock, LK_EXCLUSIVE);
-	TAILQ_REMOVE(&linux_cdev_head, cdev, cdev_list);
-	lockmgr(&linux_cdev_lock, LK_RELEASE);
+	linux_cdev_list_remove(cdev);
 #endif
 	kobject_put(&cdev->kobj);
 }
