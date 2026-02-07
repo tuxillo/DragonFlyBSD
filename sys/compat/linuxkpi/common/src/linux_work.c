@@ -370,13 +370,7 @@ linux_work_fn(void *context, int pending)
 			task->work = work;
 
 			/* call work function */
-			if (work->func == NULL) {
-				kprintf("linux_work: ERROR work->func is NULL! work=%p\n", work);
-				panic("linux_work: work->func is NULL");
-			}
-			kprintf("linux_work: calling work->func=%p work=%p\n", work->func, work);
 			work->func(work);
-			kprintf("linux_work: work->func returned\n");
 
 			/* set current work structure */
 			task->work = NULL;
