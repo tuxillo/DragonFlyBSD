@@ -85,13 +85,20 @@ ffsll(long long mask)
 #endif
 
 #ifdef __DragonFly__
-#define	hweight8(x)	(__builtin_constant_p(x) ? HWEIGHT8(x)  : bitcount16((uint16_t)(x)))
+/*
+ * DragonFly: Always use runtime bitcount functions to avoid
+ * __popcountdi2 linker errors when -mno-popcnt is used.
+ */
+#define	hweight8(x)	bitcount16((uint16_t)(x))
+#define	hweight16(x)	bitcount16(x)
+#define	hweight32(x)	bitcount32(x)
+#define	hweight64(x)	bitcount64(x)
 #else
 #define	hweight8(x)	(__builtin_constant_p(x) ? HWEIGHT8(x)  : bitcount((uint8_t)(x)))
-#endif
 #define	hweight16(x)	(__builtin_constant_p(x) ? HWEIGHT16(x) : bitcount16(x))
 #define	hweight32(x)	(__builtin_constant_p(x) ? HWEIGHT32(x) : bitcount32(x))
 #define	hweight64(x)	(__builtin_constant_p(x) ? HWEIGHT64(x) : bitcount64(x))
+#endif
 #define	hweight_long(x)	bitcountl(x)
 
 static inline int
