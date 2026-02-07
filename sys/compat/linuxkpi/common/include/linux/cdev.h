@@ -48,9 +48,6 @@ struct module;
 #ifdef __DragonFly__
 #include <sys/device.h>
 extern struct dev_ops linuxdev_ops;
-/* Helper functions in linux_compat.c for cdev list management */
-void linux_cdev_list_add(struct linux_cdev *cdev);
-void linux_cdev_list_remove(struct linux_cdev *cdev);
 #else
 extern struct cdevsw linuxcdevsw;
 #endif
@@ -71,6 +68,12 @@ struct linux_cdev {
 };
 
 struct linux_cdev *cdev_alloc(void);
+
+#ifdef __DragonFly__
+/* Helper functions in linux_compat.c for cdev list management */
+void linux_cdev_list_add(struct linux_cdev *cdev);
+void linux_cdev_list_remove(struct linux_cdev *cdev);
+#endif
 
 static inline void
 cdev_init(struct linux_cdev *cdev, const struct file_operations *ops)
