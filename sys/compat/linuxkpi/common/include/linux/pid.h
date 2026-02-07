@@ -39,6 +39,15 @@ enum pid_type {
 };
 
 /*
+ * Minimal struct pid for linuxkpi compatibility.
+ * drm-kmod on FreeBSD/DragonFly uses pid_t directly, but some
+ * linuxkpi code still references struct pid.
+ */
+struct pid {
+	pid_t	pid_id;
+};
+
+/*
  * Identity macros matching FreeBSD's approach.
  * drm-kmod stores pid_t directly in struct drm_file and i915_gem_context,
  * so these macros work directly with pid_t values.
