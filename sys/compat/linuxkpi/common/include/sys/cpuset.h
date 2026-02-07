@@ -54,6 +54,11 @@
 #include <sys/cpumask.h>
 
 /*
+ * sys/systm.h provides bitcount64() which we need for CPU_COUNT.
+ */
+#include <sys/systm.h>
+
+/*
  * cpuset_t - FreeBSD compatibility typedef.
  *
  * DragonFly's sys/sched.h also typedefs cpuset_t = cpumask_t, but that
