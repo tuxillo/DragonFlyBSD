@@ -590,8 +590,22 @@ pci_resource_type(struct pci_dev *pdev, int bar)
 	 * Read the BAR value directly via pci_read_config.
 	 */
 	uint32_t val;
+	device_t bsddev;
 
-	val = pci_read_config(pdev->dev.bsddev, PCIR_BAR(bar), 4);
+	printf("pci_resource_type: pdev=%p bar=%d\n", pdev, bar);
+	if (pdev == NULL) {
+		printf("pci_resource_type: pdev is NULL!\n");
+		return (-1);
+	}
+	bsddev = pdev->dev.bsddev;
+	printf("pci_resource_type: bsddev=%p\n", bsddev);
+	if (bsddev == NULL) {
+		printf("pci_resource_type: bsddev is NULL!\n");
+		return (-1);
+	}
+	printf("pci_resource_type: calling pci_read_config PCIR_BAR(%d)=0x%x\n", bar, PCIR_BAR(bar));
+	val = pci_read_config(bsddev, PCIR_BAR(bar), 4);
+	printf("pci_resource_type: val=0x%x\n", val);
 	if (val == 0)
 		return (-1);
 
@@ -621,7 +635,9 @@ pci_resource_flags(struct pci_dev *pdev, int bar)
 {
 	int type;
 
+	printf("pci_resource_flags: pdev=%p bar=%d\n", pdev, bar);
 	type = pci_resource_type(pdev, bar);
+	printf("pci_resource_flags: type=%d returning %d\n", type, (type < 0) ? 0 : (1 << type));
 	if (type < 0)
 		return (0);
 	return (1 << type);
