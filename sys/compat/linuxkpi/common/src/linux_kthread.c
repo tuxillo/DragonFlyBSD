@@ -169,7 +169,13 @@ lkpi_kthread_work_fn(void *context, int pending __unused)
 {
 	struct kthread_work *work = context;
 
+	if (work->func == NULL) {
+		kprintf("lkpi_kthread_work_fn: ERROR work->func is NULL! work=%p\n", work);
+		panic("lkpi_kthread_work_fn: work->func is NULL");
+	}
+	kprintf("lkpi_kthread_work_fn: calling work->func=%p work=%p\n", work->func, work);
 	work->func(work);
+	kprintf("lkpi_kthread_work_fn: work->func returned\n");
 }
 
 void
