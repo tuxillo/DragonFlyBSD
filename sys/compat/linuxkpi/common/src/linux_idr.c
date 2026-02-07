@@ -807,12 +807,14 @@ void
 lkpi_ida_init(struct ida *ida)
 {
 	idr_init(&ida->idr);
+	ida->free_bitmap = NULL;
 }
 #else
 void
 ida_init(struct ida *ida)
 {
 	idr_init(&ida->idr);
+	ida->free_bitmap = NULL;
 }
 #endif
 
@@ -820,6 +822,7 @@ void
 ida_destroy(struct ida *ida)
 {
 	idr_destroy(&ida->idr);
-	free(ida->free_bitmap, M_IDR);
+	if (ida->free_bitmap != NULL)
+		free(ida->free_bitmap, M_IDR);
 	ida->free_bitmap = NULL;
 }
