@@ -35,16 +35,8 @@
 #include <sys/kernel.h>
 #include <sys/power.h>
 
-#include <contrib/dev/acpica/include/acpi.h>
-#ifndef BOOLEAN
-#define LKPI_BOOLEAN_DEFINED
-#define BOOLEAN		unsigned char
-#endif
+#include <contrib/dev/acpica/source/include/acpi.h>
 #include <dev/acpica/acpivar.h>
-#ifdef LKPI_BOOLEAN_DEFINED
-#undef BOOLEAN
-#undef LKPI_BOOLEAN_DEFINED
-#endif
 
 #include <linux/notifier.h>
 #include <linux/suspend.h>

@@ -81,13 +81,11 @@ INCLUDES+= -I$S/dev/netif/ath/ath_hal -I$S/contrib/dev/ath/ath_hal
 INCLUDES+= -I$S/contrib/ck/include
 
 # LinuxKPI (Linux Kernel Programming Interface) includes
+# Only used for files compiled with ${LINUXKPI_C}, not globally
 LINUXKPI_INCLUDES= -I$S/compat/linuxkpi/common/include \
 		-I$S/compat/linuxkpi/dummy/include \
 		-include $S/compat/linuxkpi/common/include/linux/kconfig.h
 LINUXKPI_C= ${NORMAL_C} ${LINUXKPI_INCLUDES}
-
-# Add LinuxKPI includes globally so mkdep can find headers during dependency generation
-INCLUDES+= ${LINUXKPI_INCLUDES}
 
 COPTS=	${INCLUDES} ${IDENT} -D_KERNEL -DHAVE_KERNEL_OPTION_HEADERS -include opt_global.h
 CFLAGS=	${COPTFLAGS} ${KCFLAGS} ${CWARNFLAGS} -std=${CSTD} ${DEBUG} ${COPTS}
