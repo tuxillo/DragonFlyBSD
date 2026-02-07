@@ -152,9 +152,19 @@ linux_alloc_pages(gfp_t flags, unsigned int order)
 					pmap_zero_page(VM_PAGE_TO_PHYS(pgo));
 					pgo->valid = VM_PAGE_BITS_ALL;
 				}
+#ifdef __DragonFly__
+				/*
+				 * DragonFly's vm_page_alloc_contig() returns
+				 * pages that are NOT busy (no need to wakeup).
+				 * Just wire them if needed.
+				 */
+				if (pgo->wire_count == 0)
+					vm_page_wire(pgo);
+#else
 				if (pgo->wire_count == 0)
 					vm_page_wire(pgo);
 				vm_page_wakeup(pgo);
+#endif
 			}
 		}
 	} else {
