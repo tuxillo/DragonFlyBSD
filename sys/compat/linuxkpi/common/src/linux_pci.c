@@ -728,27 +728,16 @@ linux_pci_get_rle(struct pci_dev *pdev, int type, int rid, bool reserve_bar)
 	struct resource_list_entry *rle;
 	device_t bsddev;
 
-	printf("linux_pci_get_rle: pdev=%p type=%d rid=%d reserve_bar=%d\n",
-	    pdev, type, rid, reserve_bar);
-
 	bsddev = pdev->dev.bsddev;
-	printf("linux_pci_get_rle: bsddev=%p\n", bsddev);
-	if (bsddev == NULL) {
-		printf("linux_pci_get_rle: bsddev is NULL!\n");
+	if (bsddev == NULL)
 		return (NULL);
-	}
 
 	dinfo = device_get_ivars(bsddev);
-	printf("linux_pci_get_rle: dinfo=%p\n", dinfo);
-	if (dinfo == NULL) {
-		printf("linux_pci_get_rle: dinfo is NULL!\n");
+	if (dinfo == NULL)
 		return (NULL);
-	}
 
 	rl = &dinfo->resources;
-	printf("linux_pci_get_rle: rl=%p\n", rl);
 	rle = resource_list_find(rl, type, rid);
-	printf("linux_pci_get_rle: rle=%p\n", rle);
 	/* Reserve resources for this BAR if needed. */
 	if (rle == NULL && reserve_bar)
 		rle = linux_pci_reserve_bar(pdev, rl, type, rid);
@@ -1348,13 +1337,10 @@ lkpi_pci_get_bar(struct pci_dev *pdev, int bar, bool reserve)
 {
 	int type;
 
-	printf("lkpi_pci_get_bar: pdev=%p bar=%d reserve=%d\n", pdev, bar, reserve);
 	type = pci_resource_type(pdev, bar);
-	printf("lkpi_pci_get_bar: type=%d\n", type);
 	if (type < 0)
 		return (NULL);
 	bar = PCIR_BAR(bar);
-	printf("lkpi_pci_get_bar: PCIR_BAR=%d calling linux_pci_get_rle\n", bar);
 	return (linux_pci_get_rle(pdev, type, bar, reserve));
 }
 
@@ -1385,16 +1371,10 @@ pci_resource_start(struct pci_dev *pdev, int bar)
 	device_t dev;
 	int error;
 
-	printf("pci_resource_start: pdev=%p bar=%d\n", pdev, bar);
-	if ((rle = lkpi_pci_get_bar(pdev, bar, true)) == NULL) {
-		printf("pci_resource_start: lkpi_pci_get_bar returned NULL\n");
+	if ((rle = lkpi_pci_get_bar(pdev, bar, true)) == NULL)
 		return (0);
-	}
-	printf("pci_resource_start: rle=%p rle->start=0x%jx rle->type=%d\n",
-	    rle, (uintmax_t)rle->start, rle->type);
 	dev = pdev->pdrv != NULL && pdev->pdrv->isdrm ?
 	    device_get_parent(pdev->dev.bsddev) : pdev->dev.bsddev;
-	printf("pci_resource_start: dev=%p calling bus_translate_resource\n", dev);
 	error = bus_translate_resource(dev, rle->type, rle->start, &newstart);
 	if (error != 0) {
 		device_printf(pdev->dev.bsddev,
@@ -1402,7 +1382,6 @@ pci_resource_start(struct pci_dev *pdev, int bar)
 		    (uintmax_t)rle->start, error);
 		return (0);
 	}
-	printf("pci_resource_start: newstart=0x%jx\n", (uintmax_t)newstart);
 	return (newstart);
 }
 
@@ -1411,12 +1390,8 @@ pci_resource_len(struct pci_dev *pdev, int bar)
 {
 	struct resource_list_entry *rle;
 
-	printf("pci_resource_len: pdev=%p bar=%d\n", pdev, bar);
-	if ((rle = lkpi_pci_get_bar(pdev, bar, true)) == NULL) {
-		printf("pci_resource_len: lkpi_pci_get_bar returned NULL\n");
+	if ((rle = lkpi_pci_get_bar(pdev, bar, true)) == NULL)
 		return (0);
-	}
-	printf("pci_resource_len: rle->count=0x%jx\n", (uintmax_t)rle->count);
 	return (rle->count);
 }
 
