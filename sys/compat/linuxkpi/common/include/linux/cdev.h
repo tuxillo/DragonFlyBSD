@@ -36,6 +36,10 @@
 
 #include <asm/atomic-long.h>
 
+#ifdef __DragonFly__
+#include <sys/queue.h>
+#endif
+
 struct device;
 struct file_operations;
 struct inode;
@@ -44,6 +48,9 @@ struct module;
 #ifdef __DragonFly__
 #include <sys/device.h>
 extern struct dev_ops linuxdev_ops;
+TAILQ_HEAD(linux_cdev_list, linux_cdev);
+extern struct linux_cdev_list linux_cdev_head;
+extern struct lock linux_cdev_lock;
 #else
 extern struct cdevsw linuxcdevsw;
 #endif
@@ -58,6 +65,9 @@ struct linux_cdev {
 	const struct file_operations *ops;
 	u_int		refs;
 	u_int		siref;
+#ifdef __DragonFly__
+	TAILQ_ENTRY(linux_cdev) cdev_list;
+#endif
 };
 
 struct linux_cdev *cdev_alloc(void);
@@ -97,6 +107,10 @@ cdev_add(struct linux_cdev *cdev, dev_t dev, unsigned count)
 	cdev->cdev->si_drv1 = cdev;
 	if (cdev->kobj.parent != NULL)
 		kobject_get(cdev->kobj.parent);
+	/* Add to global list for linux_find_cdev */
+	lockmgr(&linux_cdev_lock, LK_EXCLUSIVE);
+	TAILQ_INSERT_TAIL(&linux_cdev_head, cdev, cdev_list);
+	lockmgr(&linux_cdev_lock, LK_RELEASE);
 	return (0);
 #else
 	struct make_dev_args args;
@@ -143,6 +157,10 @@ cdev_add_ext(struct linux_cdev *cdev, dev_t dev, uid_t uid, gid_t gid, int mode)
 	cdev->cdev->si_drv1 = cdev;
 	if (cdev->kobj.parent != NULL)
 		kobject_get(cdev->kobj.parent);
+	/* Add to global list for linux_find_cdev */
+	lockmgr(&linux_cdev_lock, LK_EXCLUSIVE);
+	TAILQ_INSERT_TAIL(&linux_cdev_head, cdev, cdev_list);
+	lockmgr(&linux_cdev_lock, LK_RELEASE);
 	return (0);
 #else
 	struct make_dev_args args;
@@ -171,6 +189,12 @@ cdev_add_ext(struct linux_cdev *cdev, dev_t dev, uid_t uid, gid_t gid, int mode)
 static inline void
 cdev_del(struct linux_cdev *cdev)
 {
+#ifdef __DragonFly__
+	/* Remove from global list */
+	lockmgr(&linux_cdev_lock, LK_EXCLUSIVE);
+	TAILQ_REMOVE(&linux_cdev_head, cdev, cdev_list);
+	lockmgr(&linux_cdev_lock, LK_RELEASE);
+#endif
 	kobject_put(&cdev->kobj);
 }
 

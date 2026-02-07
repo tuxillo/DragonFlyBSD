@@ -3405,13 +3405,18 @@ struct linux_cdev *
 linux_find_cdev(const char *name, unsigned major, unsigned minor)
 {
 #ifdef __DragonFly__
-	/*
-	 * DragonFly doesn't have the d_devs list in dev_ops.
-	 * XXX: This needs proper implementation - for now return NULL.
-	 */
-	(void)name;
-	(void)major;
-	(void)minor;
+	dev_t dev = MKDEV(major, minor);
+	struct linux_cdev *cdev;
+
+	lockmgr(&linux_cdev_lock, LK_SHARED);
+	TAILQ_FOREACH(cdev, &linux_cdev_head, cdev_list) {
+		if (cdev->dev == dev &&
+		    strcmp(kobject_name(&cdev->kobj), name) == 0) {
+			lockmgr(&linux_cdev_lock, LK_RELEASE);
+			return (cdev);
+		}
+	}
+	lockmgr(&linux_cdev_lock, LK_RELEASE);
 	return (NULL);
 #else
 	dev_t dev = MKDEV(major, minor);
