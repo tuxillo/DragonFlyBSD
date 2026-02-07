@@ -308,7 +308,12 @@ thread_reap_barrier(void)
 static __inline uintptr_t
 pci_get_rid(device_t dev)
 {
-	return ((uintptr_t)device_get_unit(dev));
+	/*
+	 * PCI RID (Resource ID) encodes bus/slot/function.
+	 * On x86, it's typically (bus << 8) | (slot << 3) | function.
+	 * For devfn purposes, we need (slot << 3) | function.
+	 */
+	return ((uintptr_t)((pci_get_slot(dev) << 3) | pci_get_function(dev)));
 }
 
 static __inline int
