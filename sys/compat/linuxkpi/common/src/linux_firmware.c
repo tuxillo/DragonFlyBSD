@@ -71,11 +71,17 @@ _linuxkpi_request_firmware(const char *fw_name, const struct linuxkpi_firmware *
 	char *p;
 	uint32_t flags;
 
+	kprintf("linuxkpi_request_firmware: enter fw_name=%s dev=%p\n",
+	    fw_name ? fw_name : "(null)", dev);
+
 	if (fw_name == NULL || fw == NULL || dev == NULL) {
+		kprintf("linuxkpi_request_firmware: NULL check failed\n");
 		if (fw != NULL)
 			*fw = NULL;
 		return (-EINVAL);
 	}
+
+	kprintf("linuxkpi_request_firmware: dev->bsddev=%p\n", dev->bsddev);
 
 	/* Set independent on "warn". To debug, bootverbose is avail. */
 	flags = FIRMWARE_GET_NOWARN;
@@ -134,20 +140,34 @@ _linuxkpi_request_firmware(const char *fw_name, const struct linuxkpi_firmware *
 		}
 	}
 	if (fbdfw == NULL) {
+		kprintf("linuxkpi_request_firmware: firmware not found\n");
 		if (enoentok)
 			*fw = lfw;
 		else {
 			free(lfw, M_LKPI_FW);
 			*fw = NULL;
 		}
-		if (warn)
-			device_printf(dev->bsddev, "could not load firmware "
-			    "image '%s'\n", fw_name);
+		if (warn) {
+			kprintf("linuxkpi_request_firmware: about to warn, bsddev=%p\n",
+			    dev->bsddev);
+			if (dev->bsddev != NULL)
+				device_printf(dev->bsddev, "could not load firmware "
+				    "image '%s'\n", fw_name);
+			else
+				kprintf("linuxkpi: could not load firmware "
+				    "image '%s'\n", fw_name);
+			kprintf("linuxkpi_request_firmware: warn done\n");
+		}
+		kprintf("linuxkpi_request_firmware: returning ENOENT\n");
 		return (-ENOENT);
 	}
 
-	device_printf(dev->bsddev,"successfully loaded firmware image '%s'\n",
-	    fw_name);
+	if (dev->bsddev != NULL)
+		device_printf(dev->bsddev, "successfully loaded firmware image '%s'\n",
+		    fw_name);
+	else
+		kprintf("linuxkpi: successfully loaded firmware image '%s'\n",
+		    fw_name);
 	lfw->fbdfw = fbdfw;
 	lfw->data = (const uint8_t *)fbdfw->data;
 	lfw->size = fbdfw->datasize;
