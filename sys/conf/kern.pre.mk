@@ -85,7 +85,6 @@ INCLUDES+= -I$S/contrib/ck/include
 LINUXKPI_INCLUDES= -I$S/compat/linuxkpi/common/include \
 		-I$S/compat/linuxkpi/dummy/include \
 		-include $S/compat/linuxkpi/common/include/linux/kconfig.h
-LINUXKPI_C= ${NORMAL_C} ${LINUXKPI_INCLUDES}
 
 COPTS=	${INCLUDES} ${IDENT} -D_KERNEL -DHAVE_KERNEL_OPTION_HEADERS -include opt_global.h
 CFLAGS=	${COPTFLAGS} ${KCFLAGS} ${CWARNFLAGS} -std=${CSTD} ${DEBUG} ${COPTS}
@@ -105,6 +104,9 @@ CFLAGS+= -MD
 NORMAL_C= ${CC} -c ${CFLAGS} ${.IMPSRC}
 NORMAL_C_C= ${CC} -c ${CFLAGS} ${.IMPSRC}
 NORMAL_S= ${CC} -c ${ASM_CFLAGS} ${.IMPSRC}
+
+# LinuxKPI compile command - must be after NORMAL_C is defined
+LINUXKPI_C= ${NORMAL_C} ${LINUXKPI_INCLUDES}
 
 NORMAL_M= awk -f $S/tools/makeobjops.awk -- -c $<; \
 	${CC} -c ${CFLAGS} ${.PREFIX}.c
