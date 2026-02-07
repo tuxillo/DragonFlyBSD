@@ -808,7 +808,9 @@ linux_pci_attach_device(device_t dev, struct pci_driver *pdrv,
 	}
 
 	if (pdrv != NULL) {
+		printf("linux_pci: calling probe for %s\n", pdrv->name);
 		error = pdrv->probe(pdev, id);
+		printf("linux_pci: probe returned %d\n", error);
 		if (error)
 			goto out_probe;
 	}
