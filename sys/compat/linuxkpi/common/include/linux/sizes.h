@@ -29,6 +29,18 @@
 #ifndef _LINUXKPI_LINUX_SIZES_H_
 #define	_LINUXKPI_LINUX_SIZES_H_
 
+/* Byte-size definitions (used by i915 GuC) */
+#define SZ_1	1
+#define SZ_2	2
+#define SZ_4	4
+#define SZ_8	8
+#define SZ_16	16
+#define SZ_32	32
+#define SZ_64	64
+#define SZ_128	128
+#define SZ_256	256
+#define SZ_512	512
+
 #define SZ_1K	(1024 * 1)
 #define SZ_2K	(1024 * 2)
 #define SZ_4K	(1024 * 4)
