@@ -55,7 +55,7 @@ options 	DDB
 options 	DDB_TRACE
 options 	INVARIANTS
 options		DIAGNOSTIC
-options		SLAB_DEBUG
+options 	SLAB_DEBUG
 options		DEBUG_LOCKS
 
 device		isa

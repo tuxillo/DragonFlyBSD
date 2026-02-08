@@ -172,11 +172,11 @@ pcpu_malloc(size_t size)
 
     stride = roundup2(size, CACHE_LINE_SIZE);
     total = stride * ncpus;
-#ifdef SLAB_DEBUG
-    return _kmalloc_debug(total, M_TEMP, M_WAITOK | M_ZERO, __FILE__, __LINE__);
-#else
-    return _kmalloc(total, M_TEMP, M_WAITOK | M_ZERO);
-#endif
+    /* Always use kmalloc() which is properly exported to modules.
+     * When SLAB_DEBUG is enabled, kmalloc() becomes _kmalloc_debug
+     * internally, but that's handled by the kernel headers.
+     */
+    return kmalloc(total, M_TEMP, M_WAITOK | M_ZERO);
 }
 
 static __inline void
