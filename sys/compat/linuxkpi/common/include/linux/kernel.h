@@ -214,42 +214,39 @@ extern int linuxkpi_debug;
 
 /*
  * Log a one-time message (analogous to WARN_ONCE() et al):
+ *
+ * Note: We use printf() instead of log() to avoid conflicts with local
+ * variables named "log" in driver code (e.g., struct intel_guc_log *log).
  */
-/*
- * Use _lkpi_log wrapper to avoid conflicts with local variables named "log"
- * in driver code (e.g., struct intel_guc_log *log).
- */
-#define	_lkpi_log(level, ...)	log(level, __VA_ARGS__)
-
 #define log_once(level,...) do {		\
 	static bool __log_once;			\
 						\
 	if (unlikely(!__log_once)) {		\
 		__log_once = true;		\
-		_lkpi_log(level, __VA_ARGS__);	\
+		printf(__VA_ARGS__);		\
 	}					\
 } while (0)
 
 #define pr_emerg(fmt, ...) \
-	_lkpi_log(LOG_EMERG, pr_fmt(fmt), ##__VA_ARGS__)
+	printf(pr_fmt(fmt), ##__VA_ARGS__)
 #define pr_alert(fmt, ...) \
-	_lkpi_log(LOG_ALERT, pr_fmt(fmt), ##__VA_ARGS__)
+	printf(pr_fmt(fmt), ##__VA_ARGS__)
 #define pr_crit(fmt, ...) \
-	_lkpi_log(LOG_CRIT, pr_fmt(fmt), ##__VA_ARGS__)
+	printf(pr_fmt(fmt), ##__VA_ARGS__)
 #define pr_err(fmt, ...) \
-	_lkpi_log(LOG_ERR, pr_fmt(fmt), ##__VA_ARGS__)
+	printf(pr_fmt(fmt), ##__VA_ARGS__)
 #define pr_err_once(fmt, ...) \
 	log_once(LOG_ERR, pr_fmt(fmt), ##__VA_ARGS__)
 #define pr_warning(fmt, ...) \
-	_lkpi_log(LOG_WARNING, pr_fmt(fmt), ##__VA_ARGS__)
+	printf(pr_fmt(fmt), ##__VA_ARGS__)
 #define pr_warn(...) \
 	pr_warning(__VA_ARGS__)
 #define pr_warn_once(fmt, ...) \
 	log_once(LOG_WARNING, pr_fmt(fmt), ##__VA_ARGS__)
 #define pr_notice(fmt, ...) \
-	_lkpi_log(LOG_NOTICE, pr_fmt(fmt), ##__VA_ARGS__)
+	printf(pr_fmt(fmt), ##__VA_ARGS__)
 #define pr_info(fmt, ...) \
-	_lkpi_log(LOG_INFO, pr_fmt(fmt), ##__VA_ARGS__)
+	printf(pr_fmt(fmt), ##__VA_ARGS__)
 #define pr_info_once(fmt, ...) \
 	log_once(LOG_INFO, pr_fmt(fmt), ##__VA_ARGS__)
 #define pr_cont(fmt, ...) \
