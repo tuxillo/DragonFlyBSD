@@ -27,6 +27,8 @@
 #ifndef _LINUXKPI_LINUX_STACKDEPOT_H_
 #define	_LINUXKPI_LINUX_STACKDEPOT_H_
 
+#include <linux/stacktrace.h>
+
 /*
  * depot_stack_handle_t must be an unsigned type that can hold -1 as a
  * sentinel value (cast to unsigned). Using unsigned int matches Linux.
