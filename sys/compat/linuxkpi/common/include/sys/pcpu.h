@@ -172,7 +172,11 @@ pcpu_malloc(size_t size)
 
     stride = roundup2(size, CACHE_LINE_SIZE);
     total = stride * ncpus;
+#ifdef SLAB_DEBUG
+    return _kmalloc_debug(total, M_TEMP, M_WAITOK | M_ZERO, __FILE__, __LINE__);
+#else
     return _kmalloc(total, M_TEMP, M_WAITOK | M_ZERO);
+#endif
 }
 
 static __inline void

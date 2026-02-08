@@ -188,9 +188,23 @@ lkpi_mtx_init(struct mtx *mtx, const char *name, const char *type __unused,
 
 /*
  * Kernel malloc helpers.
+ * Use native allocator directly, handling SLAB_DEBUG.
  */
+static __inline void *
+lkpi_native_malloc(size_t size, struct malloc_type *type, int flags,
+    const char *file, int line)
+{
+#ifdef SLAB_DEBUG
+	return _kmalloc_debug(size, type, flags, file, line);
+#else
+	(void)file; (void)line;
+	return _kmalloc(size, type, flags);
+#endif
+}
+
 #ifndef malloc
-#define malloc(size, type, flags)	_kmalloc((size), (type), (flags))
+#define malloc(size, type, flags)	\
+	lkpi_native_malloc((size), (type), (flags), __FILE__, __LINE__)
 #endif
 #ifndef free
 #define free(addr, type)		_kfree((addr), (type))
@@ -212,12 +226,12 @@ lkpi_realloc(void *ptr, size_t size, struct malloc_type *type, int flags)
 	size_t oldsize;
 
 	if (ptr == NULL)
-		return (_kmalloc(size, type, flags));
+		return (lkpi_native_malloc(size, type, flags, __FILE__, __LINE__));
 	if (size == 0) {
 		_kfree(ptr, type);
 		return (NULL);
 	}
-	newptr = _kmalloc(size, type, flags);
+	newptr = lkpi_native_malloc(size, type, flags, __FILE__, __LINE__);
 	if (newptr == NULL)
 		return (NULL);
 	oldsize = kmalloc_usable_size(ptr);
