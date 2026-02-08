@@ -47,11 +47,10 @@
 static __inline void *
 uma_native_alloc(size_t size, int flags)
 {
-#ifdef SLAB_DEBUG
-    return _kmalloc_debug(size, M_TEMP, flags, __FILE__, __LINE__);
-#else
-    return _kmalloc(size, M_TEMP, flags);
-#endif
+    /* Use kmalloc() macro which properly expands to _kmalloc_debug
+     * when SLAB_DEBUG is enabled, or _kmalloc otherwise.
+     */
+    return kmalloc(size, M_TEMP, flags);
 }
 
 static __inline void
