@@ -54,10 +54,13 @@
  */
 #ifdef __DragonFly__
 
-/* VM object locking - DragonFly uses vm_object_hold/drop */
+/* VM object locking - DragonFly uses vm_object_lock/unlock
+ * Note: vm_object_hold/drop are not exported to modules, so we use
+ * vm_object_lock/unlock which are standard kernel functions.
+ */
 #ifndef VM_OBJECT_WLOCK
-#define VM_OBJECT_WLOCK(obj)	vm_object_hold((obj))
-#define VM_OBJECT_WUNLOCK(obj)	vm_object_drop((obj))
+#define VM_OBJECT_WLOCK(obj)	vm_object_lock((obj))
+#define VM_OBJECT_WUNLOCK(obj)	vm_object_unlock((obj))
 #endif
 
 /* vm_page_reference - DragonFly uses vm_page_activate */
