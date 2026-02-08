@@ -59,11 +59,11 @@ struct domainset;
 static __inline void *
 domainset_native_alloc(size_t size, int flags)
 {
-    /* Always use kmalloc() which is properly exported to modules.
-     * When SLAB_DEBUG is enabled, kmalloc() becomes _kmalloc_debug
-     * internally, but that's handled by the kernel headers.
-     */
-    return kmalloc(size, M_TEMP, flags);
+#ifdef SLAB_DEBUG
+    return _kmalloc_debug(size, M_TEMP, flags, __FILE__, __LINE__);
+#else
+    return _kmalloc(size, M_TEMP, flags);
+#endif
 }
 
 static __inline void
