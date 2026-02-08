@@ -673,9 +673,22 @@ pci_dev_put(struct pci_dev *pdev)
 static inline int
 pci_enable_device(struct pci_dev *pdev)
 {
+	device_t dev;
 
-	pci_enable_io(pdev->dev.bsddev, SYS_RES_IOPORT);
-	pci_enable_io(pdev->dev.bsddev, SYS_RES_MEMORY);
+	if (pdev == NULL) {
+		printf("pci_enable_device: pdev is NULL!\n");
+		return (-EINVAL);
+	}
+	dev = pdev->dev.bsddev;
+	if (dev == NULL) {
+		printf("pci_enable_device: pdev->dev.bsddev is NULL!\n");
+		return (-EINVAL);
+	}
+	printf("pci_enable_device: enabling IO for dev=%p\n", dev);
+	pci_enable_io(dev, SYS_RES_IOPORT);
+	printf("pci_enable_device: IOPORT enabled\n");
+	pci_enable_io(dev, SYS_RES_MEMORY);
+	printf("pci_enable_device: MEMORY enabled\n");
 	return (0);
 }
 
