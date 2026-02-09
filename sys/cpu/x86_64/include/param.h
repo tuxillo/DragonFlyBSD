@@ -123,7 +123,7 @@
 #define MAXDUMPPGS	(MAXPHYS/PAGE_SIZE)
 
 #define IOPAGES		2		/* pages of i/o permission bitmap */
-#define UPAGES		8		/* pages of u-area - increased for LinuxKPI/DRM drivers */
+#define UPAGES		4		/* pages of u-area */
 
 /*
  * Ceiling on amount of swblock kva space, can be changed via
