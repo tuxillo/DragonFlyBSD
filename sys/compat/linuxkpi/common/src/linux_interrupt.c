@@ -121,12 +121,21 @@ lkpi_request_irq(struct device *xdev, unsigned int irq,
 	int error;
 	int rid;
 
+	kprintf("lkpi_request_irq: enter irq=%u flags=0x%lx handler=%p thread=%p xdev=%p name=%s\n",
+	    irq, flags, handler, thread_handler, xdev,
+	    name != NULL ? name : "(null)");
+	if (handler == NULL)
+		return (-EINVAL);
+
 	dev = lkpi_pci_find_irq_dev(irq);
+	kprintf("lkpi_request_irq: find_irq_dev irq=%u dev=%p\n", irq, dev);
 	if (dev == NULL)
 		return -ENXIO;
 	if (xdev != NULL && xdev != dev)
 		return -ENXIO;
 	rid = lkpi_irq_rid(dev, irq);
+	kprintf("lkpi_request_irq: rid=%d irq_start=%u irq_end=%u dev_irq=%u\n",
+	    rid, dev->irq_start, dev->irq_end, dev->irq);
 	resflags = RF_ACTIVE;
 	/*
 	 * MSI/MSI-X vectors are not shareable in DragonFly's resource model.
@@ -136,6 +145,8 @@ lkpi_request_irq(struct device *xdev, unsigned int irq,
 	if ((flags & IRQF_SHARED) != 0 && rid == 0)
 		resflags |= RF_SHAREABLE;
 	res = bus_alloc_resource_any(dev->bsddev, SYS_RES_IRQ, &rid, resflags);
+	kprintf("lkpi_request_irq: bus_alloc_resource_any rid=%d res=%p resflags=0x%x\n",
+	    rid, res, (unsigned)resflags);
 	if (res == NULL)
 		return (-ENXIO);
 	if (xdev != NULL)
@@ -144,6 +155,7 @@ lkpi_request_irq(struct device *xdev, unsigned int irq,
 	else
 		irqe = kzalloc(sizeof(*irqe), GFP_KERNEL);
 	if (irqe == NULL) {
+		kprintf("lkpi_request_irq: irqe alloc failed\n");
 		bus_release_resource(dev->bsddev, SYS_RES_IRQ, rid, res);
 		return (-ENOMEM);
 	}
@@ -156,6 +168,7 @@ lkpi_request_irq(struct device *xdev, unsigned int irq,
 
 	error = bus_setup_intr(dev->bsddev, res, INTR_TYPE_NET | INTR_MPSAFE,
 	    NULL, lkpi_irq_handler, irqe, &irqe->tag);
+	kprintf("lkpi_request_irq: bus_setup_intr error=%d tag=%p\n", error, irqe->tag);
 	if (error)
 		goto errout;
 	list_add(&irqe->links, &dev->irqents);
