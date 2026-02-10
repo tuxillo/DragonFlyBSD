@@ -30,6 +30,7 @@
 #define	_LINUXKPI_LINUX_KTHREAD_H_
 
 #include <linux/sched.h>
+#include <linux/err.h>
 #ifdef __DragonFly__
 #include <sys/kthread.h>
 #endif
@@ -133,6 +134,56 @@ task_fn_t lkpi_kthread_worker_init_fn;
 	taskqueue_drain(__w->tq, &__task);				\
 	__w;								\
 })
+
+/*
+ * DragonFly override with strict error handling.
+ * Prevent returning partially initialized workers that can later fault.
+ */
+#ifdef __DragonFly__
+#undef kthread_create_worker
+#define kthread_create_worker(flags, fmt, ...) ({			\
+	struct kthread_worker *__w;					\
+	struct task __task;						\
+	int __err;						\
+									\
+	__w = malloc(sizeof(*__w), M_KMALLOC, M_WAITOK | M_ZERO);	\
+	if (__predict_false(__w == NULL)) {				\
+		ERR_PTR(-ENOMEM);					\
+	} else {							\
+		__w->tq = taskqueue_create("lkpi kthread taskq", M_WAITOK,	\
+		    taskqueue_thread_enqueue, &__w->tq);			\
+		if (__predict_false(__w->tq == NULL)) {			\
+			free(__w, M_KMALLOC);					\
+			ERR_PTR(-ENOMEM);					\
+		} else {						\
+			__err = taskqueue_start_threads(&__w->tq, 1, PWAIT, -1,	\
+			    fmt, ##__VA_ARGS__);					\
+			if (__predict_false(__err != 0)) {			\
+				taskqueue_free(__w->tq);				\
+				free(__w, M_KMALLOC);					\
+				ERR_PTR(-__err);					\
+			} else {						\
+				TASK_INIT(&__task, 0, lkpi_kthread_worker_init_fn, __w);\
+				__err = taskqueue_enqueue(__w->tq, &__task);		\
+				if (__predict_false(__err != 0)) {			\
+					taskqueue_free(__w->tq);				\
+					free(__w, M_KMALLOC);				\
+					ERR_PTR(-__err);					\
+				} else {					\
+					taskqueue_drain(__w->tq, &__task);		\
+					if (__predict_false(__w->task == NULL)) {		\
+						taskqueue_free(__w->tq);			\
+						free(__w, M_KMALLOC);			\
+						ERR_PTR(-EFAULT);				\
+					} else {					\
+						__w;					\
+					}					\
+				}						\
+			}						\
+		}							\
+	}							\
+})
+#endif
 
 static inline void
 kthread_destroy_worker(struct kthread_worker *worker)
