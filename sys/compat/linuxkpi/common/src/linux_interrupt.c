@@ -128,7 +128,12 @@ lkpi_request_irq(struct device *xdev, unsigned int irq,
 		return -ENXIO;
 	rid = lkpi_irq_rid(dev, irq);
 	resflags = RF_ACTIVE;
-	if ((flags & IRQF_SHARED) != 0)
+	/*
+	 * MSI/MSI-X vectors are not shareable in DragonFly's resource model.
+	 * The Linux caller may still pass IRQF_SHARED, so only apply RF_SHAREABLE
+	 * for legacy INTx (rid == 0).
+	 */
+	if ((flags & IRQF_SHARED) != 0 && rid == 0)
 		resflags |= RF_SHAREABLE;
 	res = bus_alloc_resource_any(dev->bsddev, SYS_RES_IRQ, &rid, resflags);
 	if (res == NULL)
