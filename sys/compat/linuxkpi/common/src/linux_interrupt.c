@@ -138,6 +138,10 @@ lkpi_request_irq(struct device *xdev, unsigned int irq,
 		    GFP_KERNEL | __GFP_ZERO);
 	else
 		irqe = kzalloc(sizeof(*irqe), GFP_KERNEL);
+	if (irqe == NULL) {
+		bus_release_resource(dev->bsddev, SYS_RES_IRQ, rid, res);
+		return (-ENOMEM);
+	}
 	irqe->dev = dev;
 	irqe->res = res;
 	irqe->arg = arg;
