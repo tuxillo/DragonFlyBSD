@@ -155,7 +155,7 @@ lkpi_request_irq(struct device *xdev, unsigned int irq,
 	irqe->irq = irq;
 
 	error = bus_setup_intr(dev->bsddev, res, INTR_TYPE_NET | INTR_MPSAFE,
-	    NULL, lkpi_irq_handler, irqe, &irqe->tag);
+	    lkpi_irq_handler, irqe, &irqe->tag, NULL);
 	if (error)
 		goto errout;
 	list_add(&irqe->links, &dev->irqents);
@@ -185,8 +185,9 @@ lkpi_enable_irq(unsigned int irq)
 	irqe = lkpi_irq_ent(dev, irq);
 	if (irqe == NULL || irqe->tag != NULL)
 		return -EINVAL;
-	return -bus_setup_intr(dev->bsddev, irqe->res, INTR_TYPE_NET | INTR_MPSAFE,
-	    NULL, lkpi_irq_handler, irqe, &irqe->tag);
+	return -bus_setup_intr(dev->bsddev, irqe->res,
+	    INTR_TYPE_NET | INTR_MPSAFE, lkpi_irq_handler, irqe,
+	    &irqe->tag, NULL);
 }
 
 void
