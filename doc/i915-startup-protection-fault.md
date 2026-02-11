@@ -1,6 +1,6 @@
 # i915 Driver Memory Corruption Investigation Report
 
-**Date:** 2026-02-10  
+**Date:** 2026-02-11  
 **Issue:** Kernel memory corruption / protection faults during i915 probe on DragonFly BSD VM passthrough  
 **Hardware:** Intel Alder Lake-N (UHD Graphics), PCI passthrough to QEMU/KVM
 
@@ -10,10 +10,9 @@ This investigation moved from noisy/random crash points to bounded fault domains
 
 Current status:
 - FreeBSD succeeds with the same passthrough setup.
-- DragonFly fails with stochastic trap points when ungated.
-- Deterministic cutoffs prove early probe setup is stable up to late Step 7 boundaries.
-- Debug-session instrumentation/gates were rolled back and committed; tree is back to a clean baseline.
-- First unsafe domains observed are GT MMIO init and IRQ install; display PPS remains a secondary unstable path in gated runs.
+- DragonFly no longer shows the earlier softclock jump-to-garbage trap after targeted LinuxKPI fixes.
+- The active failure mode shifted from hard trap to intermittent i915 probe lockup/stall.
+- Current instability is concentrated in IRQ dispatch setup and eDP/PPS AUX bring-up behavior.
 
 The issue is DragonFly-specific behavior (ordering/semantics), not a fundamental passthrough impossibility.
 
@@ -70,14 +69,38 @@ including immediately after entering `request_irq` from i915 IRQ bring-up.
 
 This adds LinuxKPI IRQ/taskqueue semantics as a first-class suspect alongside GT MMIO.
 
+### 8) Softclock callback trap root cause was identified and fixed
+
+Vmcore analysis proved `softclock_handler` was executing a callout callback pointer that actually
+pointed to a `struct hrtimer` object, not executable text.
+
+Concrete bug:
+- `callout_reset_sbt()` arguments in `linux_hrtimer.c` were passed in the wrong order for DragonFly.
+
+Fix applied:
+- corrected `callout_reset_sbt(..., flags, func, arg)` ordering in both hrtimer scheduling paths.
+
+Result:
+- the previous privileged-instruction/page-fault trap class in softclock context is no longer the dominant failure mode.
+
+### 9) Additional concrete LinuxKPI bugs were fixed
+
+- MSI descriptor index direction bug in `linux_pci.c`:
+  - fixed `vec = irq - irq_start` (was reversed).
+- IRQ registration call signature mismatch in `linux_interrupt.c`:
+  - corrected DragonFly `bus_setup_intr()` argument ordering.
+- Threaded IRQ null-primary handling in `linux_interrupt.c`:
+  - `lkpi_irq_handler()` now handles `handler == NULL` safely when only `thread_handler` is provided.
+
 ## Most Likely Root Cause Class
 
-DragonFly-specific MMIO semantics/ordering mismatch in i915 bring-up, not a single deterministic function bug in all runs.
+DragonFly LinuxKPI semantic mismatches in interrupt/timer glue were major contributors,
+combined with fragile i915 display/eDP bring-up in this passthrough environment.
 
-Most implicated regions:
-1. GT MMIO initialization (`intel_gt_init_mmio()` path)
-2. IRQ install/handling path (`intel_irq_install()`/`request_irq` via LinuxKPI)
-3. Display PPS verification/readback path (`intel_pps` during Step 11)
+Most implicated regions (current):
+1. LinuxKPI IRQ registration/dispatch path (`lkpi_request_irq`/`bus_setup_intr` integration)
+2. LinuxKPI timer/hrtimer callout bridging (now fixed for the softclock callback corruption case)
+3. Display eDP/PPS AUX bring-up path (`intel_pps`/`intel_dp`)
 
 ## What Is De-Prioritized
 
@@ -96,47 +119,42 @@ This converted random failures into a bounded search window.
 
 ## Current Debug State in Tree
 
-The temporary debug-session instrumentation/gates have been rolled back and committed.
+The temporary debug-session instrumentation/gates were rolled back.
+Current branch now carries targeted stabilization fixes (not broad probe gates).
 
 Current state:
-- no active S7/S8/S9/S10/S11 probe gate patches in tree
-- no active GTMMIO/PPS/vblank diagnostic cutoffs in tree
-- baseline behavior is back to ungated stochastic failure reproduction
+- no active broad S7/S8/S9/S10/S11 probe cutoffs
+- LinuxKPI stabilization fixes are present in IRQ/timer glue
+- i915 display noise was reduced (`drm_WARN_ON_ONCE` for recurring PPS wakeref warning)
+- temporary DragonFly-specific eDP bring-up disable was added to reduce lockup surface while stabilizing passthrough
 
 ## Revised Next Steps (Focused)
 
-### 1. Reconfirm one ungated baseline failure
+### 1. Stabilize current no-trap branch
 
-Run one baseline boot from current clean tree to record the present first failure boundary.
-
-### 2. Re-introduce one minimal tracer at a time
-
-Add only one localized tracer patch per run (no broad gates):
-- coarse probe step boundary first
-- if it reaches late probe, instrument only IRQ install boundary around `intel_irq_reset`/`request_irq`
-- if it fails earlier, instrument only that first failing function
-
-### 3. Produce one minimal GTMMIO stabilization patch
-
-Goal: safe DragonFly behavior through `intel_gt_init_mmio()` without blanket skipping.
+Goal: convert intermittent lockup into deterministic pass/fail without reintroducing broad debug gates.
 
 Acceptance:
-- Step 7/8 complete without panic.
+- no softclock privileged-instruction trap
+- no immediate hard panic during `kldload i915kms`
 
-### 4. Produce one minimal IRQ/PPS stabilization patch
+### 2. Confirm IRQ path behavior after signature/null-primary fixes
 
-Goal: avoid late bring-up trap in IRQ install path and/or PPS verify path without blanket skipping.
+Validate that:
+- `NULL HANDLER vgapci1` no longer appears
+- threaded IRQ paths with NULL primary handlers execute safely
 
-Acceptance:
-- probe advances past IRQ install and Step 11 without trap.
+### 3. Keep eDP/PPS path constrained while passthrough is stabilized
 
-### 5. Validate against FreeBSD semantics only for implicated functions
+Current temporary policy:
+- disable eDP bring-up on DragonFly in this passthrough investigation branch.
 
-Compare DragonFly vs FreeBSD behavior for:
-- GT MMIO read/init helpers
-- IRQ registration/dispatch helpers and LinuxKPI wrappers
-- PPS read/verify helpers
-- LinuxKPI MMIO/PCI wrappers touched by those paths
+Follow-up:
+- once IRQ stability is confirmed, revisit eDP/PPS with minimal, targeted enablement.
+
+### 4. Add firmware modules after core stability
+
+Use DragonFly-compatible firmware modules (`.ko` registration path), not Linux-style raw blob assumptions, then reevaluate runtime PM and display behavior.
 
 ## Files Modified During Investigation (Historical)
 
@@ -144,6 +162,7 @@ Compare DragonFly vs FreeBSD behavior for:
 - `drivers/gpu/drm/drm_drv.c`
 - `drivers/gpu/drm/i915/i915_driver.c`
 - `drivers/gpu/drm/i915/display/intel_display_driver.c`
+- `drivers/gpu/drm/i915/display/intel_dp.c`
 - `drivers/gpu/drm/i915/gt/intel_gt.c`
 - `drivers/gpu/drm/i915/gt/uc/intel_guc.c`
 - `drivers/gpu/drm/drm_vblank.c`
@@ -151,13 +170,15 @@ Compare DragonFly vs FreeBSD behavior for:
 - `drivers/gpu/drm/i915/gt/intel_ggtt.c`
 
 **dragonfly:**
+- `sys/compat/linuxkpi/common/src/linux_pci.c`
+- `sys/compat/linuxkpi/common/src/linux_hrtimer.c`
+- `sys/compat/linuxkpi/common/src/linux_work.c`
+- `sys/compat/linuxkpi/common/src/linux_interrupt.c`
 - `doc/i915-startup-protection-fault.md`
 
 ## Key Insight
 
 This is no longer an unbounded "random crash" investigation.  
-It is bounded to two DragonFly-specific bring-up domains:
-- GT MMIO init domain
-- PPS/display domain
+Multiple concrete LinuxKPI integration bugs have now been identified and fixed.
 
-The remaining work is to convert debug skips into minimal, semantics-correct fixes.
+The remaining work is to finish lockup stabilization in IRQ/eDP paths and then layer firmware modules.
