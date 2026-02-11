@@ -30,8 +30,8 @@
 #include <linux/device.h>
 #include <linux/compat.h>
 #include <linux/interrupt.h>
+#include <linux/irq_work.h>
 #include <linux/pci.h>
-#include <linux/workqueue.h>
 
 #include <sys/param.h>
 #include <sys/bus.h>
