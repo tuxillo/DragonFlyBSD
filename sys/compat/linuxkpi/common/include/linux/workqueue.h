@@ -171,7 +171,7 @@ do {									\
 	linux_create_workqueue_common(name, 1)
 
 #define	alloc_workqueue(name, flags, max_active) \
-	linux_create_workqueue_common(name, max_active)
+	linux_alloc_workqueue(name, flags, max_active)
 
 #define	flush_workqueue(wq) \
 	linux_flush_workqueue(wq)
@@ -247,6 +247,7 @@ extern void linux_init_delayed_work(struct delayed_work *, work_func_t);
 extern void linux_work_fn(void *, int);
 extern void linux_delayed_work_fn(void *, int);
 extern struct workqueue_struct *linux_create_workqueue_common(const char *, int);
+extern struct workqueue_struct *linux_alloc_workqueue(const char *, unsigned int, int);
 extern void linux_destroy_workqueue(struct workqueue_struct *);
 extern void linux_flush_workqueue(struct workqueue_struct *);
 extern bool linux_queue_work_on(int cpu, struct workqueue_struct *, struct work_struct *);

@@ -788,6 +788,22 @@ linux_create_workqueue_common(const char *name, int cpus)
 	return (wq);
 }
 
+struct workqueue_struct *
+linux_alloc_workqueue(const char *name, unsigned int flags, int max_active)
+{
+	int cpus;
+
+	if ((flags & WQ_UNBOUND) != 0) {
+		/* Best-effort approximation of unbound worker pools. */
+		cpus = (max_active == 1) ? 1 : ncpus;
+	} else {
+		/* Bound queues are modeled as per-CPU queues. */
+		cpus = ncpus;
+	}
+
+	return (linux_create_workqueue_common(name, cpus));
+}
+
 /*
  * Flush all work items on all per-CPU taskqueues.
  * This iterates over all queues and drains each one.

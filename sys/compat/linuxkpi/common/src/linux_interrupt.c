@@ -28,8 +28,10 @@
  */
 
 #include <linux/device.h>
+#include <linux/compat.h>
 #include <linux/interrupt.h>
 #include <linux/pci.h>
+#include <linux/workqueue.h>
 
 #include <sys/param.h>
 #include <sys/bus.h>
@@ -43,9 +45,46 @@ struct irq_ent {
 	void		*arg;
 	irqreturn_t	(*handler)(int, void *);
 	irqreturn_t	(*thread_handler)(int, void *);
+	struct task	thread_task;
+	atomic_t	thread_scheduled;
+	atomic_t	thread_rerun;
 	void		*tag;
 	unsigned int	irq;
 };
+
+static void
+lkpi_irq_thread_task_fn(void *context, int pending __unused)
+{
+	struct irq_ent *irqe;
+
+	irqe = context;
+
+	if (linux_set_current_flags(curthread, M_NOWAIT)) {
+		atomic_set(&irqe->thread_scheduled, 0);
+		return;
+	}
+
+	do {
+		atomic_set(&irqe->thread_rerun, 0);
+
+		THREAD_SLEEPING_OK();
+		irqe->thread_handler(irqe->irq, irqe->arg);
+		THREAD_NO_SLEEPING();
+	} while (atomic_read(&irqe->thread_rerun) != 0);
+
+	/*
+	 * Clear scheduled state after draining queued wakeups. If a wakeup raced
+	 * with this clear, schedule one more pass.
+	 */
+	atomic_set(&irqe->thread_scheduled, 0);
+	if (atomic_cmpxchg(&irqe->thread_rerun, 1, 0) == 1 &&
+	    atomic_cmpxchg(&irqe->thread_scheduled, 0, 1) == 0) {
+		if (linux_irq_work_tq != NULL)
+			taskqueue_enqueue(linux_irq_work_tq, &irqe->thread_task);
+		else
+			atomic_set(&irqe->thread_scheduled, 0);
+	}
+}
 
 static inline int
 lkpi_irq_rid(struct device *dev, unsigned int irq)
@@ -88,9 +127,15 @@ lkpi_irq_handler(void *ent)
 	}
 
 	if (ret == IRQ_WAKE_THREAD && irqe->thread_handler != NULL) {
-		THREAD_SLEEPING_OK();
-		irqe->thread_handler(irqe->irq, irqe->arg);
-		THREAD_NO_SLEEPING();
+		if (atomic_cmpxchg(&irqe->thread_scheduled, 0, 1) == 0) {
+			if (linux_irq_work_tq != NULL)
+				taskqueue_enqueue(linux_irq_work_tq,
+				    &irqe->thread_task);
+			else
+				atomic_set(&irqe->thread_scheduled, 0);
+		} else {
+			atomic_set(&irqe->thread_rerun, 1);
+		}
 	}
 }
 
@@ -99,6 +144,8 @@ lkpi_irq_release(struct device *dev, struct irq_ent *irqe)
 {
 	if (irqe->tag != NULL)
 		bus_teardown_intr(dev->bsddev, irqe->res, irqe->tag);
+	if (irqe->thread_handler != NULL && linux_irq_work_tq != NULL)
+		taskqueue_drain(linux_irq_work_tq, &irqe->thread_task);
 	if (irqe->res != NULL)
 		bus_release_resource(dev->bsddev, SYS_RES_IRQ,
 		    rman_get_rid(irqe->res), irqe->res);
@@ -161,6 +208,9 @@ lkpi_request_irq(struct device *xdev, unsigned int irq,
 	irqe->handler = handler;
 	irqe->thread_handler = thread_handler;
 	irqe->irq = irq;
+	atomic_set(&irqe->thread_scheduled, 0);
+	atomic_set(&irqe->thread_rerun, 0);
+	TASK_INIT(&irqe->thread_task, 0, lkpi_irq_thread_task_fn, irqe);
 
 	error = bus_setup_intr(dev->bsddev, res, INTR_TYPE_NET | INTR_MPSAFE,
 	    lkpi_irq_handler, irqe, &irqe->tag, NULL);
