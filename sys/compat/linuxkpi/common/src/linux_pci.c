@@ -1718,7 +1718,7 @@ lkpi_pci_msi_desc_alloc(int irq)
 	if (irq < pdev->dev.irq_start || irq >= pdev->dev.irq_end)
 		return (NULL);
 
-	vec = pdev->dev.irq_start - irq;
+	vec = irq - pdev->dev.irq_start;
 
 	if (pdev->msi_desc[vec] != NULL)
 		return (pdev->msi_desc[vec]);

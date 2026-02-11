@@ -12,7 +12,8 @@ Current status:
 - FreeBSD succeeds with the same passthrough setup.
 - DragonFly fails with stochastic trap points when ungated.
 - Deterministic cutoffs prove early probe setup is stable up to late Step 7 boundaries.
-- First unsafe domains are GT MMIO init and later display PPS handling.
+- Debug-session instrumentation/gates were rolled back and committed; tree is back to a clean baseline.
+- First unsafe domains observed are GT MMIO init and IRQ install; display PPS remains a secondary unstable path in gated runs.
 
 The issue is DragonFly-specific behavior (ordering/semantics), not a fundamental passthrough impossibility.
 
@@ -56,11 +57,18 @@ Temporary subpath guards (`skip_clock`, `skip_uc`, `skip_sseu`, etc.) materially
 
 ### 6) Step 11 PPS path is a secondary unstable domain
 
-When probe is forced past earlier GT paths, Step 11 often reaches:
+When probe is forced past earlier GT paths, Step 11 can reach:
 - `drm` error: `PPS state mismatch`
 - then page fault (often near null write)
 
-This indicates additional instability in display/PPS readback/verify during bring-up.
+This indicates additional instability in display/PPS readback/verify during bring-up, but not always the earliest failing domain.
+
+### 7) IRQ install path is also implicated
+
+In later runs that reached deeper probe steps, crashes were observed around IRQ install,
+including immediately after entering `request_irq` from i915 IRQ bring-up.
+
+This adds LinuxKPI IRQ/taskqueue semantics as a first-class suspect alongside GT MMIO.
 
 ## Most Likely Root Cause Class
 
@@ -68,7 +76,8 @@ DragonFly-specific MMIO semantics/ordering mismatch in i915 bring-up, not a sing
 
 Most implicated regions:
 1. GT MMIO initialization (`intel_gt_init_mmio()` path)
-2. Display PPS verification/readback path (`intel_pps` during Step 11)
+2. IRQ install/handling path (`intel_irq_install()`/`request_irq` via LinuxKPI)
+3. Display PPS verification/readback path (`intel_pps` during Step 11)
 
 ## What Is De-Prioritized
 
@@ -87,49 +96,49 @@ This converted random failures into a bounded search window.
 
 ## Current Debug State in Tree
 
-The drm-kmod debug branch currently includes temporary instrumentation/gates in:
-- `drivers/gpu/drm/i915/i915_driver.c` (S7/S8/S10)
-- `drivers/gpu/drm/i915/display/intel_display_driver.c` (S9/S11)
-- `drivers/gpu/drm/i915/gt/intel_gt.c` (GTMMIO)
-- `drivers/gpu/drm/i915/gt/uc/intel_guc.c`
-- `drivers/gpu/drm/drm_vblank.c`
-- `drivers/gpu/drm/i915/display/intel_pps.c`
-- `drivers/gpu/drm/i915/gt/intel_ggtt.c`
+The temporary debug-session instrumentation/gates have been rolled back and committed.
 
-These are diagnostic controls, not final fixes.
+Current state:
+- no active S7/S8/S9/S10/S11 probe gate patches in tree
+- no active GTMMIO/PPS/vblank diagnostic cutoffs in tree
+- baseline behavior is back to ungated stochastic failure reproduction
 
 ## Revised Next Steps (Focused)
 
-### 1. Keep only two choke-point tracers
+### 1. Reconfirm one ungated baseline failure
 
-Retain only:
-- Step 7/GTMMIO boundary tracer
-- Step 11/PPS boundary tracer
+Run one baseline boot from current clean tree to record the present first failure boundary.
 
-Remove ancillary debug noise to improve signal quality.
+### 2. Re-introduce one minimal tracer at a time
 
-### 2. Produce one minimal GTMMIO stabilization patch
+Add only one localized tracer patch per run (no broad gates):
+- coarse probe step boundary first
+- if it reaches late probe, instrument only IRQ install boundary around `intel_irq_reset`/`request_irq`
+- if it fails earlier, instrument only that first failing function
+
+### 3. Produce one minimal GTMMIO stabilization patch
 
 Goal: safe DragonFly behavior through `intel_gt_init_mmio()` without blanket skipping.
 
 Acceptance:
 - Step 7/8 complete without panic.
 
-### 3. Produce one minimal PPS stabilization patch
+### 4. Produce one minimal IRQ/PPS stabilization patch
 
-Goal: avoid Step 11 PPS mismatch-induced trap during early display bring-up.
+Goal: avoid late bring-up trap in IRQ install path and/or PPS verify path without blanket skipping.
 
 Acceptance:
-- Step 11 passes without `PPS state mismatch` + page fault.
+- probe advances past IRQ install and Step 11 without trap.
 
-### 4. Validate against FreeBSD semantics only for implicated functions
+### 5. Validate against FreeBSD semantics only for implicated functions
 
 Compare DragonFly vs FreeBSD behavior for:
 - GT MMIO read/init helpers
+- IRQ registration/dispatch helpers and LinuxKPI wrappers
 - PPS read/verify helpers
 - LinuxKPI MMIO/PCI wrappers touched by those paths
 
-## Files Modified During Investigation
+## Files Modified During Investigation (Historical)
 
 **drm-kmod (6.6-lts-dfly debug branch):**
 - `drivers/gpu/drm/drm_drv.c`
