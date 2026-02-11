@@ -73,13 +73,21 @@ static void
 lkpi_irq_handler(void *ent)
 {
 	struct irq_ent *irqe;
+	irqreturn_t ret;
 
 	if (linux_set_current_flags(curthread, M_NOWAIT))
 		return;
 
 	irqe = ent;
-	if (irqe->handler(irqe->irq, irqe->arg) == IRQ_WAKE_THREAD &&
-	    irqe->thread_handler != NULL) {
+	if (irqe->handler == NULL) {
+		if (irqe->thread_handler == NULL)
+			return;
+		ret = IRQ_WAKE_THREAD;
+	} else {
+		ret = irqe->handler(irqe->irq, irqe->arg);
+	}
+
+	if (ret == IRQ_WAKE_THREAD && irqe->thread_handler != NULL) {
 		THREAD_SLEEPING_OK();
 		irqe->thread_handler(irqe->irq, irqe->arg);
 		THREAD_NO_SLEEPING();
