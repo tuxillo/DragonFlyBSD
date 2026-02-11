@@ -44,6 +44,7 @@ hrtimer_call_handler(void *arg)
 	enum hrtimer_restart ret;
 
 	hrtimer = arg;
+	mtx_lock(&hrtimer->mtx);
 	ret = hrtimer->function(hrtimer);
 
 	if (ret == HRTIMER_RESTART) {
@@ -52,6 +53,7 @@ hrtimer_call_handler(void *arg)
 	} else {
 		callout_deactivate(&hrtimer->callout);
 	}
+	mtx_unlock(&hrtimer->mtx);
 }
 
 bool

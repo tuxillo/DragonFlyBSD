@@ -426,6 +426,7 @@ linux_delayed_work_timer_fn(void *arg)
 	};
 	struct delayed_work *dwork = arg;
 
+	mtx_lock(&dwork->timer.mtx);
 	switch (linux_update_state(&dwork->work.state, states)) {
 	case WORK_ST_TIMER:
 	case WORK_ST_CANCEL:
@@ -434,6 +435,7 @@ linux_delayed_work_timer_fn(void *arg)
 	default:
 		break;
 	}
+	mtx_unlock(&dwork->timer.mtx);
 }
 
 /*
