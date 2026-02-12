@@ -101,11 +101,32 @@ linux_ww_mutex_lock_sub(struct ww_mutex *lock,
 	struct task_struct *task;
 	struct ww_mutex_thread entry;
 	struct ww_mutex_thread *other;
+	struct thread *owner;
 	int retval = 0;
 
 	task = current;
 
 	linux_ww_lock();
+
+#ifdef __DragonFly__
+	owner = sx_xholder(&lock->base.sx);
+#else
+	owner = (struct thread *)SX_OWNER(lock->base.sx.sx_lock);
+#endif
+
+	/*
+	 * Linux ww_mutex allows recursive acquisition with the same acquire ctx
+	 * to return -EALREADY. A re-acquire by the same thread with a different
+	 * context should report deadlock (-EDEADLK), not sleep forever.
+	 */
+	if (unlikely(owner == curthread)) {
+		if (ctx != NULL && lock->ctx == ctx)
+			retval = -EALREADY;
+		else
+			retval = -EDEADLK;
+		goto done_locked;
+	}
+
 	if (unlikely(sx_try_xlock(&lock->base.sx) == 0)) {
 		entry.thread = curthread;
 		entry.lock = lock;
@@ -113,10 +134,9 @@ linux_ww_mutex_lock_sub(struct ww_mutex *lock,
 
 		do {
 #ifdef __DragonFly__
-			struct thread *owner = sx_xholder(&lock->base.sx);
+			owner = sx_xholder(&lock->base.sx);
 #else
-			struct thread *owner = (struct thread *)
-			    SX_OWNER(lock->base.sx.sx_lock);
+			owner = (struct thread *)SX_OWNER(lock->base.sx.sx_lock);
 #endif
 
 			/* scan for deadlock */
@@ -167,6 +187,8 @@ done:
 
 	if (retval == 0)
 		lock->ctx = ctx;
+
+done_locked:
 	linux_ww_unlock();
 	return (retval);
 }
