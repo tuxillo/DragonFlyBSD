@@ -333,6 +333,15 @@ vga_pci_probe(device_t dev)
 		return (ENXIO);
 	}
 
+	/*
+	 * VirtIO GPUs (virtio-vga, virtio-gpu-pci) are display class but
+	 * belong to virtio_pci, which needs the whole device.  Leave them
+	 * alone even when virtio_pci probes after us (e.g. as a module).
+	 */
+	if (pci_get_vendor(dev) == 0x1af4 &&
+	    pci_get_device(dev) >= 0x1000 && pci_get_device(dev) <= 0x107f)
+		return (ENXIO);
+
 	/* Probe default display. */
 	vga_pci_is_boot_display(dev);
 
