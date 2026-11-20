@@ -84,4 +84,51 @@
 /* The alignment to use between consumer and producer parts of vring. */
 #define VIRTIO_PCI_VRING_ALIGN	4096
 
+/*
+ * Modern (VirtIO 1.0) devices.  Their device ID is 0x1040 plus the VirtIO
+ * device type, and they have no legacy I/O header: the registers are in
+ * BAR regions that vendor-specific PCI capabilities point to.
+ */
+#define VIRTIO_PCI_DEVICEID_MODERN_MIN	0x1040
+#define VIRTIO_PCI_DEVICEID_MODERN_MAX	0x107F
+
+/* cfg_type of the vendor-specific capabilities. */
+#define VIRTIO_PCI_CAP_COMMON_CFG	1	/* common configuration */
+#define VIRTIO_PCI_CAP_NOTIFY_CFG	2	/* notifications */
+#define VIRTIO_PCI_CAP_ISR_CFG		3	/* ISR status */
+#define VIRTIO_PCI_CAP_DEVICE_CFG	4	/* device-specific config */
+#define VIRTIO_PCI_CAP_PCI_CFG		5	/* PCI config access */
+
+/* Offsets in the capability (struct virtio_pci_cap in the spec). */
+#define VIRTIO_PCI_CAP_VNDR		0
+#define VIRTIO_PCI_CAP_NEXT		1
+#define VIRTIO_PCI_CAP_LEN		2
+#define VIRTIO_PCI_CAP_CFG_TYPE		3
+#define VIRTIO_PCI_CAP_BAR		4
+#define VIRTIO_PCI_CAP_OFFSET		8
+#define VIRTIO_PCI_CAP_LENGTH		12
+#define VIRTIO_PCI_NOTIFY_CAP_MULT	16	/* notify_off_multiplier */
+
+/* Offsets in the common configuration (struct virtio_pci_common_cfg). */
+#define VIRTIO_PCI_COMMON_DFSELECT	0	/* device_feature_select (32) */
+#define VIRTIO_PCI_COMMON_DF		4	/* device_feature (32, RO) */
+#define VIRTIO_PCI_COMMON_GFSELECT	8	/* guest_feature_select (32) */
+#define VIRTIO_PCI_COMMON_GF		12	/* guest_feature (32) */
+#define VIRTIO_PCI_COMMON_MSIX		16	/* msix_config (16) */
+#define VIRTIO_PCI_COMMON_NUMQ		18	/* num_queues (16, RO) */
+#define VIRTIO_PCI_COMMON_STATUS	20	/* device_status (8) */
+#define VIRTIO_PCI_COMMON_CFGGENERATION	21	/* config_generation (8, RO) */
+#define VIRTIO_PCI_COMMON_Q_SELECT	22	/* queue_select (16) */
+#define VIRTIO_PCI_COMMON_Q_SIZE	24	/* queue_size (16) */
+#define VIRTIO_PCI_COMMON_Q_MSIX	26	/* queue_msix_vector (16) */
+#define VIRTIO_PCI_COMMON_Q_ENABLE	28	/* queue_enable (16) */
+#define VIRTIO_PCI_COMMON_Q_NOFF	30	/* queue_notify_off (16, RO) */
+#define VIRTIO_PCI_COMMON_Q_DESCLO	32	/* queue_desc (64) */
+#define VIRTIO_PCI_COMMON_Q_DESCHI	36
+#define VIRTIO_PCI_COMMON_Q_AVAILLO	40	/* queue_driver (64) */
+#define VIRTIO_PCI_COMMON_Q_AVAILHI	44
+#define VIRTIO_PCI_COMMON_Q_USEDLO	48	/* queue_device (64) */
+#define VIRTIO_PCI_COMMON_Q_USEDHI	52
+#define VIRTIO_PCI_COMMON_CFG_SIZE	56
+
 #endif /* _VIRTIO_PCI_H */
