@@ -45,12 +45,14 @@ struct vq_alloc_info;
 #define VIRTIO_ID_IOMEMORY	0x06
 #define VIRTIO_ID_SCSI		0x08
 #define VIRTIO_ID_9P		0x09
+#define VIRTIO_ID_GPU		0x10
 
 /* Status byte for guest to report progress. */
 #define VIRTIO_CONFIG_STATUS_RESET		0x00
 #define VIRTIO_CONFIG_STATUS_ACK		0x01
 #define VIRTIO_CONFIG_STATUS_DRIVER		0x02
 #define VIRTIO_CONFIG_STATUS_DRIVER_OK		0x04
+#define VIRTIO_CONFIG_STATUS_FEATURES_OK	0x08
 #define VIRTIO_CONFIG_STATUS_DEVICE_NEEDS_RESET	0x40
 #define VIRTIO_CONFIG_STATUS_FAILED		0x80
 
@@ -68,6 +70,13 @@ struct vq_alloc_info;
  * is used to detect faulty drivers.
  */
 #define VIRTIO_F_BAD_FEATURE (1 << 30)
+
+/*
+ * The device complies with VirtIO 1.0 (a "modern" device).  Only the
+ * modern PCI transport can offer it: the legacy feature registers are
+ * 32 bits wide.
+ */
+#define VIRTIO_F_VERSION_1 (1ULL << 32)
 
 /*
  * Some VirtIO feature bits (currently bits 28 through 31) are

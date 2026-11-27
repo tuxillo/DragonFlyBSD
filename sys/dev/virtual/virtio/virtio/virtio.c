@@ -58,6 +58,7 @@ static struct virtio_ident {
 	{ VIRTIO_ID_IOMEMORY,	"IOMemory"	},
 	{ VIRTIO_ID_SCSI,	"SCSI"		},
 	{ VIRTIO_ID_9P,		"9P Transport"	},
+	{ VIRTIO_ID_GPU,	"GPU"		},
 
 	{ 0, NULL }
 };
@@ -69,6 +70,7 @@ static struct virtio_feature_desc virtio_common_feature_desc[] = {
 	{ VIRTIO_RING_F_INDIRECT_DESC,	"RingIndirect"	},
 	{ VIRTIO_RING_F_EVENT_IDX,	"EventIdx"	},
 	{ VIRTIO_F_BAD_FEATURE,		"BadFeature"	},
+	{ VIRTIO_F_VERSION_1,		"Version1"	},
 
 	{ 0, NULL }
 };

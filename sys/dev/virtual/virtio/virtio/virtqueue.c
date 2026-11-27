@@ -136,6 +136,7 @@ virtqueue_filter_features(uint64_t features)
 	mask = (1 << VIRTIO_TRANSPORT_F_START) - 1;
 	mask |= VIRTIO_RING_F_INDIRECT_DESC;
 	mask |= VIRTIO_RING_F_EVENT_IDX;
+	mask |= VIRTIO_F_VERSION_1;
 
 	return (features & mask);
 }
@@ -359,6 +360,28 @@ vm_paddr_t
 virtqueue_paddr(struct virtqueue *vq)
 {
 	return (vtophys(vq->vq_ring_mem));
+}
+
+/*
+ * The modern transport is given the three parts of the ring separately.
+ * They still sit in the one contiguous block vq_ring_init() lays out.
+ */
+vm_paddr_t
+virtqueue_desc_paddr(struct virtqueue *vq)
+{
+	return (vtophys(vq->vq_ring.desc));
+}
+
+vm_paddr_t
+virtqueue_avail_paddr(struct virtqueue *vq)
+{
+	return (vtophys(vq->vq_ring.avail));
+}
+
+vm_paddr_t
+virtqueue_used_paddr(struct virtqueue *vq)
+{
+	return (vtophys(vq->vq_ring.used));
 }
 
 int
